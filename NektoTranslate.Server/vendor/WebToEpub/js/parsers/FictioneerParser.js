@@ -1,0 +1,203 @@
+"use strict";
+
+// This is for the Fictioneer WordPress theme: https://github.com/Tetrakern/fictioneer
+
+//dead urls
+parserFactory.register("blossomtranslation.com", () => new FictioneerParser());
+parserFactory.register("igniforge.com", () => new FictioneerParser());
+parserFactory.register("lilyonthevalley.com", () => new FictioneerParser());
+parserFactory.register("razentl.com", () => new FictioneerParser());
+//these still exist
+parserFactory.register("cherrymist.cafe", () => new FictioneerParser());
+parserFactory.register("emberlib731.xyz", () => new FictioneerParser());
+parserFactory.register("flyonthewalls.blog", () => new FictioneerParser());
+parserFactory.register("novelib.com", () => new FictioneerParser());
+parserFactory.register("smeraldogarden.com", () => new FictioneerParser());
+parserFactory.register("springofromance.com", () => new FictioneerParser());
+
+parserFactory.registerRule(
+    (url, dom) => FictioneerParser.isFictioneerTheme(dom) * 0.7,
+    () => new FictioneerParser()
+);
+
+class FictioneerParser extends Parser {
+    constructor() {
+        super();
+    }
+
+    static isFictioneerTheme(dom) {
+        // the html tag has the class "fictioneer-theme"
+        return (dom.querySelector("html.fictioneer-theme") !== null);
+    }
+
+    async getChapterUrls(dom) {
+        let chapters = [];
+        // Put free chapters first
+        [...dom.querySelectorAll(".chapter-group__list ._publish a")].map(a => chapters.push(({
+            sourceUrl: a.href,
+            title: a.textContent,
+            isIncludeable: true
+        })));
+        // Put scheduled chapters after free and don't select them
+        [...dom.querySelectorAll("._future a")].map(a => chapters.push(({
+            sourceUrl: a.href,
+            title: a.textContent,
+            isIncludeable: false
+        })));
+
+        if (chapters.length === 0) {
+            chapters = [...dom.querySelectorAll(".chapter-group__list-item a")]
+                .map(a => util.hyperLinkToChapter(a));
+        }
+
+        return chapters;
+    }
+
+    // the element holding chapter content
+    findContent(dom) {
+        const content =
+            dom.querySelector(".chapter-formatting") ||
+            dom.querySelector("#chapter-content");
+
+        const footnotes = dom.querySelector(".chapter__footnotes");
+        if (footnotes) { content.appendChild(footnotes); }
+
+        return content;
+    }
+
+    // title of the story (not title of each chapter)
+    extractTitleImpl(dom) {
+        return dom.querySelector(".story__identity-title");
+    }
+
+    extractAuthor(dom) {
+        let author =
+            dom.querySelector("a.author").textContent ||
+            dom.querySelector(".story__identity-meta").textContent;
+        // remove "by " from the beginning if it exists
+        author = author.replace(/^by /, "");
+        return author;
+    }
+
+    // story description
+    extractDescription(dom) {
+        let summary = dom.querySelector(".story__summary");
+        if (summary === null) return "";
+        summary = summary.cloneNode(true);
+        util.removeElements(summary.querySelectorAll(".related-stories-block, .code-block, .jp-relatedposts"));
+        return summary.textContent.trim();
+    }
+
+    findChapterTitle(dom) {
+        // some sites use subtitles and chapter groups and info is lost without them
+        let title = dom.querySelector(".chapter__title")?.textContent;
+        let subtitle =
+            dom.querySelector(".chapter__second-title")?.textContent ||
+            dom.querySelector(".chapter__group")?.textContent;
+        if (subtitle) { title += ": " + subtitle; }
+        return title;
+    }
+
+    findCoverImageUrl(dom) {
+        let img =
+            dom.querySelector(".wp-post-image") ||
+            dom.querySelector("figure.story__thumbnail img");
+
+        if (!img?.src) return null;
+
+        // Strip off the arguments for smaller sizes
+        let url = img.src;
+        const pos = url.indexOf("?");
+        return pos !== -1 ? url.substring(0, pos) : url;
+    }
+
+    preprocessRawDom(chapterDom) {
+        this.processGhostContent(chapterDom);
+
+        const payloadHost = chapterDom.querySelector(".tiv-anti-scrape")?.parentNode;
+        if (!payloadHost) return;
+
+        const payloadEl = payloadHost.querySelector("script");
+        if (!payloadEl) return;
+
+        const data = JSON.parse(payloadEl.textContent || payloadEl.innerText || "{}");
+        payloadHost.replaceChildren();
+        const payloadNode = chapterDom.createElement("p");
+        payloadNode.className = "obfuscatedPayload";
+        payloadNode.textContent = data.data;
+        payloadHost.appendChild(payloadNode);
+    }
+
+    processGhostContent(chapterDom) {
+        const ghostScript = chapterDom.querySelector("script[data-poly]");
+        if (!ghostScript) return;
+
+        const poly = ghostScript.getAttribute("data-poly");
+        const total = parseInt(ghostScript.getAttribute("data-total") || "0", 10);
+        if (!poly || total <= 0) return;
+
+        const encoded = Array.from({ length: total }, (_, i) =>
+            ghostScript.getAttribute(`data-${poly}-${i}`) || ""
+        ).join("");
+        if (!encoded) return;
+
+        // save obfuscated payload
+        // encoding is rot13->base64->encodeURIComponent
+        const container = FictioneerParser.embedEncryptedGhost({
+            chapterDom, encoded, poly, total,
+        });
+
+        const host = chapterDom.querySelector("#cherry-content-host");
+        if (host) {
+            host.replaceWith(container);
+        } else if (ghostScript.parentNode) {
+            ghostScript.parentNode.appendChild(container);
+        }
+        ghostScript.remove();
+    }
+
+    // embed it into a div
+    static embedEncryptedGhost({ chapterDom, encoded, poly, total }) {
+        const container = chapterDom.createElement("div");
+        container.className = "fictioneer-ghost-encrypted";
+        container.setAttribute("data-fc-encrypted", encoded);
+        container.setAttribute("data-fc-poly", poly);
+        container.setAttribute("data-fc-total", String(total));
+        if (chapterDom.baseURI) {
+            container.setAttribute("data-fc-source", chapterDom.baseURI);
+        }
+        container.textContent = "[Encrypted chapter content]";
+        return container;
+    }
+
+    customRawDomToContentStep(chapter, content) {
+        content.querySelectorAll("*").forEach(element => {
+            if (element.tagName === "P") {
+                element.removeAttribute("id");
+                element.removeAttribute("data-paragraph-id");
+            }
+            // remove style attribute if style="font-weight: 400;" - it"s just noise
+            if (element.hasAttribute("style") && element.getAttribute("style") === "font-weight: 400;") {
+                element.removeAttribute("style");
+            }
+        });
+    }
+
+    removeUnwantedElementsFromContentElement(element) {
+        util.removeElements(element.querySelectorAll("iframe, .eoc-chapter-groups, .chapter-nav, .related-stories-block"));
+        super.removeUnwantedElementsFromContentElement(element);
+    }
+
+    getInformationEpubItemChildNodes(dom) {
+        return [...dom.querySelectorAll(".story__header, .story__summary")].map(node => {
+            const clone = node.cloneNode(true);
+            util.removeElements(clone.querySelectorAll(".related-stories-block, .code-block"));
+            return clone;
+        });
+    }
+
+    extractSubject(dom) {
+        let tags = ([...dom.querySelectorAll(".story__taxonomies .tag-pill")]);
+        return tags.map(t => t.textContent?.trim()).join(", ");
+    }
+}

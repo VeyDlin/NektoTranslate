@@ -1,0 +1,21 @@
+// Layout constants shared by more than one component. Colour and type live as CSS custom
+// properties in main.scss instead, because both have to change with the theme at runtime.
+
+$chrome-height: 3rem;
+$run-strip-height: 2.75rem;
+
+// Measured in characters per line at the reference site's 14px, not in pixels.
+//
+// "Wide" is its column exactly — 768px, which works out at roughly ninety-five characters. That is
+// well past the sixty-to-seventy where a line stops being easy to track back from, and the site
+// gets away with it because it sets one column rather than two. The default here is narrower so the
+// bilingual layout stays readable; the reference width is still one click away.
+$reading-measure-narrow: 26rem;
+$reading-measure-comfortable: 34rem;
+$reading-measure-wide: 48rem;
+
+$chapter-row-height: 2.5rem;
+
+$breakpoint-md: 48rem;
+$breakpoint-lg: 64rem;
+$breakpoint-xl: 80rem;

@@ -1,0 +1,34 @@
+<Project>
+  <PropertyGroup>
+    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Mediator (source-gen CQRS) -->
+    <PackageVersion Include="Mediator.Abstractions" Version="3.0.2" />
+    <PackageVersion Include="Mediator.SourceGenerator" Version="3.0.2" />
+    <!-- Persistence -->
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.11" />
+    <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.11" />
+    <!-- Site parsing: WebToEpub parser scripts are executed inside a real browser page -->
+    <PackageVersion Include="Microsoft.Playwright" Version="1.62.0" />
+    <!-- HTML pipeline: sanitizing incoming markup before it is converted to Markdown -->
+    <PackageVersion Include="AngleSharp" Version="1.7.2" />
+    <!-- Chapters are stored as Markdown; parsers and pasted content arrive as HTML -->
+    <PackageVersion Include="ReverseMarkdown" Version="6.2.1" />
+    <!--
+      Local and third-party models. IChatClient is the abstraction; the OpenAI adapter speaks to any
+      endpoint implementing that protocol - Ollama, LM Studio, llama.cpp, vLLM - so one
+      implementation covers all of them rather than binding to a single program.
+    -->
+    <PackageVersion Include="Microsoft.Extensions.AI" Version="10.9.0" />
+    <PackageVersion Include="Microsoft.Extensions.AI.OpenAI" Version="10.9.0" />
+    <PackageVersion Include="OpenAI" Version="2.13.0" />
+    <!-- Translation engine: vendored under vendor/ClaudeCodeSdk, see its README -->
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.11" />
+    <!-- Testing -->
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+</Project>

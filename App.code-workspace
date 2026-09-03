@@ -1,0 +1,119 @@
+{
+    "folders": [
+        { "name": "Client", "path": "NektoTranslate.Client" },
+        { "name": "Server", "path": "NektoTranslate.Server" },
+        { "name": "Repo Root", "path": "." }
+    ],
+    "settings": {
+        "files.exclude": {
+            ".vscode": true,
+            "**/.git": true,
+            "**/.husky": true,
+            "**/node_modules": true,
+            "**/dist": true,
+            "**/bin": true,
+            "**/obj": true,
+            "**/.vite": true,
+            "**/.cache": true,
+            "**/coverage": true,
+            "**/package-lock.json": true,
+            ".temp": true
+        },
+        "search.exclude": {
+            "**/.husky": true,
+            "**/node_modules": true,
+            "**/dist": true,
+            "**/bin": true,
+            "**/obj": true,
+            "**/coverage": true,
+            "**/package-lock.json": true,
+            "**/*.min.*": true,
+            ".temp": true
+        },
+
+        "explorer.fileNesting.enabled": true,
+        "explorer.fileNesting.expand": false,
+        "explorer.fileNesting.patterns": {
+            "index.html": "package.json, package-lock.json, vite.config.*, vitest.config.*, tsconfig.json, tsconfig.*.json, .npmrc, .nvmrc, eslint.config.*, .prettierrc*, .prettierignore, .editorconfig, .gitignore, .gitattributes, .env, .env.*, env.d.ts, vite-env.d.ts, auto-imports.d.ts, components.d.ts, *.code-workspace, .husky, Dockerfile*, .dockerignore, README.md, LICENSE*, CHANGELOG*",
+            "package.json": "package-lock.json, yarn.lock, pnpm-lock.yaml",
+            "App.vue": "main.ts, main.js"
+        },
+
+        "editor.detectIndentation": false,
+        "editor.insertSpaces": true,
+        "editor.tabSize": 4,
+        "editor.formatOnSave": true,
+        "editor.rulers": [120],
+        "editor.bracketPairColorization.enabled": true,
+        "editor.guides.bracketPairs": "active",
+        "editor.stickyScroll.enabled": true,
+        "editor.linkedEditing": true,
+
+        "files.eol": "\n",
+        "files.trimTrailingWhitespace": true,
+        "files.insertFinalNewline": true,
+        "files.trimFinalNewlines": true,
+        "files.associations": {
+            ".env*": "dotenv",
+            "*.code-workspace": "jsonc"
+        },
+
+        "typescript.preferences.importModuleSpecifier": "non-relative",
+        "typescript.updateImportsOnFileMove.enabled": "always",
+        "typescript.suggest.autoImports": true,
+
+        "vue.complete.casing.tags": "pascal",
+        "vue.complete.casing.props": "camel",
+
+        "explorer.confirmDragAndDrop": false,
+        "explorer.compactFolders": false,
+        "terminal.integrated.scrollback": 10000,
+        "workbench.editor.enablePreview": false,
+
+        "errorLens.enabledDiagnosticLevels": ["error", "warning"],
+
+        "omnisharp.useModernNet": true,
+        "csharp.format.enable": true
+    },
+
+    "extensions": {
+        "recommendations": [
+            "Vue.volar",
+            "dbaeumer.vscode-eslint",
+            "esbenp.prettier-vscode",
+            "EditorConfig.EditorConfig",
+            "usernamehw.errorlens",
+            "yoavbls.pretty-ts-errors",
+            "eamodio.gitlens",
+            "ms-dotnettools.csdevkit",
+            "ms-dotnettools.csharp"
+        ],
+        "unwantedRecommendations": [
+            "octref.vetur",
+            "hookyqr.beautify"
+        ]
+    },
+
+    "tasks": {
+        "version": "2.0.0",
+        "tasks": [
+            {
+                "label": "Server: Run",
+                "type": "shell",
+                "command": "dotnet run --project NektoTranslate.Api/NektoTranslate.Api.csproj",
+                "options": { "cwd": "${workspaceFolder:Server}" },
+                "isBackground": true,
+                "presentation": { "panel": "dedicated" },
+                "problemMatcher": []
+            },
+            {
+                "label": "Server: Test",
+                "type": "shell",
+                "command": "dotnet test NektoTranslate.Server.slnx",
+                "options": { "cwd": "${workspaceFolder:Server}" },
+                "presentation": { "panel": "dedicated" },
+                "problemMatcher": []
+            }
+        ]
+    }
+}

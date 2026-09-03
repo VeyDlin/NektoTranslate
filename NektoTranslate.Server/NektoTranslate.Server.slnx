@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="NektoTranslate.Api/NektoTranslate.Api.csproj" />
+  <Project Path="NektoTranslate.Core/NektoTranslate.Core.csproj" />
+  <Project Path="NektoTranslate.Tests/NektoTranslate.Tests.csproj" />
+  <Project Path="vendor/ClaudeCodeSdk/ClaudeCodeSdk.csproj" />
+</Solution>

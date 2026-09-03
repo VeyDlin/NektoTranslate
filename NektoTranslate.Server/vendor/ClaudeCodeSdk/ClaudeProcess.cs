@@ -1,0 +1,403 @@
+using ClaudeCodeSdk.Utils;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
+
+namespace ClaudeCodeSdk;
+
+/// <summary>
+/// Core process manager for Claude CLI communication.
+/// Handles subprocess lifecycle, message streaming, and JSON-RPC protocol.
+/// </summary>
+internal sealed class ClaudeProcess : IAsyncDisposable
+{
+    private readonly ClaudeCodeOptions _options;
+    private readonly ILogger? _logger;
+    private readonly string _cliPath;
+    private readonly SemaphoreSlim _stdinLock = new(1, 1);
+    private readonly ControlProtocolHandler _controlProtocol;
+
+    private Process? _process;
+    private StreamWriter? _stdin;
+    private StreamReader? _stdout;
+    private StreamReader? _stderr;
+    private bool _disposed;
+
+    public ClaudeProcess(ClaudeCodeOptions options, string? cliPath = null, ILogger? logger = null)
+    {
+        _options = options;
+        _logger = logger;
+        _cliPath = cliPath ?? FindClaudeCli();
+        _controlProtocol = new ControlProtocolHandler(options.CanUseTool, WriteLineAsync, logger);
+    }
+
+    /// <summary>
+    /// Start Claude CLI process and send initial prompt.
+    /// </summary>
+    public async Task StartAsync(
+        object? prompt = null,
+        CancellationToken cancellationToken = default
+    )
+    {
+        if (_process != null)
+            throw new CLIConnectionException("Already connected");
+
+        var args = CommandUtil.BuildCommand(_options, true, "");
+        _logger?.LogDebug("Starting Claude CLI: {CliPath} {Args}", _cliPath, string.Join(" ", args));
+
+        _process = new Process { StartInfo = BuildStartInfo(_cliPath, args) };
+
+        try
+        {
+            if (!_process.Start())
+                throw new ProcessException("Failed to start Claude CLI process");
+
+            _stdin = _process.StandardInput;
+            _stdout = _process.StandardOutput;
+            _stderr = _process.StandardError;
+
+            if (prompt != null)
+                await SendInitialPromptAsync(prompt, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Error starting process");
+            await CleanupProcessAsync();
+            throw;
+        }
+        if (_process.HasExited)
+        {
+            await TryReadStderr(cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Send messages to Claude.
+    /// </summary>
+    public async Task SendAsync(
+        IEnumerable<Dictionary<string, object>> messages,
+        CancellationToken cancellationToken = default
+    )
+    {
+        foreach (var message in messages)
+        {
+            var json = JsonUtil.Serialize(message);
+            _logger?.LogDebug("stdin WriteLine:{line}", json);
+            await WriteLineAsync(json, cancellationToken);
+        }
+    }
+
+    /// <summary>
+    /// Receive messages from Claude as JSON dictionaries.
+    /// Automatically terminates when receiving "result" type message.
+    /// </summary>
+    public async IAsyncEnumerable<IMessage> ReceiveAsync(
+        [EnumeratorCancellation] CancellationToken cancellationToken = default
+    )
+    {
+        if (_stdout == null)
+            throw new CLIConnectionException("Not connected");
+
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var line = await _stdout.ReadLineAsync(cancellationToken);
+            _logger?.LogDebug("stdout ReadLine from process stdout:{line}", line);
+
+            if (line == null)
+                break;
+
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            if (_controlProtocol.TryHandle(line, cancellationToken))
+                continue;
+
+            var msg = MessageParser.ParseMessage(line, _logger);
+            if (msg == null)
+                continue;
+
+            yield return msg;
+
+            if (msg.Type == MessageType.Result)
+                break;
+        }
+
+        await TryReadStderr(cancellationToken);
+    }
+
+    private async Task TryReadStderr(CancellationToken cancellationToken = default)
+    {
+        if (_stderr != null)
+        {
+            // ReadToEndAsync waits for EOF. For long-lived processes we should only drain stderr
+            // when the process has exited, otherwise this can block normal multi-turn flows.
+            if (_process?.HasExited != true)
+            {
+                _logger?.LogDebug("Skipping stderr drain because process is still running.");
+                return;
+            }
+
+            var error = await _stderr.ReadToEndAsync(cancellationToken);
+            if (string.IsNullOrWhiteSpace(error))
+            {
+                _logger?.LogDebug("No error output from process stderr.");
+            }
+            else
+            {
+                _logger?.LogError("Error output from process stderr: {error}", error);
+                var exitCode = _process?.ExitCode ?? -1;
+                await CleanupProcessAsync();
+                if (error.Contains($"Error: Session ID") && error.Contains($"is already in use."))
+                {
+                    throw new SessionIdDuplicateException(_options.SessionId?.ToString());
+                }
+                throw new ProcessException("Error from Claude CLI process", exitCode, error);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Kill the CLI process immediately.
+    /// </summary>
+    public async Task InterruptAsync()
+    {
+        if (_process == null || _process.HasExited)
+            throw new CLIConnectionException("Process not running");
+
+        try
+        {
+            await TerminateProcessAsync(_process);
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogError(ex, "Failed to interrupt process");
+            throw new ProcessException("Failed to interrupt process", null, ex.Message);
+        }
+    }
+
+    private async Task SendInitialPromptAsync(object prompt, CancellationToken cancellationToken)
+    {
+        if (_stdin == null)
+            return;
+
+        switch (prompt)
+        {
+            case string stringPrompt:
+                {
+                    var message = new Dictionary<string, object>
+                    {
+                        ["type"] = "user",
+                        ["message"] = new Dictionary<string, object>
+                        {
+                            ["role"] = "user",
+                            ["content"] = stringPrompt,
+                        },
+                        ["parent_tool_use_id"] = null!,
+                        ["session_id"] = "default",
+                    };
+
+                    var json = JsonUtil.Serialize(message);
+                    await WriteLineAsync(json, cancellationToken);
+                    break;
+                }
+
+            case IAsyncEnumerable<Dictionary<string, object>> asyncEnumerable:
+                {
+                    await foreach (var message in asyncEnumerable.WithCancellation(cancellationToken))
+                    {
+                        var json = JsonUtil.Serialize(message);
+                        await WriteLineAsync(json, cancellationToken);
+                    }
+                    break;
+                }
+        }
+    }
+
+    private async Task WriteLineAsync(string line, CancellationToken cancellationToken)
+    {
+        await _stdinLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_stdin == null)
+                throw new CLIConnectionException("Not connected");
+
+            await _stdin.WriteLineAsync(line.AsMemory(), cancellationToken);
+            await _stdin.FlushAsync(cancellationToken);
+        }
+        finally
+        {
+            _stdinLock.Release();
+        }
+    }
+
+    private ProcessStartInfo BuildStartInfo(string fileName, IReadOnlyList<string> arguments)
+    {
+        var workingDir = _options.WorkingDirectory ?? Directory.GetCurrentDirectory();
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = CommandUtil.GetOptimallyQualifiedTargetFilePath(fileName),
+            WorkingDirectory = workingDir,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            StandardInputEncoding = Encoding.UTF8,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8,
+        };
+
+        // ArgumentList, not Arguments: .NET quotes each entry for the platform. Joining them into
+        // one string leaves any value containing a space or a newline to be re-split by the
+        // receiving process, so a multi-word --system-prompt arrived as its first word and the rest
+        // became stray positional arguments.
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        // Then apply custom environment variables from options (overrides system vars)
+        if (_options.EnvironmentVariables != null)
+        {
+            foreach (var (key, value) in _options.EnvironmentVariables)
+            {
+                if (value != null)
+                    startInfo.EnvironmentVariables[key] = value;
+                else
+                    startInfo.EnvironmentVariables.Remove(key);
+            }
+        }
+
+        // Finally, set SDK-specific variables (highest priority)
+        startInfo.EnvironmentVariables["CLAUDE_CODE_ENTRYPOINT"] = "sdk-csharp";
+
+        if (!string.IsNullOrWhiteSpace(_options.ApiKey))
+            startInfo.EnvironmentVariables["ANTHROPIC_AUTH_TOKEN"] = _options.ApiKey;
+
+        if (!string.IsNullOrWhiteSpace(_options.BaseUrl))
+            startInfo.EnvironmentVariables["ANTHROPIC_BASE_URL"] = _options.BaseUrl;
+
+        return startInfo;
+    }
+
+    private static string FindClaudeCli()
+    {
+        // Try PATH first
+        var cli = Which("claude");
+        if (cli != null)
+            return cli;
+
+        // Try common installation locations
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var isWindows = OperatingSystem.IsWindows();
+
+        var locations = new[]
+        {
+            "claude",
+            Path.Combine(home, ".npm-global", "bin", "claude"),
+            Path.Combine("/usr/local/bin", "claude"),
+            Path.Combine(home, ".local", "bin", "claude"),
+            Path.Combine(home, "node_modules", ".bin", "claude"),
+            Path.Combine(home, ".yarn", "bin", "claude"),
+        };
+
+        foreach (var path in locations)
+        {
+            if (File.Exists(path))
+                return path;
+
+            if (isWindows && File.Exists(path + ".exe"))
+                return path + ".exe";
+        }
+
+        // Check if Node.js is installed
+        if (Which("node") == null)
+        {
+            throw new CLINotFoundException(
+                "Claude Code requires Node.js, which is not installed.\n\n"
+                    + "Install Node.js from: https://nodejs.org/\n\n"
+                    + "After installing Node.js, install Claude Code:\n"
+                    + "  npm install -g @anthropic-ai/claude-code"
+            );
+        }
+
+        // CLI not found
+        throw new CLINotFoundException(
+            "Claude Code not found. Install with:\n"
+                + "  npm install -g @anthropic-ai/claude-code\n\n"
+                + "If already installed locally, try:\n"
+                + "  export PATH=\"$HOME/node_modules/.bin:$PATH\""
+        );
+    }
+
+    private static string? Which(string command)
+    {
+        var pathEnv = Environment.GetEnvironmentVariable("PATH") ?? "";
+        var paths = pathEnv.Split(Path.PathSeparator);
+        var isWindows = OperatingSystem.IsWindows();
+
+        foreach (var path in paths)
+        {
+            var fullPath = Path.Combine(path, command);
+            if (File.Exists(fullPath))
+                return fullPath;
+
+            if (isWindows)
+            {
+                var fullExe = fullPath + ".exe";
+                if (File.Exists(fullExe))
+                    return fullExe;
+            }
+        }
+        return null;
+    }
+
+    private static async Task TerminateProcessAsync(Process process)
+    {
+        if (!process.HasExited)
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+        }
+    }
+
+    private async Task CleanupProcessAsync()
+    {
+        _controlProtocol.CancelAll();
+        if (_process != null)
+        {
+            try
+            {
+                await TerminateProcessAsync(_process);
+            }
+            catch
+            { /* Ignore cleanup errors */
+            }
+            finally
+            {
+                _process.Dispose();
+                _process = null;
+            }
+        }
+
+        _stdin?.Dispose();
+        _stdin = null;
+
+        _stdout?.Dispose();
+        _stdout = null;
+
+        _stderr?.Dispose();
+        _stderr = null;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_disposed)
+        {
+            await CleanupProcessAsync();
+            _disposed = true;
+        }
+    }
+}

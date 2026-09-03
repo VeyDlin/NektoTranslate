@@ -1,0 +1,180 @@
+@use "./variables" as *;
+
+
+// Colour and font tokens live in assets/css/tailwind.css, declared through Tailwind's `@theme` and
+// resolved by Nuxt UI into `--ui-*`. Nothing here redefines a colour.
+//
+// What remains is the reading type scale, which Nuxt UI has no opinion about: this application sets
+// prose considerably larger than its chrome, and the two sizes below are the ones the reader
+// actually spends hours with.
+// Deliberately not declared through `@theme` as `--text-*`: that would override Tailwind's own
+// scale and resize every Nuxt UI component along with it. This is the application's scale, sitting
+// beside Tailwind's rather than replacing it.
+:root {
+    --nt-text-xs: 0.75rem;
+    --nt-text-sm: 0.8125rem;
+    --nt-text-base: 0.875rem;
+    --nt-text-md: 1rem;
+    --nt-text-lg: 1.25rem;
+    --nt-text-xl: 1.625rem;
+
+    // Defaults only. The reader overrides all three on its own panes, because size, leading and
+    // weight are settings a reader changes for their eyes rather than constants of the design.
+    --nt-prose-size: 14px;
+    --nt-prose-line: 1.5;
+    --nt-prose-weight: 400;
+}
+
+
+* {
+    box-sizing: border-box;
+}
+
+
+html,
+body,
+#app {
+    height: 100%;
+}
+
+
+body {
+    margin: 0;
+    font-family: var(--font-sans);
+    font-size: var(--nt-text-base);
+
+    // Costs and chapter counts update while the user is looking at them. Proportional digits would
+    // make the numbers jitter as they tick; tabular figures hold the column still without dragging
+    // a monospace face into an interface that has no other use for one.
+    font-variant-numeric: tabular-nums;
+}
+
+
+// Every element carrying text in the original script is tagged through `scriptLangFor()`, which
+// returns a language only for the three CJK scripts and nothing otherwise. Selecting the face by
+// language rather than by class is what keeps a Latin-script novel out of the Mincho stack: those
+// families are matched in order and SimSun, which Windows ships, has Latin glyphs of its own that
+// look like a typewriter. `:lang()` matches on the inherited language, so untagged text falls
+// through to `<html lang="en">` and keeps the interface face.
+:lang(ja),
+:lang(zh),
+:lang(ko) {
+    font-family: var(--font-cjk);
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+
+// Prose comes from the server as sanitized markup and is mounted with v-html, so it cannot be
+// styled from a scoped block. These are the only global element rules in the application.
+.prose {
+    font-family: var(--font-prose);
+    font-size: var(--nt-prose-size);
+    font-optical-sizing: auto;
+
+    font-weight: var(--nt-prose-weight);
+    line-height: var(--nt-prose-line);
+
+    // The reading colour is the body colour, not the highlighted one: the reference site sets its
+    // prose a step below white, and holding a page of text at full contrast is what makes long
+    // reading tiring.
+    color: var(--ui-text);
+    text-wrap: pretty;
+
+    h2 {
+        margin: 0 0 1.6em;
+        font-size: var(--nt-text-lg);
+        font-weight: 500;
+        line-height: 1.35;
+        color: var(--ui-text-highlighted);
+    }
+
+    p {
+        margin: 0 0 1.5em;
+    }
+
+    p:last-child {
+        margin-bottom: 0;
+    }
+
+    em {
+        font-style: italic;
+    }
+
+    a {
+        color: inherit;
+        text-decoration-color: var(--ui-border-accented);
+        text-underline-offset: 0.2em;
+    }
+
+    img {
+        max-width: 100%;
+        height: auto;
+    }
+
+    hr {
+        margin: 2em 0;
+        border: 0;
+        border-top: 1px solid var(--ui-border);
+    }
+
+    // Ruby on the very first line has no line above it to grow into, and the pane scrolls, so the
+    // annotation is clipped without a little headroom.
+    > :first-child {
+        margin-top: 0.35em;
+    }
+
+    // The source column is reference material, not the work. It is set smaller and a step lighter so
+    // that the eye settles on the translation by default and reaches for the original deliberately.
+    // Recessed, though, not dimmed: a reader checking one against the other has to be able to read
+    // both without effort.
+    &.source {
+        color: var(--ui-text-muted);
+
+        // Both metrics answer to the script, not to the pane, so they are tied to the language the
+        // element carries: an English source beside a Russian translation should be set exactly like
+        // the column next to it. The face itself comes from the global `:lang()` rule.
+        &:lang(ja),
+        &:lang(zh),
+        &:lang(ko) {
+            // A step larger than the translation, and it follows the reader's size setting rather
+            // than ignoring it. At the same size a CJK line carrying furigana is genuinely harder to
+            // read.
+            font-size: calc(var(--nt-prose-size) + 1px);
+
+            // Furigana is set above the line, so a CJK column needs materially more leading than the
+            // Latin one beside it or the annotations collide with the line above.
+            line-height: calc(var(--nt-prose-line) + 0.45);
+        }
+
+        h2 {
+            color: var(--ui-text-toned);
+        }
+    }
+
+    ruby {
+        ruby-position: over;
+    }
+
+    // Print sets furigana at about half the base size. On screen that lands under nine pixels and
+    // stops being readable, which defeats the point of keeping ruby through the sanitizer at all.
+    rt {
+        font-size: 0.55em;
+        line-height: 1.15;
+        color: var(--ui-text-dimmed);
+        font-feature-settings: "palt" 0;
+    }
+
+    &.no-ruby rt {
+        display: none;
+    }
+}

@@ -1,0 +1,163 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+/*
+ * Design tokens.
+ *
+ * The greys, the text colour and the accent are taken from ranobes.com, measured off the running
+ * site rather than eyeballed, so that a reader who comes from there finds the same surface here.
+ *
+ * Nuxt UI resolves each semantic alias to shade 500 in light mode and shade 400 in dark, so the
+ * ramps below are built around those two steps.
+ */
+@theme static {
+    /* The site's link blue. 400 is its exact value, which is the shade dark mode uses; 500 is the
+       darker step light mode needs to stay legible on a pale ground. */
+    --color-steel-50: #eef4fc;
+    --color-steel-100: #d8e6f8;
+    --color-steel-200: #b6cff1;
+    --color-steel-300: #86b0e7;
+    --color-steel-400: #4a8bdb;
+    --color-steel-500: #3a72bd;
+    --color-steel-600: #2f5c9b;
+    --color-steel-700: #294c7e;
+    --color-steel-800: #264169;
+    --color-steel-900: #243858;
+    --color-steel-950: #172438;
+
+    /* Translated. A muted sage rather than a signal green: a finished chapter is the ordinary case
+       in a list of two thousand, and it should not shout. No equivalent exists on the reference
+       site, which has no translation states to show. */
+    --color-sage-50: #f2f7f2;
+    --color-sage-100: #e0ece1;
+    --color-sage-200: #c2d9c5;
+    --color-sage-300: #9bc0a1;
+    --color-sage-400: #7cae84;
+    --color-sage-500: #4d7c55;
+    --color-sage-600: #3d6544;
+    --color-sage-700: #325237;
+    --color-sage-800: #2a422e;
+    --color-sage-900: #243727;
+    --color-sage-950: #101d13;
+
+    /* Failed. Desaturated brick, not a fire-alarm red — one bad chapter does not stop a run of nine
+       hundred, so it has to be findable without being alarming. */
+    --color-brick-50: #fdf4f3;
+    --color-brick-100: #fbe6e4;
+    --color-brick-200: #f7d0cc;
+    --color-brick-300: #efb0aa;
+    --color-brick-400: #e08a80;
+    --color-brick-500: #b4483c;
+    --color-brick-600: #9d3b30;
+    --color-brick-700: #833129;
+    --color-brick-800: #6d2c25;
+    --color-brick-900: #5c2924;
+    --color-brick-950: #32120f;
+
+    /* Needs review, and a run paused at its spending ceiling. Ochre reads as "unfinished business"
+       rather than as a warning of damage, which is what both of those states are. */
+    --color-ochre-50: #fbf7ef;
+    --color-ochre-100: #f5ebd6;
+    --color-ochre-200: #ead4a8;
+    --color-ochre-300: #ddb872;
+    --color-ochre-400: #d9a441;
+    --color-ochre-500: #a16b1f;
+    --color-ochre-600: #8a5a1b;
+    --color-ochre-700: #6f4718;
+    --color-ochre-800: #5c3b18;
+    --color-ochre-900: #4f3318;
+    --color-ochre-950: #2c1a0a;
+}
+
+/*
+ * `static`, like the ramps above, because Tailwind emits a plain `@theme` variable only where it can
+ * see the variable used — and it does not read .scss files when it scans for usage. `--font-cjk` is
+ * referenced from assets/scss/main.scss and nowhere else, so without `static` it is dropped from the
+ * output, `var(--font-cjk)` resolves to nothing, and every original-script line silently falls back
+ * to the interface face. `--font-sans` survives either way only because it overrides a key Tailwind
+ * already has; a new key of our own has no such protection.
+ */
+@theme static {
+    /*
+     * The reference site sets everything, chapter prose included, in Gotham Pro — a commercial
+     * typeface it self-hosts under licence. Those font files cannot be copied into this project, so
+     * Montserrat stands in: the same geometric construction and tall x-height, freely licensed.
+     * Gotham Pro is still named second, so anyone who genuinely has it installed gets it.
+     */
+    --font-sans: "Montserrat Variable", "Gotham Pro", Arial, Helvetica, sans-serif;
+
+    /* One face for chrome and prose alike, as on the reference site. */
+    --font-prose: "Montserrat Variable", "Gotham Pro", Arial, Helvetica, sans-serif;
+
+    /* The original. Ordered so each script reaches a serif before it reaches a fallback: Japanese
+       through Hiragino and Yu Mincho, Chinese through Songti and SimSun, Korean through Batang.
+       A full CJK serif is five to fifteen megabytes, far too much to bundle into an application
+       that has to work offline, so these come from the system. The reference site is monolingual
+       and has nothing to copy here. */
+    --font-cjk:
+        "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", "Noto Serif CJK JP", "Noto Serif JP",
+        "Source Han Serif", "Songti SC", "SimSun", "Batang", "Nanum Myeongjo", "AppleMyungjo", serif;
+}
+
+/*
+ * Tailwind v4 changed Preflight so native buttons follow the browser default of `cursor: default`.
+ * That is a Preflight reset, not a Nuxt UI decision, so it is undone here rather than in the theme.
+ *
+ * Everything that is clickable without being a <button> — select options, menu items, tab triggers —
+ * is a Nuxt UI slot, and gets its cursor from the component theme in vite.config.ts instead.
+ */
+@layer base {
+    button:not(:disabled),
+    summary {
+        cursor: pointer;
+    }
+}
+
+/*
+ * Surfaces.
+ *
+ * Note the direction: on the reference site the page sits darker than the content, so the reading
+ * column floats above its ground rather than being cut into it. The light values below are derived
+ * rather than measured — the site ships no light theme at all — and keep the same relationship, a
+ * plain ground with the content lifted off it.
+ */
+:root {
+    /* Everything the browser draws itself reads this and nothing else: scrollbars, the caret, the
+       spin buttons inside a number field, an autofilled background. Without it a dark page keeps
+       light scrollbars, which is exactly where the eye lands on a screen full of prose. */
+    color-scheme: light;
+
+    --ui-bg: #e9e9e9;
+    --ui-bg-muted: #e0e0e0;
+    --ui-bg-elevated: #f7f7f7;
+    --ui-bg-accented: #d6d6d6;
+
+    --ui-text-dimmed: #8a8a8a;
+    --ui-text-muted: #6b6b6b;
+    --ui-text-toned: #4d4d4d;
+    --ui-text: #3d3d3d;
+    --ui-text-highlighted: #1a1a1a;
+
+    --ui-border: #d0d0d0;
+    --ui-border-muted: #dcdcdc;
+    --ui-border-accented: #bdbdbd;
+}
+
+.dark {
+    color-scheme: dark;
+
+    --ui-bg: #3b3a3a;
+    --ui-bg-muted: #363636;
+    --ui-bg-elevated: #474747;
+    --ui-bg-accented: #555555;
+
+    --ui-text-dimmed: #7a7a7a;
+    --ui-text-muted: #9a9a9a;
+    --ui-text-toned: #bdbdbd;
+    --ui-text: #cccccc;
+    --ui-text-highlighted: #ffffff;
+
+    --ui-border: #313131;
+    --ui-border-muted: #3b3b3b;
+    --ui-border-accented: #555555;
+}

@@ -1,0 +1,1013 @@
+# ClaudeCodeSdk
+
+A .NET SDK for interacting with Claude through the Claude Code CLI. This core package provides both one-shot queries and interactive client sessions for seamless Claude AI integration.
+
+## Features
+
+- **Dual-Pattern Architecture**: Choose between one-shot queries (`ClaudeQuery`) or interactive sessions (`ClaudeSdkClient`)
+- **Streaming Responses**: Real-time message streaming with `IAsyncEnumerable<T>`
+- **Partial Messages**: Optional token-level events through `IncludePartialMessages`
+- **Type-Safe Messaging**: Strongly-typed message and content block interfaces
+- **Tool Integration**: Full support for Claude Code's built-in tools (Read, Write, Bash, Grep, etc.)
+- **Human Input Callbacks**: Handle permissions and `AskUserQuestion` through `CanUseTool`
+- **Session Management**: Multi-turn conversations with resumption support
+- **MCP Servers**: Configure Model Context Protocol servers for extended capabilities
+- **Resource Management**: Automatic cleanup with `IAsyncDisposable` pattern
+- **Comprehensive Error Handling**: Rich exception hierarchy for debugging
+
+## Installation
+
+Install via NuGet:
+
+```bash
+dotnet add package ClaudeCodeSdk
+```
+
+## Prerequisites
+
+- .NET 10.0 SDK
+- Claude Code CLI: `npm install -g @anthropic-ai/claude-code`
+- Anthropic API key (set via environment variable or options)
+
+## Quick Start
+
+### One-shot Query
+
+For simple, fire-and-forget queries:
+
+```csharp
+using ClaudeCodeSdk;
+using ClaudeCodeSdk.Types;
+
+var options = new ClaudeCodeOptions
+{
+    ApiKey = "your-api-key" // Or use ANTHROPIC_AUTH_TOKEN env var
+};
+
+await foreach (var message in ClaudeQuery.QueryAsync("What is 2 + 2?", options))
+{
+    if (message is AssistantMessage assistantMessage)
+    {
+        foreach (var block in assistantMessage.Content)
+        {
+            if (block is TextBlock textBlock)
+            {
+                Console.WriteLine($"Claude: {textBlock.Text}");
+            }
+        }
+    }
+}
+```
+
+### Interactive Client
+
+For multi-turn conversations with manual lifecycle control:
+
+```csharp
+using ClaudeCodeSdk;
+using ClaudeCodeSdk.Types;
+
+var options = new ClaudeCodeOptions
+{
+    ApiKey = "your-api-key",
+    SystemPrompt = "You are a helpful coding assistant."
+};
+
+await using var client = new ClaudeSdkClient(options);
+
+// Connect to Claude
+await client.ConnectAsync();
+
+// Send first message
+await client.QueryAsync("What is dependency injection?");
+
+// Receive response
+await foreach (var message in client.ReceiveResponseAsync())
+{
+    if (message is AssistantMessage assistantMessage)
+    {
+        foreach (var block in assistantMessage.Content)
+        {
+            if (block is TextBlock textBlock)
+            {
+                Console.WriteLine($"Claude: {textBlock.Text}");
+            }
+        }
+    }
+}
+
+// Send follow-up question (context preserved)
+await client.QueryAsync("Show me a C# example");
+
+await foreach (var message in client.ReceiveResponseAsync())
+{
+    // Handle response...
+}
+```
+
+## Core Concepts
+
+### Two Usage Patterns
+
+#### 1. ClaudeQuery (One-shot)
+- **Use case**: Simple, single-turn interactions
+- **Pattern**: Fire-and-forget
+- **Lifecycle**: Automatic connection management
+- **Method**: `ClaudeQuery.QueryAsync(prompt, options)`
+
+```csharp
+// Automatically handles connection lifecycle
+await foreach (var message in ClaudeQuery.QueryAsync("Explain async/await"))
+{
+    // Process messages
+}
+```
+
+#### 2. ClaudeSdkClient (Interactive)
+- **Use case**: Multi-turn conversations, session management
+- **Pattern**: Long-lived bidirectional communication
+- **Lifecycle**: Manual control via `ConnectAsync/DisconnectAsync`
+- **Methods**: `ConnectAsync()`, `QueryAsync()`, `ReceiveResponseAsync()`
+
+```csharp
+await using var client = new ClaudeSdkClient(options);
+await client.ConnectAsync();
+
+// Multiple queries in same session
+await client.QueryAsync("First question");
+await foreach (var msg in client.ReceiveResponseAsync()) { /* ... */ }
+
+await client.QueryAsync("Follow-up question");
+await foreach (var msg in client.ReceiveResponseAsync()) { /* ... */ }
+```
+
+### Message Types
+
+All messages implement `IMessage`:
+
+- **`AssistantMessage`** - Claude's responses with content blocks
+- **`UserMessage`** - User input messages
+- **`SystemMessage`** - System notifications and metadata
+- **`ResultMessage`** - End-of-conversation marker with usage statistics
+- **`StreamEvent`** - Raw partial-message event emitted when `IncludePartialMessages` is enabled
+
+```csharp
+await foreach (var message in ClaudeQuery.QueryAsync("Hello"))
+{
+    switch (message)
+    {
+        case AssistantMessage assistant:
+            // Handle Claude's response
+            foreach (var block in assistant.Content)
+            {
+                // Process content blocks
+            }
+            break;
+
+        case ResultMessage result:
+            // Session complete - check usage/cost
+            Console.WriteLine($"Cost: ${result.TotalCostUsd}");
+            Console.WriteLine($"Turns: {result.NumTurns}");
+            break;
+
+        case SystemMessage system:
+            // Handle system notifications
+            break;
+    }
+}
+```
+
+### Content Blocks
+
+All content blocks implement `IContentBlock`:
+
+- **`TextBlock`** - Plain text content from Claude
+- **`ThinkingBlock`** - Claude's reasoning process (when enabled)
+- **`ToolUseBlock`** - Tool invocation requests
+- **`ToolResultBlock`** - Tool execution results
+- **`ErrorContentBlock`** - Error information
+
+```csharp
+if (message is AssistantMessage assistantMessage)
+{
+    foreach (var block in assistantMessage.Content)
+    {
+        switch (block)
+        {
+            case TextBlock text:
+                Console.WriteLine($"Text: {text.Text}");
+                break;
+
+            case ThinkingBlock thinking:
+                Console.WriteLine($"Thinking: {thinking.Thinking}");
+                break;
+
+            case ToolUseBlock toolUse:
+                Console.WriteLine($"Using tool: {toolUse.Name}");
+                Console.WriteLine($"Input: {toolUse.Input}");
+                break;
+
+            case ToolResultBlock toolResult:
+                Console.WriteLine($"Tool result: {toolResult.Content}");
+                break;
+
+            case ErrorContentBlock error:
+                Console.WriteLine($"Error: {error.Message}");
+                break;
+        }
+    }
+}
+```
+
+## Configuration
+
+### ClaudeCodeOptions
+
+Configure Claude's behavior with `ClaudeCodeOptions`:
+
+```csharp
+var options = new ClaudeCodeOptions
+{
+    // Authentication
+    ApiKey = "your-api-key",  // Or set ANTHROPIC_AUTH_TOKEN env var
+    BaseUrl = "https://api.anthropic.com",  // Custom API endpoint (optional)
+
+    // Model configuration
+    Model = "sonnet",
+    SystemPrompt = "You are a helpful assistant.",
+    MaxTurns = 10,
+    MaxThinkingTokens = 4096,
+    IncludePartialMessages = true,
+
+    // Tools and permissions
+    AllowedTools = new[] { "Read", "Write", "Bash", "Grep" },
+    DisallowedTools = new[] { "WebSearch" },
+    PermissionMode = PermissionMode.acceptEdits,  // or plan/bypassPermissions/default
+
+    // Session management
+    Resume = "session-id",  // Resume previous session
+    WorkingDirectory = "/path/to/project",
+    EnvironmentVariables = new Dictionary<string, string>
+    {
+        ["CUSTOM_VAR"] = "value"
+    }
+};
+```
+
+#### Permission Modes
+
+- **`PermissionMode.@default`** - Use Claude Code's default permission behavior
+- **`PermissionMode.acceptEdits`** - Auto-accept edits/tools that require approval
+- **`PermissionMode.plan`** - Planning-oriented mode
+- **`PermissionMode.bypassPermissions`** - Bypass permission checks
+
+### Using Tools
+
+Enable Claude to use built-in tools:
+
+```csharp
+var options = new ClaudeCodeOptions
+{
+    AllowedTools = new[] { "Read", "Write", "Bash", "Grep" },
+    SystemPrompt = "You are a file management assistant.",
+    WorkingDirectory = Directory.GetCurrentDirectory()
+};
+
+await foreach (var message in ClaudeQuery.QueryAsync(
+    "Create a hello.txt file with 'Hello World'",
+    options))
+{
+    if (message is AssistantMessage assistantMessage)
+    {
+        foreach (var block in assistantMessage.Content)
+        {
+            if (block is ToolUseBlock toolUse)
+            {
+                Console.WriteLine($"Using tool: {toolUse.Name}");
+            }
+            else if (block is TextBlock textBlock)
+            {
+                Console.WriteLine($"Claude: {textBlock.Text}");
+            }
+        }
+    }
+}
+```
+
+### MCP Server Configuration
+
+Configure Model Context Protocol (MCP) servers:
+
+```csharp
+var options = new ClaudeCodeOptions
+{
+    McpServers = new Dictionary<string, IMcpServerConfig>
+    {
+        ["my-server"] = new McpStdioServerConfig
+        {
+            Command = "node",
+            Args = new[] { "/path/to/server.js" }
+        },
+        ["sse-server"] = new McpSSEServerConfig
+        {
+            Url = "http://localhost:3000/sse"
+        },
+        ["http-server"] = new McpHttpServerConfig
+        {
+            Url = "http://localhost:3000/messages"
+        }
+    }
+};
+```
+
+## Exception Handling
+
+The SDK provides a comprehensive exception hierarchy:
+
+```csharp
+using ClaudeCodeSdk.Exceptions;
+
+try
+{
+    await foreach (var message in ClaudeQuery.QueryAsync("Hello"))
+    {
+        // Process messages
+    }
+}
+catch (CLINotFoundException ex)
+{
+    // Claude Code CLI not found - install it
+    Console.WriteLine("Please install: npm install -g @anthropic-ai/claude-code");
+}
+catch (CLIConnectionException ex)
+{
+    // Connection/transport issues
+    Console.WriteLine($"Connection error: {ex.Message}");
+}
+catch (ProcessException ex)
+{
+    // Subprocess execution failures
+    Console.WriteLine($"Process error: {ex.Message}");
+}
+catch (CLIJsonDecodeException ex)
+{
+    // JSON parsing errors
+    Console.WriteLine($"Invalid JSON from CLI: {ex.Message}");
+}
+catch (MessageParseException ex)
+{
+    // Message type conversion failures
+    Console.WriteLine($"Message parsing error: {ex.Message}");
+}
+catch (ClaudeSDKException ex)
+{
+    // Base exception - catches all SDK errors
+    Console.WriteLine($"SDK error: {ex.Message}");
+}
+```
+
+## Advanced Usage
+
+### Session Resumption
+
+Resume previous conversations:
+
+```csharp
+// First session
+var options = new ClaudeCodeOptions();
+await using var client1 = new ClaudeSdkClient(options);
+await client1.ConnectAsync();
+await client1.QueryAsync("Remember this: my name is Alice");
+
+string? sessionId = null;
+await foreach (var msg in client1.ReceiveResponseAsync())
+{
+    if (msg is ResultMessage result)
+    {
+        sessionId = result.SessionId;
+    }
+}
+
+// Resume later
+var resumeOptions = new ClaudeCodeOptions
+{
+    Resume = sessionId
+};
+await using var client2 = new ClaudeSdkClient(resumeOptions);
+await client2.ConnectAsync();
+await client2.QueryAsync("What's my name?"); // Claude remembers: "Alice"
+```
+
+### Streaming Input Messages
+
+Stream multiple messages to Claude:
+
+```csharp
+async IAsyncEnumerable<Dictionary<string, object>> CreateMessageStream()
+{
+    yield return new Dictionary<string, object>
+    {
+        ["type"] = "user",
+        ["message"] = new Dictionary<string, object>
+        {
+            ["role"] = "user",
+            ["content"] = "First message"
+        }
+    };
+
+    await Task.Delay(100);
+
+    yield return new Dictionary<string, object>
+    {
+        ["type"] = "user",
+        ["message"] = new Dictionary<string, object>
+        {
+            ["role"] = "user",
+            ["content"] = "Second message"
+        }
+    };
+}
+
+var messages = CreateMessageStream();
+await foreach (var response in ClaudeQuery.QueryAsync(messages))
+{
+    // Handle responses
+}
+```
+
+### Configuring Thinking Budget
+
+Control Claude's reasoning token budget:
+
+```csharp
+var options = new ClaudeCodeOptions
+{
+    MaxThinkingTokens = 12000
+};
+
+await foreach (var message in ClaudeQuery.QueryAsync("Solve this puzzle...", options))
+{
+    if (message is AssistantMessage assistantMessage)
+    {
+        foreach (var block in assistantMessage.Content)
+        {
+            if (block is ThinkingBlock thinking)
+            {
+                Console.WriteLine($"[Thinking] {thinking.Thinking}");
+            }
+            else if (block is TextBlock text)
+            {
+                Console.WriteLine($"[Answer] {text.Text}");
+            }
+        }
+    }
+}
+```
+
+## Architecture
+
+### Architecture Overview
+
+The SDK is layered around a single child process. `ClaudeProcess` owns the Claude Code CLI
+subprocess and drives a JSON-lines protocol over its `stdin`/`stdout` pipes. Every public entry
+point — one-shot `ClaudeQuery`, the interactive `ClaudeSdkClient`, and the static
+`ClaudeCodeSDK` facade — ultimately delegates to this process manager. Two cross-cutting helpers
+sit inside the read loop: `ControlProtocolHandler` intercepts out-of-band permission requests,
+and `MessageParser` turns raw JSON lines into strongly-typed `IMessage` objects.
+
+```mermaid
+flowchart TB
+    subgraph Consumer["Your application"]
+        SDK["ClaudeCodeSDK (static facade)"]
+        Q["ClaudeQuery.QueryAsync()"]
+        C["ClaudeSdkClient"]
+    end
+
+    subgraph Core["ClaudeCodeSdk (core package)"]
+        P["ClaudeProcess"]
+        CP["ControlProtocolHandler"]
+        MP["MessageParser"]
+        CU["CommandUtil"]
+        JU["JsonUtil"]
+    end
+
+    subgraph CLI["Claude Code CLI (child process)"]
+        CLINode["claude --output-format stream-json"]
+    end
+
+    SDK --> Q
+    SDK --> C
+    Q --> P
+    C --> P
+    P --> CU
+    P --> JU
+    P --> CP
+    P --> MP
+    P <-->|"stdin / stdout JSON lines"| CLINode
+```
+
+### Core Components
+
+- **`ClaudeCodeSDK`** - Static entry-point facade
+  - `QueryAsync(...)` convenience wrapper over `ClaudeQuery`
+  - `CreateClient(...)` factory for `ClaudeSdkClient`
+  - Exposes the SDK `Version` constant
+
+- **`ClaudeProcess`** - Unified subprocess manager
+  - Owns the Claude Code CLI lifecycle (discovery, start, communication, cleanup)
+  - Writes JSON lines to `stdin` and reads JSON lines from `stdout`
+  - Routes stdout lines through `ControlProtocolHandler` before `MessageParser`
+  - Automatic CLI discovery via `CommandUtil`
+  - Shared by both `ClaudeQuery` and `ClaudeSdkClient`
+
+- **`ClaudeQuery`** - One-shot query API
+  - Fire-and-forget pattern for simple interactions
+  - Automatic connection lifecycle management
+  - Returns `IAsyncEnumerable<IMessage>` for streaming
+
+- **`ClaudeSdkClient`** - Interactive client API
+  - Long-lived sessions with manual lifecycle control
+  - Multi-turn conversation support
+  - Methods: `ConnectAsync()`, `DisconnectAsync()`, `QueryAsync()`, `ReceiveResponseAsync()`, `InterruptAsync()`
+
+- **`ControlProtocolHandler`** - Out-of-band tool permission broker
+  - Intercepts `control_request` / `control_cancel_request` / `control_response` lines
+  - Invokes the `CanUseTool` callback and writes `control_response` back to `stdin`
+
+- **`MessageParser`** - Type-safe message parsing
+  - Converts JSON to strongly-typed `IMessage` objects
+  - Dispatches on the `type` field: `system`, `assistant`, `user`, `result`, `stream_event`
+  - Handles polymorphic content blocks
+  - Comprehensive error reporting with line numbers
+
+- **`CommandUtil`** - CLI argument builder
+  - Translates `ClaudeCodeOptions` into the `claude` command line
+  - Adds `--include-partial-messages` and `--permission-prompt-tool stdio` when enabled
+
+- **`JsonUtil`** - Serialization helpers
+  - `snake_case_lower` naming policy for CLI compatibility
+  - Consistent across all message exchanges
+
+### Core Data Flow
+
+All traffic is newline-delimited JSON. Requests are serialized to a single line on `stdin`;
+responses arrive as lines on `stdout`. The read loop terminates when a `result` message is
+received.
+
+**One-shot query** (`ClaudeQuery`):
+
+```mermaid
+sequenceDiagram
+    participant App as Your app
+    participant Q as ClaudeQuery
+    participant P as ClaudeProcess
+    participant CLI as Claude Code CLI
+
+    App->>Q: QueryAsync(prompt, options)
+    Q->>P: new ClaudeProcess(options)
+    Q->>P: StartAsync(prompt)
+    P->>CLI: start subprocess (CommandUtil.BuildCommand)
+    P->>CLI: write user message to stdin
+    loop until result message
+        CLI-->>P: JSON line on stdout
+        P->>P: ControlProtocolHandler.TryHandle()
+        P->>P: MessageParser.ParseMessage()
+        P-->>Q: yield IMessage
+        Q-->>App: yield IMessage
+    end
+    Q->>P: DisposeAsync() (terminate process)
+```
+
+**Interactive client** (`ClaudeSdkClient`):
+
+```mermaid
+sequenceDiagram
+    participant App as Your app
+    participant C as ClaudeSdkClient
+    participant P as ClaudeProcess
+    participant CLI as Claude Code CLI
+
+    App->>C: ConnectAsync()
+    C->>P: StartAsync()
+    P->>CLI: start subprocess
+    App->>C: QueryAsync("...")
+    C->>P: SendAsync(messages)
+    P->>CLI: write JSON lines to stdin
+    App->>C: ReceiveResponseAsync()
+    loop until result message
+        CLI-->>P: JSON line on stdout
+        P-->>C: IMessage
+        C-->>App: IMessage
+    end
+    App->>C: DisconnectAsync() / DisposeAsync()
+```
+
+### Control Protocol
+
+When Claude Code needs to run a tool, it can emit a `control_request` on `stdout` instead of
+using its built-in permission prompts. The SDK answers it through the `CanUseTool` callback and
+writes a matching `control_response` back to `stdin` — all while the message stream keeps
+flowing.
+
+```mermaid
+sequenceDiagram
+    participant CLI as Claude Code CLI
+    participant P as ClaudeProcess
+    participant CP as ControlProtocolHandler
+    participant App as CanUseTool callback
+
+    CLI-->>P: control_request (subtype: can_use_tool)
+    P->>CP: TryHandle(line)
+    CP->>CP: StartRequest, track pending by request_id
+    CP->>App: await CanUseTool(toolName, input, context)
+    App-->>CP: PermissionResultAllow / PermissionResultDeny
+    CP->>P: write control_response to stdin
+    P->>CLI: control_response
+```
+
+The handler is asynchronous and non-blocking: requests are tracked in a
+`ConcurrentDictionary<request_id, CancellationTokenSource>` so multiple permission checks can
+be in flight concurrently, and `control_cancel_request` cancels a pending check. Enable it by
+setting `ClaudeCodeOptions.CanUseTool`; `CommandUtil` then passes `--permission-prompt-tool
+stdio` to the CLI.
+
+### Message & Type System
+
+`IMessage` is the base interface for everything read from `stdout`:
+
+```mermaid
+flowchart TB
+    IMessage["IMessage"] --> AM["AssistantMessage"]
+    IMessage --> UM["UserMessage"]
+    IMessage --> SM["SystemMessage"]
+    IMessage --> RM["ResultMessage"]
+    IMessage --> SE["StreamEvent"]
+```
+
+`AssistantMessage` (and `UserMessage`) content is a polymorphic list of `IContentBlock`s:
+
+```mermaid
+flowchart TB
+    IContentBlock["IContentBlock"] --> TB["TextBlock"]
+    IContentBlock --> ThB["ThinkingBlock"]
+    IContentBlock --> TUB["ToolUseBlock"]
+    IContentBlock --> TRB["ToolResultBlock"]
+    IContentBlock --> ECB["ErrorContentBlock"]
+```
+
+Errors are modeled as a hierarchy rooted at `ClaudeSDKException`:
+
+```mermaid
+flowchart TB
+    Base["ClaudeSDKException"] --> Conn["CLIConnectionException"]
+    Conn --> NotFound["CLINotFoundException"]
+    Base --> Proc["ProcessException"]
+    Base --> Json["CLIJsonDecodeException"]
+    Base --> Parse["MessageParseException"]
+    Base --> Dup["SessionIdDuplicateException"]
+```
+
+### Resource Management
+
+All process-managing classes implement `IAsyncDisposable`:
+
+```csharp
+// Recommended: automatic cleanup
+await using var client = new ClaudeSdkClient(options);
+await client.ConnectAsync();
+// ... use client ...
+// Automatically cleaned up when scope exits
+
+// Manual cleanup if needed
+var client = new ClaudeSdkClient(options);
+try
+{
+    await client.ConnectAsync();
+    // ... use client ...
+}
+finally
+{
+    await client.DisposeAsync();
+}
+```
+
+**Key Point**: The SDK automatically manages subprocess lifecycle:
+- Process is started on `ConnectAsync()` or first `QueryAsync()`
+- Stdin/stdout streams are properly closed on disposal
+- Process handle is cleaned up to prevent resource leaks
+
+### Message Streaming and Termination
+
+The SDK uses automatic message termination:
+
+1. **`ClaudeProcess.ReceiveAsync()`** continuously reads messages from the CLI
+2. When a `ResultMessage` (type="result") is received, the stream automatically terminates
+3. Both `ClaudeQuery` and `ClaudeSdkClient` rely on this behavior
+4. `ClaudeSdkClient.ReceiveResponseAsync()` provides convenience wrapper that yields until `ResultMessage`
+
+```csharp
+// This loop automatically terminates when ResultMessage is received
+await foreach (var message in client.ReceiveResponseAsync())
+{
+    // Process messages...
+    // No need to manually check for ResultMessage
+}
+```
+
+### Message Protocol
+
+The SDK uses a JSON-based message protocol over stdin/stdout:
+
+**Request Format** (sent to CLI):
+```json
+{
+  "type": "user",
+  "message": {
+    "role": "user",
+    "content": "Your prompt here"
+  }
+}
+```
+
+**Response Format** (received from CLI):
+```json
+{
+  "type": "assistant",
+  "message": {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "text",
+        "text": "Response here"
+      }
+    ]
+  }
+}
+```
+
+All property names use `snake_case_lower` to match the CLI protocol.
+
+## Environment Variables
+
+### Managed by SDK
+
+The SDK automatically sets these environment variables for the Claude Code CLI process:
+
+- **`ANTHROPIC_AUTH_TOKEN`** - Set from `ClaudeCodeOptions.ApiKey`
+- **`ANTHROPIC_BASE_URL`** - Set from `ClaudeCodeOptions.BaseUrl` (if provided)
+- **`CLAUDE_CODE_ENTRYPOINT`** - Always set to "sdk-csharp" for SDK identification
+
+### User-Defined Variables
+
+Additional environment variables can be set via `ClaudeCodeOptions.EnvironmentVariables`:
+
+```csharp
+var options = new ClaudeCodeOptions
+{
+    EnvironmentVariables = new Dictionary<string, string?>
+    {
+        ["HTTP_PROXY"] = "http://proxy.example.com:8080",
+        ["HTTPS_PROXY"] = "http://proxy.example.com:8080",
+        ["MY_CUSTOM_VAR"] = "custom-value"
+    }
+};
+```
+
+## Examples
+
+See the [examples](../../examples/) directory for complete working examples:
+
+- **QuickStartExamples.cs** - Basic usage, options configuration, tools, and interactive client
+- **StreamingExamples.cs** - Streaming modes, input streaming, and interactive user input
+
+Run examples:
+
+```bash
+dotnet run --project examples/
+```
+
+### Example: Tool Integration
+
+```csharp
+using ClaudeCodeSdk;
+using ClaudeCodeSdk.Types;
+
+var options = new ClaudeCodeOptions
+{
+    AllowedTools = new[] { "Read", "Write", "Bash", "Grep" },
+    PermissionMode = PermissionMode.acceptEdits,  // Auto-approve edits/tools
+    WorkingDirectory = Directory.GetCurrentDirectory()
+};
+
+await foreach (var message in ClaudeQuery.QueryAsync(
+    "Create a hello.txt file with 'Hello World'",
+    options))
+{
+    if (message is AssistantMessage assistantMessage)
+    {
+        foreach (var block in assistantMessage.Content)
+        {
+            if (block is ToolUseBlock toolUse)
+            {
+                Console.WriteLine($"Tool: {toolUse.Name}");
+                Console.WriteLine($"Input: {toolUse.Input}");
+            }
+            else if (block is TextBlock textBlock)
+            {
+                Console.WriteLine($"Claude: {textBlock.Text}");
+            }
+        }
+    }
+}
+```
+
+### Example: Multi-Turn Conversation
+
+```csharp
+await using var client = new ClaudeSdkClient(options);
+await client.ConnectAsync();
+
+// First question
+await client.QueryAsync("What is dependency injection?");
+await foreach (var msg in client.ReceiveResponseAsync())
+{
+    if (msg is AssistantMessage assistant)
+    {
+        foreach (var block in assistant.Content.OfType<TextBlock>())
+        {
+            Console.WriteLine(block.Text);
+        }
+    }
+}
+
+// Follow-up question (context preserved)
+await client.QueryAsync("Show me a C# example");
+await foreach (var msg in client.ReceiveResponseAsync())
+{
+    if (msg is AssistantMessage assistant)
+    {
+        foreach (var block in assistant.Content.OfType<TextBlock>())
+        {
+            Console.WriteLine(block.Text);
+        }
+    }
+}
+```
+
+## Testing
+
+Run tests:
+
+```bash
+# All tests
+dotnet test
+
+# With verbose output
+dotnet test --verbosity normal
+
+# Specific test class
+dotnet test --filter "FullyQualifiedName~PartialMessageStreamingTests"
+
+# Run with coverage
+dotnet test --collect:"XPlat Code Coverage"
+```
+
+Test organization:
+- **Core protocol** - Type parsing, exception behavior, unknown-message handling, and stdio control requests
+- **MAF integration** - Prompt mapping, metadata, error content, partial streaming, and history persistence
+
+## Building
+
+Build the package:
+
+```bash
+# Development build
+dotnet build src/ClaudeCodeSdk/ClaudeCodeSdk.csproj
+
+# Release build with NuGet package
+dotnet pack src/ClaudeCodeSdk/ClaudeCodeSdk.csproj -c Release
+
+# Build all projects in the solution
+dotnet build claude-code-sdk-csharp.slnx
+```
+
+Output packages:
+- `src/ClaudeCodeSdk/bin/Release/*.nupkg` - Core SDK package
+- `src/ClaudeCodeSdk.MAF/bin/Release/*.nupkg` - MAF integration package
+
+## Microsoft Agent Framework Integration
+
+For Microsoft Agent Framework (MAF) support, see the separate [ClaudeCodeSdk.MAF](../ClaudeCodeSdk.MAF/) package.
+
+### Key Features of MAF Integration
+
+- **`ClaudeCodeAIAgent`** - Implements MAF's `AIAgent` interface
+- **`ClaudeCodeAgentSession`** - Session management with session ID persistence
+- **`ClaudeSdkClientManager`** - Manages client lifecycle across sessions
+- **Streaming Support** - Both `RunAsync()` and `RunStreamingAsync()` available
+
+Install MAF package:
+
+```bash
+dotnet add package ClaudeCodeSdk.MAF
+```
+
+## Troubleshooting
+
+### CLI Not Found
+
+**Error**: `CLINotFoundException`
+
+**Solution**:
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+### Connection Issues
+
+**Error**: `CLIConnectionException`
+
+**Possible Causes**:
+- CLI process failed to start
+- `claude` executable is not available in `PATH`
+- Environment blocking subprocess execution
+
+**Solution**:
+```csharp
+var options = new ClaudeCodeOptions
+{
+    WorkingDirectory = @"C:\your\project\path"  // Optional
+};
+```
+
+Also ensure `claude` is resolvable from your shell (`which claude` / `where claude`).
+
+### JSON Parsing Errors
+
+**Error**: `CLIJsonDecodeException` or `MessageParseException`
+
+**Possible Causes**:
+- CLI returned malformed JSON
+- Unsupported message format
+- SDK version incompatible with CLI version
+
+**Solution**:
+- Update SDK: `dotnet add package ClaudeCodeSdk --version <latest>`
+- Update CLI: `npm update -g @anthropic-ai/claude-code`
+- Check error details in exception message for line/column numbers
+
+### Process Resource Leaks
+
+**Symptom**: Zombie `claude-code` processes
+
+**Solution**:
+- Always use `await using` for `ClaudeSdkClient`
+- Call `DisposeAsync()` explicitly if not using `await using`
+- Ensure all async operations are properly awaited
+
+```csharp
+// Correct
+await using var client = new ClaudeSdkClient(options);
+await client.ConnectAsync();
+
+// Incorrect - resource leak
+var client = new ClaudeSdkClient(options);  // Never disposed
+```
+
+## Changelog
+
+See the repository [CHANGELOG](../../CHANGELOG.md) for stable release history. NuGet badges in the
+[project README](../../README.md) show the latest published stable or preview packages.
+
+## Contributing
+
+Contributions are welcome! Please follow these guidelines:
+
+1. **Code Style**: Follow .NET coding conventions (PascalCase for types, camelCase for parameters)
+2. **Tests**: Add unit tests for new features
+3. **Documentation**: Update XML documentation comments
+4. **Commits**: Use Conventional Commits format (`feat:`, `fix:`, `docs:`, etc.)
+
+## License
+
+See [LICENSE.txt](../../LICENSE.txt) for details.
+
+## Related Projects
+
+- **[Claude Code CLI](https://github.com/anthropics/claude-code)** - The official Claude Code command-line interface
+- **[ClaudeCodeSdk.MAF](../ClaudeCodeSdk.MAF/)** - Microsoft Agent Framework integration
+- **[Agw](https://github.com/zxyao145/Agw)** - ASP.NET Core backend using this SDK for agent management
+
+## Support
+
+- **Issues**: [GitHub Issues](https://github.com/zxyao145/claude-code-sdk-csharp/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/zxyao145/claude-code-sdk-csharp/discussions)
+- **Documentation**: [Project README](../../README.md)
+
+## Acknowledgments
+
+Built on top of the excellent [Claude Code CLI](https://github.com/anthropics/claude-code) by Anthropic.
+
+---
+
+**Note**: This SDK is not officially affiliated with Anthropic. It is a community-maintained project for .NET developers.

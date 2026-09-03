@@ -1,0 +1,53 @@
+# Environment
+.env
+!.env.example
+
+# Node
+node_modules/
+dist/
+auto-imports.d.ts
+components.d.ts
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.csproj.user
+
+# IDE
+.vs/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Claude Code session state
+.claude/
+
+# Reference repositories cloned for research only
+.temp/
+
+# Specs, notes and other generated documents - kept outside the repository
+docs/
+*.patch
+scratch/
+notes/
+
+# Frontend build/test artefacts
+dist-ssr/
+*.local
+coverage/
+playwright-report/
+test-results/
+.vite/
+
+# vskill conventions
+.review/
