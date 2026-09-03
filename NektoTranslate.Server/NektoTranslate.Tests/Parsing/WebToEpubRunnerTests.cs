@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging.Abstractions;
+using NektoTranslate.Common.Models;
 using NektoTranslate.Parsing.Contracts;
 using NektoTranslate.Parsing.Services;
 using NektoTranslate.Tests.Common;
@@ -86,6 +87,7 @@ public class WebToEpubRunnerTests(ITestOutputHelper output) {
             session,
             new FileParserScriptStore(ParserDirectory()),
             new StubSettingsService(),
+            new PageScheduler(new EngineOptions()),
             NullLogger<WebToEpubRunner>.Instance
         );
     }

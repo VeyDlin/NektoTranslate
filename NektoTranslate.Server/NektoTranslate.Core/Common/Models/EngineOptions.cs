@@ -28,6 +28,8 @@ public sealed record EngineOptions {
 
     public ChatAgentOptions chat { get; init; } = new();
 
+    public BrowserOptions browser { get; init; } = new();
+
     // The models offered in the interface. Configurable because the CLI has no way to be asked -
     // there is no subcommand that prints its catalogue, and an unknown name is only discovered by
     // being rejected. Overriding this section is how a user reaches a model shipped after this
@@ -121,6 +123,37 @@ public sealed record ChecksOptions {
     public int minimumBlockLength { get; init; } = 12;
 
     public int maxReported { get; init; } = 5;
+}
+
+
+// How hard the parsers are allowed to lean on the sites they read.
+//
+// This matters more than a usual throughput setting, because the load does not fall on us. A book
+// with two thousand chapters is two thousand page loads against someone else's server, and the
+// polite version of that is the only version worth shipping: a reader who gets the host's IP
+// blocked has lost the book, not gained speed.
+//
+// Three separate limits, because they answer three different questions. The global cap is about
+// this machine - every open page is a real Chromium tab with its own memory. Per-host concurrency
+// and the interval between requests are about the site, and are the ones that keep a long import
+// from looking like an attack.
+public sealed record BrowserOptions {
+
+    // Pages open at once across every site. Chromium tabs are not cheap, and an import that opens
+    // forty at once will run out of memory long before it runs out of chapters.
+    public int maxConcurrentPages { get; init; } = 3;
+
+    // Pages open at once against a single site. One is deliberate: two sites are fetched in
+    // parallel, one site is fetched in order, and a second request for a host that is already busy
+    // waits its turn instead of doubling the load.
+    public int perHostConcurrency { get; init; } = 1;
+
+    // Minimum gap between the start of one request to a host and the next.
+    //
+    // Measured from start rather than from finish, so a slow page does not earn an extra pause on
+    // top of the time it already took. Parsers often pace themselves internally; this is the floor
+    // underneath whatever they do, and it applies to the ones that do not.
+    public int minHostIntervalMs { get; init; } = 1_000;
 }
 
 

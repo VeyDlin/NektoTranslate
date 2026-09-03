@@ -42,6 +42,7 @@ public class WebToEpubRunner(
     IBrowserSession session,
     IParserScriptStore scripts,
     ISettingsService settings,
+    IPageScheduler scheduler,
     ILogger<WebToEpubRunner> logger
 ) : ISiteParser {
 
@@ -120,17 +121,22 @@ public class WebToEpubRunner(
         // an import hanging on a dead one.
         int timeoutMs = (await settings.GetAsync(cancellationToken)).pageLoadTimeoutMs;
 
-        await using IBrowserContext context = await session.NewContextAsync(cancellationToken);
-        IPage page = await context.NewPageAsync();
+        // Everything that opens a tab goes through the scheduler, so one site is read in order and
+        // two sites are read in parallel. The alternative is that a long import turns into a burst
+        // of requests against a server that never agreed to host us.
+        return await scheduler.RunAsync(url, async () => {
+            await using IBrowserContext context = await session.NewContextAsync(cancellationToken);
+            IPage page = await context.NewPageAsync();
 
-        await page.GotoAsync(url, new PageGotoOptions {
-            WaitUntil = WaitUntilState.DOMContentLoaded,
-            Timeout = timeoutMs
-        });
+            await page.GotoAsync(url, new PageGotoOptions {
+                WaitUntil = WaitUntilState.DOMContentLoaded,
+                Timeout = timeoutMs
+            });
 
-        await InjectAsync(page);
+            await InjectAsync(page);
 
-        return await work(page);
+            return await work(page);
+        }, cancellationToken);
     }
 
 

@@ -97,6 +97,9 @@ public static class ServiceCollectionExtensions {
         // shared for the life of the application. Everything above it is scoped, because the parser
         // set depends on the user's stored edits and so has to be read per request.
         services.AddSingleton<IBrowserSession, PlaywrightBrowserSession>();
+        // Singleton, and it has to be: limits shared by nothing are not limits. Two scoped
+        // schedulers would each allow the full quota and the site would see twice the traffic.
+        services.AddSingleton<IPageScheduler, PageScheduler>();
         services.AddSingleton(_ => new FileParserScriptStore(parserDirectory));
         services.AddScoped<IParserScriptStore, MergedParserScriptStore>();
         services.AddScoped<ISiteParser, WebToEpubRunner>();
