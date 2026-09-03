@@ -148,16 +148,35 @@ public class WebToEpubRunner(
         int coreLoaded = 0;
         int parsersLoaded = 0;
 
-        foreach (ParserScriptFile script in scripts.CoreScripts()) {
-            if (await TryAddAsync(page, script, failures)) {
-                coreLoaded++;
-            }
+        // Runtime errors inside an injected script do not reject AddScriptTagAsync - the tag was
+        // added, which is all that call promises. They surface as page errors instead, so without
+        // this listener a script whose body threw on its first line counts as loaded. That is
+        // exactly how UIText went missing for weeks while the probe reported every core script fine.
+        List<string> pageErrors = [];
+
+        void OnPageError(object? sender, string message) {
+            pageErrors.Add(message);
         }
 
-        foreach (ParserScriptFile script in scripts.ParserScripts()) {
-            if (await TryAddAsync(page, script, failures)) {
-                parsersLoaded++;
+        page.PageError += OnPageError;
+
+        try {
+            await page.AddScriptTagAsync(new PageAddScriptTagOptions { Content = ExtensionShim });
+
+            foreach (ParserScriptFile script in scripts.CoreScripts()) {
+                if (await TryAddAsync(page, script, failures, pageErrors)) {
+                    coreLoaded++;
+                }
             }
+
+            foreach (ParserScriptFile script in scripts.ParserScripts()) {
+                if (await TryAddAsync(page, script, failures, pageErrors)) {
+                    parsersLoaded++;
+                }
+            }
+        }
+        finally {
+            page.PageError -= OnPageError;
         }
 
         if (failures.Count > 0) {
@@ -168,17 +187,70 @@ public class WebToEpubRunner(
     }
 
 
-    private static async Task<bool> TryAddAsync(IPage page, ParserScriptFile script, List<string> failures) {
+    private static async Task<bool> TryAddAsync(
+        IPage page,
+        ParserScriptFile script,
+        List<string> failures,
+        List<string> pageErrors
+    ) {
+        int before = pageErrors.Count;
+
         try {
             await page.AddScriptTagAsync(new PageAddScriptTagOptions { Content = script.content });
-
-            return true;
-        } catch (PlaywrightException failure) {
+        }
+        catch (PlaywrightException failure) {
             failures.Add($"{script.name}: {failure.Message}");
 
             return false;
         }
+
+        // A synchronous throw during evaluation is reported before the tag finishes loading, so
+        // anything new here belongs to this script.
+        if (pageErrors.Count > before) {
+            failures.Add($"{script.name}: {pageErrors[^1]}");
+
+            return false;
+        }
+
+        return true;
     }
+
+
+    // The slice of the browser-extension API the scripts touch at load time.
+    //
+    // UIText builds every user-facing string through chrome.i18n.getMessage in static field
+    // initialisers, which run the moment the class is declared. With no chrome object the class
+    // throws before it exists, and from then on every error path that tries to describe a failure
+    // dies on "UIText is not defined" instead - burying the real reason a site refused a request
+    // under a bug in the message formatter. Returning the message key keeps the text readable enough
+    // to act on without shipping the extension's locale files.
+    private const string ExtensionShim = """
+        if (typeof chrome === "undefined" || !chrome.i18n) {
+            const noop = () => {};
+            globalThis.chrome = Object.assign(globalThis.chrome ?? {}, {
+                i18n: {
+                    // The key with its substitutions appended, so "htmlFetchFailed" arrives as
+                    // "htmlFetchFailed: <url> <error>" - the parts that say what actually went wrong.
+                    getMessage: (key, substitutions) => {
+                        const text = String(key ?? "").replace(/^__MSG_/, "").replace(/__$/, "");
+                        const values = (Array.isArray(substitutions) ? substitutions : [substitutions])
+                            .filter(value => value !== undefined && value !== null && String(value) !== "");
+                        return values.length === 0 ? text : `${text}: ${values.map(String).join(" ")}`;
+                    }
+                },
+                runtime: { getURL: (path) => String(path ?? ""), onMessage: { addListener: noop } },
+                // Download.js subscribes to chrome.downloads at load time. Nothing here ever saves an
+                // EPUB, but a script that throws on its first line takes every symbol it defines
+                // down with it, and other core files reach for some of them.
+                downloads: { onChanged: { addListener: noop, removeListener: noop }, download: async () => 0 },
+                storage: {
+                    onChanged: { addListener: noop, removeListener: noop },
+                    local: { get: async () => ({}), set: async () => {}, remove: async () => {} },
+                    sync: { get: async () => ({}), set: async () => {}, remove: async () => {} }
+                }
+            });
+        }
+        """;
 
 
     // The factory hands back a parser instance, a bare `undefined` for its manual-selection
