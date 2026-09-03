@@ -29,6 +29,12 @@ const routes: RouteRecordRaw[] = [
         props: true,
     },
     {
+        path: "/novels/:novelId/import-translation",
+        name: "import-translation",
+        component: () => import("@/views/ImportTranslationView.vue"),
+        props: true,
+    },
+    {
         path: "/novels/:novelId/alignment",
         name: "alignment",
         component: () => import("@/views/AlignmentView.vue"),

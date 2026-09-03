@@ -87,6 +87,21 @@ export interface UpdateSettingsRequest {
 }
 
 
+// Why one entry of an imported translation did not land. Reported rather than thrown: an import of
+// a hundred chapters that fails wholesale because one entry had nowhere to go is worse than one that
+// lands ninety-nine and says which one did not.
+export interface TranslationImportRejection {
+    chapterIndex: number;
+    reason: string;
+}
+
+
+export interface TranslationImportResult {
+    imported: number;
+    rejected: TranslationImportRejection[];
+}
+
+
 // Moves the translations of a span of chapters onto a different span.
 //
 // A span plus an offset rather than a list of pairs, because that is what the interface produces: a

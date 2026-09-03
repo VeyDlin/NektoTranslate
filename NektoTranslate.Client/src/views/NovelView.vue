@@ -70,6 +70,16 @@
                     size="sm"
                     color="neutral"
                     variant="ghost"
+                    icon="i-material-symbols:translate-rounded"
+                    :to="{ name: 'import-translation', params: { novelId: id } }"
+                >
+                    Existing translation
+                </UButton>
+
+                <UButton
+                    size="sm"
+                    color="neutral"
+                    variant="ghost"
                     icon="i-material-symbols:content-paste-rounded"
                     :to="{ name: 'import-chapter', params: { novelId: id } }"
                 >
