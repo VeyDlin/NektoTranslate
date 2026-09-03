@@ -62,9 +62,11 @@
             </section>
 
             <section class="group">
-                <UFormField label="Model" description="Which model translates this book.">
-                    <UInput v-model="form.model" placeholder="sonnet" class="narrow" />
-                </UFormField>
+                <ModelField
+                    v-model="form.model"
+                    label="Model"
+                    description="Which model translates this book. Changing it makes the next run genuinely re-translate."
+                />
 
                 <USwitch
                     v-model="form.normalizeQuotes"
@@ -124,6 +126,7 @@
 <script setup lang="ts">
     import { computed, reactive, ref, watch } from "vue";
     import { useRouter } from "vue-router";
+    import ModelField from "@/components/settings/ModelField.vue";
     import { useDeleteNovel, useNovel, useUpdateNovel } from "@/composables/useNovels";
     import { scriptLangFor, scriptLangIf } from "@/utils/language";
 

@@ -600,11 +600,22 @@ export function createSeed(): Seed {
         chapters: [...ashTown, ...longNight],
         glossary,
         jobs,
+        // The server's own defaults, deliberately, so working against mocks shows the same starting
+        // point a real installation has rather than a set of numbers invented here.
         settings: {
             id: 1,
             globalStyleGuide: "Keep honorifics as transliterations. Prefer plain contemporary prose.",
             defaultModel: "sonnet",
             glossaryModel: "sonnet",
+            localModelEndpoint: null,
+            localModelName: "qwen2.5:7b",
+            localModelApiKey: "not-needed",
+            maxOutputTokens: 16000,
+            expansionFactor: 2,
+            voiceWindowChapters: 2,
+            voiceWindowParagraphs: 4,
+            pageLoadTimeoutMs: 45000,
+            chatMaxRounds: 5,
             updatedAt: daysAgo(12),
         },
         parsers: PARSERS.map(parser => ({ ...parser })),

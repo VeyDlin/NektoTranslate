@@ -61,10 +61,29 @@ export interface UpdateNovelRequest {
 }
 
 
+// Every field optional: null means "leave alone", so one screen can save one field without echoing
+// back the rest. An empty string is what clears a nullable field.
+//
+// Numbers are clamped server-side to a usable range rather than rejected — send 999999 and the
+// response comes back with the nearest sane value. Render what comes back rather than what was
+// sent, or the user never sees the correction.
 export interface UpdateSettingsRequest {
     globalStyleGuide?: string | null;
     defaultModel?: string | null;
     glossaryModel?: string | null;
+
+    localModelEndpoint?: string | null;
+    localModelName?: string | null;
+    localModelApiKey?: string | null;
+
+    maxOutputTokens?: number | null;
+    expansionFactor?: number | null;
+
+    voiceWindowChapters?: number | null;
+    voiceWindowParagraphs?: number | null;
+
+    pageLoadTimeoutMs?: number | null;
+    chatMaxRounds?: number | null;
 }
 
 

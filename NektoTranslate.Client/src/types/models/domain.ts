@@ -71,13 +71,65 @@ export interface ParserScriptSummary {
 }
 
 
-// Applies to every book. The book's own style guide comes after it and wins where the two disagree;
-// neither can replace the built-in instructions that carry the segment protocol.
+// One entry in a model dropdown.
+//
+// The list is configured on the server rather than discovered: the Claude CLI has no command that
+// prints its catalogue, and it only rejects a bad name when one is used. The defaults are family
+// aliases, which is why they do not go stale — an alias always resolves to the newest model of its
+// family.
+export interface ModelOption {
+    id: string;
+    label: string;
+    description: string;
+    isAlias: boolean;
+}
+
+
+// Whether this subscription can actually run a model. Spends a little when the model is valid, so
+// it belongs behind a button rather than on page load.
+export interface ModelProbeResult {
+    id: string;
+    available: boolean;
+    error: string | null;
+}
+
+
+// What a locally hosted server reports it has loaded. Unlike the Claude side this is a real
+// enumeration — every OpenAI-compatible server answers `GET /v1/models`.
+//
+// `reachable: false` is an ordinary state, not an error: running without a local model is normal.
+export interface LocalModelList {
+    reachable: boolean;
+    models: string[];
+    error: string | null;
+}
+
+
+// Everything the user can change from the settings screen. Anything with one right answer stayed in
+// the server's own configuration and is deliberately absent here.
+//
+// The style guide applies to every book; a book's own guide comes after it and wins where the two
+// disagree. Neither can replace the built-in instructions that carry the segment protocol.
 export interface AppSettings {
     id: number;
     globalStyleGuide: string | null;
+
     defaultModel: string;
     glossaryModel: string;
+
+    localModelEndpoint: string | null;
+    localModelName: string;
+    localModelApiKey: string;
+
+    maxOutputTokens: number;
+    expansionFactor: number;
+
+    voiceWindowChapters: number;
+    voiceWindowParagraphs: number;
+
+    pageLoadTimeoutMs: number;
+    chatMaxRounds: number;
+
     updatedAt: string;
 }
 
