@@ -87,6 +87,23 @@ export interface UpdateSettingsRequest {
 }
 
 
+// Moves the translations of a span of chapters onto a different span.
+//
+// A span plus an offset rather than a list of pairs, because that is what the interface produces: a
+// user selects chapters and drags them a few places. Only chapters in the span that actually hold a
+// translation move, so a gap in an imported translation does not drag its neighbours along.
+//
+// `apply: false` is a dry run — same answer, nothing written. Use it while a drag is in progress so
+// a collision is shown before the drop rather than after.
+export interface MoveTranslationsRequest {
+    language: string;
+    fromIndex: number;
+    toIndex: number;
+    offset: number;
+    apply: boolean;
+}
+
+
 export interface ParserSupport {
     supported: boolean;
     parser: string | null;

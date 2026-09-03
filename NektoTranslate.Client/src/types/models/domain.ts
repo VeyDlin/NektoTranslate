@@ -193,6 +193,51 @@ export interface GlossaryEntry {
 }
 
 
+// One row of the alignment screen: an original chapter and whatever translation is attached to it.
+//
+// Previews rather than prose. Alignment is judged by eye — the question is only "does this
+// translation belong to this chapter" — and sending the text itself would cost megabytes on a long
+// novel to render a list.
+export interface AlignmentRow {
+    chapterId: number;
+    index: number;
+    title: string;
+    translationState: TranslationState;
+    source: string;
+
+    translation: {
+        id: number;
+        origin: TranslationOrigin;
+        text: string;
+    } | null;
+
+    // Earlier versions exist but are not sent. A hand correction on top of an import makes this 2.
+    versions: number;
+}
+
+
+// Where a move would land and what is in the way. Returned instead of applying whenever any part of
+// the move conflicts — the server refuses all of it rather than moving what it can.
+export interface TranslationCollision {
+    fromIndex: number;
+    targetIndex: number;
+    reason: string;
+}
+
+
+export interface MoveTranslationsResult {
+    applied: boolean;
+    moved: number;
+    collisions: TranslationCollision[];
+}
+
+
+export interface DeleteTranslationsResult {
+    chapters: number;
+    versions: number;
+}
+
+
 export interface TranslationJob {
     id: number;
     novelId: number;

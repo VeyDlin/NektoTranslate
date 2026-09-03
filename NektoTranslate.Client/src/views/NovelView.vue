@@ -21,6 +21,15 @@
             </span>
 
             <UButton
+                :to="{ name: 'alignment', params: { novelId: id } }"
+                icon="i-material-symbols:swap-vert-rounded"
+                color="neutral"
+                variant="ghost"
+                size="sm"
+                aria-label="Chapter alignment"
+            />
+
+            <UButton
                 :to="{ name: 'novel-settings', params: { novelId: id } }"
                 icon="i-material-symbols:settings-outline-rounded"
                 color="neutral"

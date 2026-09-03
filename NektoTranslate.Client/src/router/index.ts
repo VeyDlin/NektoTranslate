@@ -29,6 +29,12 @@ const routes: RouteRecordRaw[] = [
         props: true,
     },
     {
+        path: "/novels/:novelId/alignment",
+        name: "alignment",
+        component: () => import("@/views/AlignmentView.vue"),
+        props: true,
+    },
+    {
         path: "/novels/:novelId/settings",
         name: "novel-settings",
         component: () => import("@/views/NovelSettingsView.vue"),

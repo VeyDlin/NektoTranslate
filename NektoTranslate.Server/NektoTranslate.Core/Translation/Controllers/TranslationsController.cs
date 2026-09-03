@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using NektoTranslate.Common.Data;
 using NektoTranslate.Translation.Contracts;
 using NektoTranslate.Translation.Services;
 
@@ -16,8 +18,55 @@ namespace NektoTranslate.Translation.Controllers;
 [Route("api/novels/{novelId:long}/translations")]
 public class TranslationsController(
     ITranslationImportService importer,
-    ITranslationMapping mapping
+    ITranslationMapping mapping,
+    NektoDbContext database
 ) : ControllerBase {
+
+    // Enough of a line to recognise a chapter by, and short enough that the whole book fits in one
+    // response. SQLite's substr is happy with a length past the end of the string.
+    private const int PreviewLength = 160;
+
+    // Both sides of the book, side by side, which is what the alignment screen exists to show.
+    //
+    // Carries a short preview of each side rather than the text. Alignment is judged by eye - the
+    // user reads "does this translation belong to this chapter" - and a glance at the opening line
+    // answers that. Sending the prose itself would make a two-thousand-chapter novel cost megabytes
+    // to render a list.
+    [HttpGet("alignment")]
+    public async Task<IReadOnlyList<object>> Alignment(
+        long novelId,
+        [FromQuery] string language,
+        CancellationToken cancellationToken
+    ) {
+        return await database.chapters
+            .AsNoTracking()
+            .Where(chapter => chapter.novelId == novelId)
+            .OrderBy(chapter => chapter.index)
+            .Select(chapter => new {
+                chapterId = chapter.id,
+                chapter.index,
+                chapter.title,
+                chapter.translationState,
+                source = chapter.sourcePlainText.Substring(0, PreviewLength),
+
+                // The newest version, because that is the one the reader sees. The count tells the
+                // interface that earlier ones exist without sending them.
+                translation = chapter.translations
+                    .Where(translation => translation.language == language)
+                    .OrderByDescending(translation => translation.createdAt)
+                    .ThenByDescending(translation => translation.id)
+                    .Select(translation => new {
+                        translation.id,
+                        translation.origin,
+                        text = translation.plainText.Substring(0, PreviewLength)
+                    })
+                    .FirstOrDefault(),
+
+                versions = chapter.translations.Count(translation => translation.language == language)
+            })
+            .ToListAsync<object>(cancellationToken);
+    }
+
 
     [HttpPost("import")]
     public async Task<TranslationImportResult> Import(

@@ -7,3 +7,4 @@ export { novelsApi } from "./novels.api";
 export { parsersApi } from "./parsers.api";
 export { parsingApi } from "./parsing.api";
 export { settingsApi } from "./settings.api";
+export { translationsApi } from "./translations.api";
