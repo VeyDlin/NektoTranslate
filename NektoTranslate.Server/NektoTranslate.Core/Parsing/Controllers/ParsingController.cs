@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using NektoTranslate.Parsing.Commands;
 using NektoTranslate.Parsing.Contracts;
 using NektoTranslate.Parsing.Services;
+using NektoTranslate.Translation.Contracts;
 
 
 namespace NektoTranslate.Parsing.Controllers;
@@ -41,7 +42,35 @@ public class ParsingController(IMediator mediator, ISiteParser parser) : Control
     ) {
         return await mediator.Send(new ImportFromUrlCommand(novelId, chapters), cancellationToken);
     }
+
+
+    // The same thing for an existing translation of the book, attached to chapters that are already
+    // there. `startAtChapterIndex` is what absorbs a translator's note or any other leading entry
+    // the original does not have.
+    [HttpPost("novels/{novelId:long}/import-translation")]
+    public async Task<TranslationImportResult> ImportTranslation(
+        long novelId,
+        [FromBody] ImportTranslationFromUrlRequest request,
+        CancellationToken cancellationToken
+    ) {
+        return await mediator.Send(
+            new ImportTranslationFromUrlCommand(
+                novelId,
+                request.language,
+                request.startAtChapterIndex,
+                request.chapters
+            ),
+            cancellationToken
+        );
+    }
 }
+
+
+public sealed record ImportTranslationFromUrlRequest(
+    string language,
+    IReadOnlyList<ParsedChapterLink> chapters,
+    int startAtChapterIndex = 0
+);
 
 
 public sealed record TableOfContentsRequest(string url);

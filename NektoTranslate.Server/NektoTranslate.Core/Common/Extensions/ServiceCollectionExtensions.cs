@@ -44,6 +44,9 @@ public static class ServiceCollectionExtensions {
 
         services.AddSingleton<IChapterHtmlSanitizer, ChapterHtmlSanitizer>();
         services.AddSingleton<IChapterSegmenter, ChapterSegmenter>();
+        // One conversion for both sides of a book. Sharing it is what keeps an imported translation
+        // comparable, paragraph for paragraph, with the original it is attached to.
+        services.AddSingleton<IMarkdownConversion, MarkdownConversion>();
         services.AddScoped<IChapterImportService, ChapterImportService>();
 
         // The Claude-backed services hold no state between calls - each one spawns its own CLI
@@ -65,6 +68,8 @@ public static class ServiceCollectionExtensions {
 
         services.AddScoped<IChapterTranslator, ChapterTranslator>();
         services.AddScoped<ITranslationEditor, TranslationEditor>();
+        services.AddScoped<ITranslationImportService, TranslationImportService>();
+        services.AddScoped<ITranslationMapping, TranslationMapping>();
         services.AddScoped<ITranslationNotifier, SignalRTranslationNotifier>();
 
         services.AddScoped<ITermLocator, ExactTermLocator>();
