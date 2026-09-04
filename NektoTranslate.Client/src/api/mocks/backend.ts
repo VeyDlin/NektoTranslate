@@ -1,10 +1,12 @@
 import type { ProsePair, Seed, SeedChapter } from "./seed";
-import type { ImportedChapter, StartTranslationJobRequest, UpsertGlossaryEntryRequest } from "@/types/api/requests";
+import type { ImportedChapter, StartImportRequest, StartTranslationJobRequest, UpsertGlossaryEntryRequest } from "@/types/api/requests";
 import type {
+    Activity,
     ChatMessage,
     GlossaryEntry,
+    ImportJob,
+    ImportJobItem,
     JobState,
-    ParsedChapterLink,
     TranslationJob,
     TranslationState,
 } from "@/types/models/domain";
@@ -21,6 +23,10 @@ import { CHINESE_PROSE, createSeed, IDEOGRAPHIC_SPACE, JAPANESE_PROSE } from "./
 
 const CHAPTER_MS = 1400;
 const REQUEST_LATENCY_MS = 180;
+
+// An import item has no prose to stream, so it settles far faster than a translated chapter — but
+// still one at a time, in order, the same as a translation run.
+const IMPORT_ITEM_MS = 220;
 
 
 function hostOf(url: string): string {
@@ -68,6 +74,8 @@ export class MockBackend {
 
     private nextJobId = 100;
 
+    private nextImportJobId = 500;
+
     private nextTranslationId = 900_000;
 
     private nextGlossaryId = 900;
@@ -75,6 +83,10 @@ export class MockBackend {
     private nextChatId = 100;
 
     private cancelled = new Set<number>();
+
+    private importCancelled = new Set<number>();
+
+    private importPaused = new Set<number>();
 
 
     public async handle(method: string, path: string, body: unknown): Promise<unknown> {
@@ -221,6 +233,36 @@ export class MockBackend {
             }
         }
 
+        if (segments[3] === "imports") {
+            if (segments.length === 4 && method === "GET") {
+                return this.listImportJobs(novelId);
+            }
+
+            if (segments.length === 4 && method === "POST") {
+                return this.startImportJob(novelId, body as StartImportRequest);
+            }
+
+            if (segments.length === 5 && method === "GET") {
+                return this.getImportJob(novelId, Number(segments[4]));
+            }
+
+            if (segments[5] === "pause" && method === "POST") {
+                return this.pauseImportJob(novelId, Number(segments[4]));
+            }
+
+            if (segments[5] === "resume" && method === "POST") {
+                return this.resumeImportJob(novelId, Number(segments[4]));
+            }
+
+            if (segments[5] === "cancel" && method === "POST") {
+                return this.cancelImportJobHandler(novelId, Number(segments[4]));
+            }
+        }
+
+        if (segments[3] === "activity" && segments.length === 4 && method === "GET") {
+            return this.getActivity(novelId);
+        }
+
         throw new MockNotFound(method, path);
     }
 
@@ -243,12 +285,6 @@ export class MockBackend {
 
         if (segments[2] === "table-of-contents" && method === "POST") {
             return buildTableOfContents((body as { url?: string } | undefined)?.url ?? "");
-        }
-
-        if (segments[2] === "novels" && segments[4] === "import" && method === "POST") {
-            const chosen = (body as ParsedChapterLink[] | undefined) ?? [];
-
-            return this.importFromUrl(Number(segments[3]), chosen);
         }
 
         throw new MockNotFound(method, path);
@@ -307,40 +343,6 @@ export class MockBackend {
         }
 
         throw new MockNotFound(method, path);
-    }
-
-
-    private importFromUrl(novelId: number, chosen: ParsedChapterLink[]): unknown {
-        const existing = this.chaptersOf(novelId);
-        let nextIndex = existing.reduce((highest, chapter) => Math.max(highest, chapter.index), 0);
-        const failures: string[] = [];
-
-        chosen.forEach((link, at) => {
-            // One in nine refuses, so the partial-success path is something the interface has to
-            // have shown before it meets a real site.
-            if (at % 9 === 8) {
-                failures.push(`${link.title} — the page did not answer in time`);
-                return;
-            }
-
-            this.nextChapterId += 1;
-            nextIndex += 1;
-
-            this.seed.chapters.push({
-                id: this.nextChapterId,
-                novelId,
-                index: nextIndex,
-                title: link.title,
-                sourceHeading: link.title,
-                translatedHeading: link.title,
-                proseIndex: at % JAPANESE_PROSE.length,
-                glossaryState: "NotAnalyzed",
-                translationState: "None",
-                translations: [],
-            });
-        });
-
-        return { imported: chosen.length - failures.length, failures };
     }
 
 
@@ -874,6 +876,321 @@ export class MockBackend {
                 this.publishChapterState(chapter.novelId, chapter);
             }
         }
+    }
+
+
+    private findImportJob(jobId: number, novelId?: number): ImportJob | undefined {
+        return this.seed.imports.find(job => job.id === jobId && (novelId === undefined || job.novelId === novelId));
+    }
+
+
+    // `items: null` on the list projection for the same reason the chapter list has no bodies — an
+    // import history is read far more often than any one job's detail.
+    private serializeImportJob(job: ImportJob, withItems: boolean): ImportJob {
+        return {
+            ...job,
+            items: withItems ? job.items?.map(item => ({ ...item })) ?? [] : null,
+        };
+    }
+
+
+    private listImportJobs(novelId: number): unknown[] {
+        return this.seed.imports
+            .filter(job => job.novelId === novelId)
+            .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+            .map(job => this.serializeImportJob(job, false));
+    }
+
+
+    private getImportJob(novelId: number, jobId: number): unknown {
+        const job = this.findImportJob(jobId, novelId);
+
+        if (job === undefined) {
+            throw new MockNotFound("GET", `/api/novels/${novelId}/imports/${jobId}`);
+        }
+
+        return this.serializeImportJob(job, true);
+    }
+
+
+    private startImportJob(novelId: number, request: StartImportRequest): unknown {
+        const chapters = request.chapters ?? [];
+
+        this.nextImportJobId += 1;
+
+        const items: ImportJobItem[] = chapters.map((chapter, at) => ({
+            position: at,
+            sourceUrl: chapter.sourceUrl,
+            title: chapter.title,
+            chapterIndex: null,
+            chapterId: null,
+            state: "Pending",
+            status: null,
+            finishedAt: null,
+        }));
+
+        const job: ImportJob = {
+            id: this.nextImportJobId,
+            novelId,
+            kind: request.kind,
+            language: request.kind === "Translation" ? request.language ?? null : null,
+            startAtChapterIndex: request.startAtChapterIndex ?? 0,
+            state: "Queued",
+            processedCount: 0,
+            totalCount: items.length,
+            currentTitle: null,
+            createdAt: new Date().toISOString(),
+            startedAt: null,
+            finishedAt: null,
+            error: null,
+            items,
+        };
+
+        this.seed.imports.push(job);
+
+        void this.runImportJob(job);
+
+        return this.serializeImportJob(job, true);
+    }
+
+
+    private pauseImportJob(novelId: number, jobId: number): unknown {
+        const job = this.findImportJob(jobId, novelId);
+
+        if (job === undefined || job.state !== "Running") {
+            throw new MockNotFound("POST", `/api/novels/${novelId}/imports/${jobId}/pause`);
+        }
+
+        this.importPaused.add(jobId);
+
+        return null;
+    }
+
+
+    // Resuming restarts the same loop over the same items: every item already settled is skipped
+    // instantly, so it picks straight back up on the first still-Pending one.
+    private resumeImportJob(novelId: number, jobId: number): unknown {
+        const job = this.findImportJob(jobId, novelId);
+
+        if (job === undefined || job.state !== "Paused") {
+            throw new MockNotFound("POST", `/api/novels/${novelId}/imports/${jobId}/resume`);
+        }
+
+        this.importPaused.delete(jobId);
+        void this.runImportJob(job);
+
+        return null;
+    }
+
+
+    private cancelImportJobHandler(novelId: number, jobId: number): unknown {
+        const job = this.findImportJob(jobId, novelId);
+
+        if (job === undefined || (job.state !== "Running" && job.state !== "Paused" && job.state !== "Queued")) {
+            throw new MockNotFound("POST", `/api/novels/${novelId}/imports/${jobId}/cancel`);
+        }
+
+        // A paused job has no loop currently running to notice the flag, so it is settled directly
+        // instead of waiting for a loop iteration that will never come.
+        if (job.state === "Paused") {
+            this.importPaused.delete(jobId);
+            this.cancelRemainingItems(job);
+            this.settleImport(job, "Cancelled");
+        }
+        else {
+            this.importCancelled.add(jobId);
+        }
+
+        return null;
+    }
+
+
+    private getActivity(novelId: number): Activity {
+        const translation = this.seed.jobs.find(job => (
+            job.novelId === novelId && (job.state === "Queued" || job.state === "Running" || job.state === "Paused")
+        ));
+
+        return {
+            translation: translation === undefined ? null : { ...translation },
+            imports: this.seed.imports
+                .filter(job => (
+                    job.novelId === novelId && (job.state === "Queued" || job.state === "Running" || job.state === "Paused")
+                ))
+                .map(job => this.serializeImportJob(job, true)),
+        };
+    }
+
+
+    private publishImportState(job: ImportJob): void {
+        mockEmitter.emit(job.novelId, "ImportStateChanged", {
+            jobId: job.id,
+            kind: job.kind,
+            state: job.state,
+            processed: job.processedCount,
+            total: job.totalCount,
+            currentTitle: job.currentTitle,
+        });
+    }
+
+
+    private publishImportItem(job: ImportJob, item: ImportJobItem): void {
+        mockEmitter.emit(job.novelId, "ImportItemFinished", {
+            jobId: job.id,
+            position: item.position,
+            sourceUrl: item.sourceUrl,
+            title: item.title,
+            chapterIndex: item.chapterIndex,
+            chapterId: item.chapterId,
+            state: item.state,
+            status: item.status,
+            finishedAt: item.finishedAt ?? new Date().toISOString(),
+        });
+    }
+
+
+    private settleImport(job: ImportJob, state: JobState): void {
+        job.state = state;
+        job.currentTitle = null;
+        job.finishedAt = new Date().toISOString();
+        this.publishImportState(job);
+    }
+
+
+    // Cancelling stops the loop between items, not mid-item, the same rule a translation run keeps —
+    // but the items still queued behind it need their own terminal state so the per-chapter list does
+    // not leave them sitting at Pending forever.
+    private cancelRemainingItems(job: ImportJob): void {
+        for (const item of job.items ?? []) {
+            if (item.state === "Pending") {
+                item.state = "Cancelled";
+                item.finishedAt = new Date().toISOString();
+                this.publishImportItem(job, item);
+            }
+        }
+    }
+
+
+    // One item at a time, in order — chapters are committed as they arrive rather than as one batch
+    // at the end, which is what lets the per-chapter list fill in live instead of appearing all at
+    // once when the job finishes.
+    private async runImportJob(job: ImportJob): Promise<void> {
+        job.state = "Running";
+        job.startedAt ??= new Date().toISOString();
+        this.publishImportState(job);
+
+        const existingChapters = this.chaptersOf(job.novelId);
+        let nextChapterIndex = existingChapters.reduce((highest, chapter) => Math.max(highest, chapter.index), 0);
+
+        for (const item of job.items ?? []) {
+            // Already settled by an earlier pass — this run is a resume, picking up where a pause
+            // left off.
+            if (item.state !== "Pending") {
+                continue;
+            }
+
+            if (this.importCancelled.has(job.id)) {
+                this.importCancelled.delete(job.id);
+                this.cancelRemainingItems(job);
+                this.settleImport(job, "Cancelled");
+                return;
+            }
+
+            if (this.importPaused.has(job.id)) {
+                job.state = "Paused";
+                job.currentTitle = null;
+                this.publishImportState(job);
+                return;
+            }
+
+            job.currentTitle = item.title;
+            this.publishImportState(job);
+
+            await delay(IMPORT_ITEM_MS);
+
+            if (job.kind === "Originals") {
+                // One in nine refuses, so the partial-success path is something the interface has
+                // shown before it meets a real site.
+                if (item.position % 9 === 8) {
+                    item.state = "Failed";
+                    item.status = {
+                        code: "CHAPTER_FETCH_FAILED",
+                        text: `Could not read ${item.sourceUrl}: the page did not answer in time.`,
+                        args: { url: item.sourceUrl, reason: "timed out" },
+                    };
+                }
+                else {
+                    nextChapterIndex += 1;
+                    this.nextChapterId += 1;
+
+                    const chapter: SeedChapter = {
+                        id: this.nextChapterId,
+                        novelId: job.novelId,
+                        index: nextChapterIndex,
+                        title: item.title,
+                        sourceHeading: item.title,
+                        translatedHeading: item.title,
+                        proseIndex: item.position % JAPANESE_PROSE.length,
+                        glossaryState: "NotAnalyzed",
+                        translationState: "None",
+                        translations: [],
+                    };
+
+                    this.seed.chapters.push(chapter);
+
+                    item.state = "Imported";
+                    item.chapterIndex = nextChapterIndex;
+                    item.chapterId = chapter.id;
+                }
+            }
+            else {
+                const targetIndex = job.startAtChapterIndex + item.position;
+                const chapter = existingChapters.find(candidate => candidate.index === targetIndex);
+
+                if (chapter === undefined) {
+                    item.state = "Skipped";
+                    item.status = {
+                        code: "NO_CHAPTER_AT_INDEX",
+                        text: `Chapter ${targetIndex} does not exist. Import the original first, or shift the mapping.`,
+                        args: { index: targetIndex },
+                    };
+                }
+                else if (chapter.translations.some(translation => translation.language === job.language)) {
+                    item.state = "Skipped";
+                    item.status = {
+                        code: "TRANSLATION_ALREADY_EXISTS",
+                        text: `Chapter ${targetIndex} already has a ${job.language ?? ""} translation.`,
+                        args: { index: targetIndex, language: job.language },
+                    };
+                }
+                else {
+                    this.nextTranslationId += 1;
+
+                    chapter.translations.push({
+                        id: this.nextTranslationId,
+                        language: job.language ?? "English",
+                        markdown: "",
+                        origin: "Imported",
+                        costUsd: null,
+                        createdAt: new Date().toISOString(),
+                    });
+
+                    chapter.translationState = "Translated";
+                    this.publishChapterState(job.novelId, chapter);
+
+                    item.state = "Imported";
+                    item.chapterIndex = targetIndex;
+                    item.chapterId = chapter.id;
+                }
+            }
+
+            item.finishedAt = new Date().toISOString();
+            job.processedCount += 1;
+            this.publishImportItem(job, item);
+            this.publishImportState(job);
+        }
+
+        job.currentTitle = null;
+        this.settleImport(job, "Completed");
     }
 }
 

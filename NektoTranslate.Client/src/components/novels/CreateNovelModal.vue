@@ -12,11 +12,23 @@
 
                 <div class="pair">
                     <UFormField name="sourceLanguage" label="Written in">
-                        <UInput v-model="state.sourceLanguage" placeholder="Japanese" />
+                        <USelectMenu
+                            v-model="state.sourceLanguage"
+                            :items="LANGUAGES"
+                            create-item
+                            placeholder="Japanese"
+                            class="w-full"
+                        />
                     </UFormField>
 
                     <UFormField name="targetLanguage" label="Translate into">
-                        <UInput v-model="state.targetLanguage" placeholder="English" />
+                        <USelectMenu
+                            v-model="state.targetLanguage"
+                            :items="LANGUAGES"
+                            create-item
+                            placeholder="English"
+                            class="w-full"
+                        />
                     </UFormField>
                 </div>
 
@@ -59,6 +71,7 @@
     import { useRouter } from "vue-router";
     import { useCreateNovel } from "@/composables/useNovels";
     import { createNovelSchema } from "@/schemas/novel.schema";
+    import { LANGUAGES } from "@/utils/language";
 
 
     const open = defineModel<boolean>("open", { required: true });

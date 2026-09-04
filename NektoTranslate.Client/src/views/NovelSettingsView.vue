@@ -244,21 +244,24 @@
             }
         }
 
+        // The scroll region itself spans the full window width, edge to edge, matching LibraryView's
+        // `.page` — only the content inside it is held to a readable measure, so the scrollbar never
+        // sits stranded in the middle of the screen with empty gutters on both sides.
         .sheet {
             flex: 1;
             min-height: 0;
             overflow-y: auto;
             width: 100%;
-            max-width: $reading-measure-wide;
-            margin: 0 auto;
             padding: 2.5rem 1.5rem 4rem;
 
             .group {
                 display: flex;
                 flex-direction: column;
                 gap: 1rem;
+                width: 100%;
+                max-width: $reading-measure-wide;
+                margin: 0 auto 2rem;
                 padding-bottom: 2rem;
-                margin-bottom: 2rem;
                 border-bottom: 1px solid var(--ui-border);
             }
 
@@ -287,7 +290,9 @@
                 display: flex;
                 align-items: center;
                 gap: 0.5rem;
-                margin-bottom: 3rem;
+                width: 100%;
+                max-width: $reading-measure-wide;
+                margin: 0 auto 3rem;
 
                 .saved {
                     color: var(--ui-success);
@@ -304,6 +309,9 @@
                 display: flex;
                 align-items: flex-start;
                 gap: 1.5rem;
+                width: 100%;
+                max-width: $reading-measure-wide;
+                margin: 0 auto;
                 padding: 1.25rem;
                 box-shadow: inset 2px 0 0 var(--ui-error);
                 background: var(--ui-bg-muted);

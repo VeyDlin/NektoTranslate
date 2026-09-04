@@ -24,6 +24,16 @@ export const JOB_SCOPE_KINDS = ["WholeBook", "Range", "Single", "Selection"] as 
 export type JobScopeKind = (typeof JOB_SCOPE_KINDS)[number];
 
 
+export const IMPORT_KINDS = ["Originals", "Translation"] as const;
+
+export type ImportKind = (typeof IMPORT_KINDS)[number];
+
+
+export const IMPORT_ITEM_STATES = ["Pending", "Imported", "Skipped", "Failed", "Cancelled"] as const;
+
+export type ImportItemState = (typeof IMPORT_ITEM_STATES)[number];
+
+
 export const GLOSSARY_ORIGINS = ["AiExtracted", "FromExistingTranslation", "Manual"] as const;
 
 export type GlossaryOrigin = (typeof GLOSSARY_ORIGINS)[number];
@@ -296,4 +306,54 @@ export interface TranslationJob {
     startedAt: string | null;
     finishedAt: string | null;
     error: string | null;
+}
+
+
+// One row of the chapter list the user picked when the job was started, tracked individually so a
+// batch of a thousand entries can fail nine and land the rest — the same partial-success shape the
+// old one-shot import endpoints used to return, now visible while the job is still running instead of
+// only in a final result.
+export interface ImportJobItem {
+    position: number;
+    sourceUrl: string;
+    title: string;
+    chapterIndex: number | null;
+    chapterId: number | null;
+    state: ImportItemState;
+    status: StatusMessage | null;
+    finishedAt: string | null;
+}
+
+
+// Importing chapters — from a site, or from a translation the book already has — is a job now, the
+// same shape as a translation run: it can be watched, paused and resumed rather than being an
+// all-or-nothing request the tab has to stay open for.
+//
+// `items` is null on the list projection (`GET .../imports`) for the same reason a chapter list has
+// no bodies — a book's import history is read far more often than any one job's detail — and carried
+// wherever a single job is fetched or started.
+export interface ImportJob {
+    id: number;
+    novelId: number;
+    kind: ImportKind;
+    language: string | null;
+    startAtChapterIndex: number;
+    state: JobState;
+    processedCount: number;
+    totalCount: number;
+    currentTitle: string | null;
+    createdAt: string;
+    startedAt: string | null;
+    finishedAt: string | null;
+    error: string | null;
+    items: ImportJobItem[] | null;
+}
+
+
+// What is running for a novel right now, in one request — translation and every live import
+// together. This is the shape a reloaded page adopts to land back where it was rather than replaying
+// the event history from nothing.
+export interface Activity {
+    translation: TranslationJob | null;
+    imports: ImportJob[];
 }

@@ -30,10 +30,11 @@
                 placeholder="Address of the novel's contents page"
                 size="sm"
                 class="url"
+                :disabled="jobActive"
                 @keydown.enter="loadContents"
             />
 
-            <UButton size="sm" :loading="isLoading" :disabled="url.trim() === ''" @click="loadContents">
+            <UButton size="sm" :loading="isLoading" :disabled="url.trim() === '' || jobActive" @click="loadContents">
                 Read the contents
             </UButton>
 
@@ -47,15 +48,101 @@
             </span>
         </div>
 
+        <!-- Appears the moment a job of this kind exists — active, or settled and not yet dismissed —
+             and stays through a navigate-away-and-back because it reads the store, not local state. -->
+        <div v-if="job !== null" class="run">
+            <div class="run-head">
+                <span class="run-state" :class="job.state.toLowerCase()">{{ jobStateLabel(job.state) }}</span>
+
+                <span
+                    v-if="job.currentTitle"
+                    class="run-title"
+                    :lang="scriptLangIf(job.currentTitle, scriptLang)"
+                >
+                    {{ job.currentTitle }}
+                </span>
+
+                <span v-if="job.totalCount > 0" class="run-counts">
+                    {{ formatCount(job.processedCount) }} of {{ formatCount(job.totalCount) }}
+                </span>
+
+                <span class="spacer" />
+
+                <UButton
+                    v-if="job.state === 'Running'"
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    :loading="pausing"
+                    @click="pause"
+                >
+                    Pause
+                </UButton>
+
+                <UButton
+                    v-else-if="job.state === 'Paused'"
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    :loading="resuming"
+                    @click="resume"
+                >
+                    Resume
+                </UButton>
+
+                <UButton
+                    v-if="job.state === 'Running' || job.state === 'Paused'"
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    :loading="cancelling"
+                    @click="cancelRun"
+                >
+                    Cancel
+                </UButton>
+
+                <UButton
+                    v-else-if="settled"
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    aria-label="Dismiss"
+                    icon="i-material-symbols:close-rounded"
+                    @click="dismiss"
+                />
+            </div>
+
+            <UProgress
+                size="2xs"
+                :color="job.state === 'Paused' ? 'warning' : 'primary'"
+                :model-value="job.totalCount > 0 ? job.processedCount : null"
+                :max="job.totalCount > 0 ? job.totalCount : 100"
+            />
+
+            <p class="summary">{{ summary }}</p>
+
+            <ul class="items">
+                <li v-for="item in job.items ?? []" :key="item.position">
+                    <span class="title" :lang="scriptLangIf(item.title, scriptLang)">{{ item.title }}</span>
+
+                    <ImportItemStateBadge :state="item.state" />
+
+                    <span v-if="item.status && (item.state === 'Skipped' || item.state === 'Failed')" class="reason">
+                        {{ describe(item.status) }}
+                    </span>
+                </li>
+            </ul>
+        </div>
+
         <Transition name="pick">
             <div v-if="links.length > 0" class="picked">
                 <span>{{ formatCount(selectedLinks.length) }} of {{ formatCount(links.length) }} chosen</span>
 
-                <UButton size="xs" color="neutral" variant="ghost" @click="selectAll">
+                <UButton size="xs" color="neutral" variant="ghost" :disabled="jobActive" @click="selectAll">
                     Select all
                 </UButton>
 
-                <UButton size="xs" color="neutral" variant="ghost" @click="rowSelection = {}">
+                <UButton size="xs" color="neutral" variant="ghost" :disabled="jobActive" @click="rowSelection = {}">
                     Clear
                 </UButton>
 
@@ -63,8 +150,8 @@
 
                 <UButton
                     size="sm"
-                    :disabled="selectedLinks.length === 0"
-                    :loading="isImporting"
+                    :disabled="selectedLinks.length === 0 || jobActive"
+                    :loading="starting"
                     @click="runImport"
                 >
                     Import {{ formatCount(selectedLinks.length) }}
@@ -88,7 +175,7 @@
             </template>
         </UTable>
 
-        <div v-else class="blank">
+        <div v-else-if="job === null" class="blank">
             <h1>Nothing read yet</h1>
             <p>
                 Paste the address of a novel's contents page. The chapter list is fetched first so you
@@ -96,47 +183,31 @@
                 whole because a link was pasted.
             </p>
         </div>
-
-        <Transition name="pick">
-            <div v-if="result" class="result" :class="{ partial: result.failures.length > 0 }">
-                <p class="headline">
-                    Imported {{ formatCount(result.imported) }}
-                    {{ result.imported === 1 ? "chapter" : "chapters" }}.
-                    <template v-if="result.failures.length > 0">
-                        {{ formatCount(result.failures.length) }} could not be read.
-                    </template>
-                </p>
-
-                <ul v-if="result.failures.length > 0" class="failures">
-                    <li v-for="failure in result.failures" :key="failure">{{ failure }}</li>
-                </ul>
-
-                <UButton :to="{ name: 'novel', params: { novelId } }" size="sm">
-                    Back to the chapters
-                </UButton>
-            </div>
-        </Transition>
     </div>
 </template>
 
 <script setup lang="ts">
     import type { TableColumn } from "@nuxt/ui";
-    import type { ImportFromUrlResult, ParserSupport } from "@/types/api/requests";
+    import type { ParserSupport } from "@/types/api/requests";
     import type { ParsedChapterLink } from "@/types/models/domain";
 
-    import { useQueryClient } from "@tanstack/vue-query";
-    import { computed, h, ref, resolveComponent } from "vue";
+    import { computed, h, ref, resolveComponent, watch } from "vue";
     import { parsingApi } from "@/api";
-    import { chaptersKey } from "@/composables/useChapters";
+    import ImportItemStateBadge from "@/components/imports/ImportItemStateBadge.vue";
+    import { useActivity, useCancelImport, usePauseImport, useResumeImport, useStartImport } from "@/composables/useActivity";
     import { useNovel } from "@/composables/useNovels";
-    import { formatCount } from "@/utils/format";
+    import { useActivityStore } from "@/stores/activity.store";
+    import { formatCount, jobStateLabel } from "@/utils/format";
     import { scriptLangFor, scriptLangIf } from "@/utils/language";
+    import { describe } from "@/utils/status";
 
 
     const props = defineProps<{ novelId: string }>();
 
-    const queryClient = useQueryClient();
     const id = computed(() => Number(props.novelId));
+
+    useActivity(id);
+    const activity = useActivityStore();
 
     const { data: novelData } = useNovel(id);
 
@@ -147,9 +218,24 @@
     const support = ref<ParserSupport | null>(null);
     const links = ref<ParsedChapterLink[]>([]);
     const rowSelection = ref<Record<string, boolean>>({});
-    const result = ref<ImportFromUrlResult | null>(null);
     const isLoading = ref(false);
-    const isImporting = ref(false);
+
+    const { mutateAsync: startImport, isPending: starting } = useStartImport(id);
+    const { mutateAsync: pauseImport, isPending: pausing } = usePauseImport(id);
+    const { mutateAsync: resumeImport, isPending: resuming } = useResumeImport(id);
+    const { mutateAsync: cancelImportJob, isPending: cancelling } = useCancelImport(id);
+
+    const job = computed(() => activity.importFor("Originals"));
+
+    const jobActive = computed(() => (
+        job.value !== null
+        && (job.value.state === "Queued" || job.value.state === "Running" || job.value.state === "Paused")
+    ));
+
+    const settled = computed(() => (
+        job.value !== null
+        && (job.value.state === "Completed" || job.value.state === "Failed" || job.value.state === "Cancelled")
+    ));
 
     const UCheckbox = resolveComponent("UCheckbox");
 
@@ -159,11 +245,13 @@
             header: ({ table }) => h(UCheckbox, {
                 "modelValue": table.getIsSomeRowsSelected() ? "indeterminate" : table.getIsAllRowsSelected(),
                 "onUpdate:modelValue": (value: boolean | "indeterminate") => table.toggleAllRowsSelected(!!value),
+                "disabled": jobActive.value,
                 "aria-label": "Select every chapter",
             }),
             cell: ({ row }) => h(UCheckbox, {
                 "modelValue": row.getIsSelected(),
                 "onUpdate:modelValue": (value: boolean | "indeterminate") => row.toggleSelected(!!value),
+                "disabled": jobActive.value,
                 "aria-label": `Select ${row.original.title}`,
             }),
             meta: { class: { th: "w-8", td: "w-8" } },
@@ -175,6 +263,15 @@
     ];
 
     const selectedLinks = computed(() => links.value.filter(link => rowSelection.value[link.sourceUrl] === true));
+
+    const summary = computed(() => {
+        const items = job.value?.items ?? [];
+        const imported = items.filter(item => item.state === "Imported").length;
+        const skipped = items.filter(item => item.state === "Skipped").length;
+        const failed = items.filter(item => item.state === "Failed").length;
+
+        return `${formatCount(imported)} imported, ${formatCount(skipped)} skipped, ${formatCount(failed)} failed`;
+    });
 
 
     function getRowId(link: ParsedChapterLink): string {
@@ -197,7 +294,6 @@
         }
 
         isLoading.value = true;
-        result.value = null;
 
         try {
             support.value = await parsingApi.support(address);
@@ -216,17 +312,58 @@
     }
 
 
-    async function runImport(): Promise<void> {
-        isImporting.value = true;
+    // The user already gave this address once, when creating the book — asking again on the very
+    // next screen was the complaint. Guarded by `url` being empty so it only ever fires once, the
+    // first time the novel's own address arrives.
+    watch(novel, (loaded) => {
+        if (loaded === null || loaded.sourceUrl === null || url.value !== "" || jobActive.value) {
+            return;
+        }
 
-        try {
-            result.value = await parsingApi.import(id.value, selectedLinks.value);
-            rowSelection.value = {};
-            void queryClient.invalidateQueries({ queryKey: chaptersKey(id.value) });
+        url.value = loaded.sourceUrl;
+        void loadContents();
+    }, { immediate: true });
+
+
+    async function runImport(): Promise<void> {
+        await startImport({ kind: "Originals", chapters: selectedLinks.value });
+        rowSelection.value = {};
+    }
+
+
+    async function pause(): Promise<void> {
+        if (job.value === null) {
+            return;
         }
-        finally {
-            isImporting.value = false;
+
+        await pauseImport(job.value.id);
+    }
+
+
+    async function resume(): Promise<void> {
+        if (job.value === null) {
+            return;
         }
+
+        await resumeImport(job.value.id);
+    }
+
+
+    async function cancelRun(): Promise<void> {
+        if (job.value === null) {
+            return;
+        }
+
+        await cancelImportJob(job.value.id);
+    }
+
+
+    function dismiss(): void {
+        if (job.value === null) {
+            return;
+        }
+
+        activity.clearSettled(job.value.id);
     }
 </script>
 
@@ -290,6 +427,108 @@
             }
         }
 
+        .run {
+            flex: none;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid var(--ui-border);
+            background: var(--ui-bg-elevated);
+
+            .run-head {
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+
+                .run-state {
+                    color: var(--ui-text-muted);
+
+                    &.running {
+                        color: var(--ui-primary);
+                    }
+
+                    &.paused {
+                        color: var(--ui-warning);
+                    }
+
+                    &.failed {
+                        color: var(--ui-error);
+                    }
+
+                    &.completed {
+                        color: var(--ui-success);
+                    }
+                }
+
+                .run-title {
+                    flex: 1;
+                    min-width: 0;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    color: var(--ui-text-highlighted);
+                }
+
+                .run-counts {
+                    flex: none;
+                    color: var(--ui-text-muted);
+                }
+
+                .spacer {
+                    flex: 1;
+                }
+            }
+
+            .summary {
+                margin: 0;
+                font-size: var(--nt-text-sm);
+                color: var(--ui-text-muted);
+            }
+
+            // Two thousand chapters imported in one job would otherwise print two thousand rows of
+            // wall with no way to see the run panel above it.
+            .items {
+                max-height: 22rem;
+                overflow-y: auto;
+                margin: 0;
+                padding: 0;
+                list-style: none;
+                border: 1px solid var(--ui-border);
+                border-radius: 0.375rem;
+                background: var(--ui-bg);
+
+                li {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                    padding: 0.5rem 0.75rem;
+
+                    & + li {
+                        border-top: 1px solid var(--ui-border);
+                    }
+
+                    .title {
+                        flex: 1;
+                        min-width: 0;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+
+                    .reason {
+                        flex: none;
+                        max-width: 20rem;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                        font-size: var(--nt-text-sm);
+                        color: var(--ui-text-muted);
+                    }
+                }
+            }
+        }
+
         .picked {
             flex: none;
             display: flex;
@@ -320,32 +559,6 @@
             p {
                 margin: 0;
                 line-height: 1.6;
-                color: var(--ui-text-muted);
-            }
-        }
-
-        // A batch that fetched most of what was asked for is a success with a note. The count leads;
-        // the failures are listed underneath rather than replacing it.
-        .result {
-            flex: none;
-            padding: 1rem 1.5rem;
-            border-top: 1px solid var(--ui-border);
-            box-shadow: inset 2px 0 0 var(--ui-success);
-
-            &.partial {
-                box-shadow: inset 2px 0 0 var(--ui-warning);
-            }
-
-            .headline {
-                margin: 0 0 0.5rem;
-                color: var(--ui-text-highlighted);
-            }
-
-            .failures {
-                max-width: $reading-measure-comfortable;
-                margin: 0 0 0.75rem;
-                padding-left: 1.25rem;
-                font-size: var(--nt-text-sm);
                 color: var(--ui-text-muted);
             }
         }

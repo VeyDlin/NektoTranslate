@@ -3,6 +3,8 @@ import type {
     GlossaryCategory,
     GlossaryOrigin,
     GlossaryState,
+    ImportItemState,
+    ImportKind,
     JobScopeKind,
     JobState,
     TranslationIssueState,
@@ -14,6 +16,8 @@ import {
     GLOSSARY_CATEGORIES,
     GLOSSARY_ORIGINS,
     GLOSSARY_STATES,
+    IMPORT_ITEM_STATES,
+    IMPORT_KINDS,
     JOB_SCOPE_KINDS,
     JOB_STATES,
     TRANSLATION_ISSUE_STATES,
@@ -58,6 +62,16 @@ export function decodeJobState(value: unknown): JobState {
 
 export function decodeJobScopeKind(value: unknown): JobScopeKind {
     return decodeEnum(JOB_SCOPE_KINDS, value, "WholeBook");
+}
+
+
+export function decodeImportKind(value: unknown): ImportKind {
+    return decodeEnum(IMPORT_KINDS, value, "Originals");
+}
+
+
+export function decodeImportItemState(value: unknown): ImportItemState {
+    return decodeEnum(IMPORT_ITEM_STATES, value, "Pending");
 }
 
 

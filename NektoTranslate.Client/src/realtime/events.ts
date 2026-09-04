@@ -1,3 +1,6 @@
+import type { StatusMessage } from "@/types/models/domain";
+
+
 // The SignalR contract, mirrored from ITranslationNotifier on the server.
 //
 // Payload enums arrive as strings here, unlike the same enums over REST. Decode with @/utils/wire
@@ -43,6 +46,34 @@ export interface AgentMessageEvent {
 }
 
 
+// Mirrors ImportJob's own progress fields, pushed on every state or count change so the strip and
+// the import screens never have to poll for them.
+export interface ImportStateChangedEvent {
+    jobId: number;
+    kind: string;
+    state: string;
+    processed: number;
+    total: number;
+    currentTitle: string | null;
+}
+
+
+// One entry of the batch the user picked has settled — imported, skipped, failed or cancelled. The
+// per-chapter list is built from a stream of these rather than from a final result, the same way
+// `ChapterStateChanged` builds the chapter table without a full refetch per chapter.
+export interface ImportItemFinishedEvent {
+    jobId: number;
+    position: number;
+    sourceUrl: string;
+    title: string;
+    chapterIndex: number | null;
+    chapterId: number | null;
+    state: string;
+    status: StatusMessage | null;
+    finishedAt: string;
+}
+
+
 export interface TranslationEvents {
     JobStateChanged: JobStateChangedEvent;
     ChapterStateChanged: ChapterStateChangedEvent;
@@ -50,6 +81,8 @@ export interface TranslationEvents {
     ChapterTranslated: ChapterTranslatedEvent;
     GlossaryChanged: GlossaryChangedEvent;
     AgentMessage: AgentMessageEvent;
+    ImportStateChanged: ImportStateChangedEvent;
+    ImportItemFinished: ImportItemFinishedEvent;
 }
 
 

@@ -1,6 +1,7 @@
 import type {
     GlossaryCategory,
     GlossaryOrigin,
+    ImportItemState,
     JobState,
     TranslationOrigin,
     TranslationState,
@@ -80,6 +81,19 @@ const JOB_STATE_LABELS: Record<JobState, string> = {
 
 export function jobStateLabel(state: JobState): string {
     return JOB_STATE_LABELS[state];
+}
+
+
+const IMPORT_ITEM_STATE_LABELS: Record<ImportItemState, string> = {
+    Pending: "Pending",
+    Imported: "Imported",
+    Skipped: "Skipped",
+    Failed: "Failed",
+    Cancelled: "Cancelled",
+};
+
+export function importItemStateLabel(state: ImportItemState): string {
+    return IMPORT_ITEM_STATE_LABELS[state];
 }
 
 

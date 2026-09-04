@@ -7,7 +7,7 @@
                 value-key="id"
                 :loading="isLoading"
                 placeholder="Choose a model"
-                class="picker"
+                class="picker w-full"
                 @update:model-value="onPick"
             />
 

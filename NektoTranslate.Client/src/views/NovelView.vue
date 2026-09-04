@@ -205,6 +205,7 @@
     import GlossaryList from "@/components/glossary/GlossaryList.vue";
     import JobHistory from "@/components/jobs/JobHistory.vue";
     import StartRunModal from "@/components/jobs/StartRunModal.vue";
+    import { useActivity } from "@/composables/useActivity";
     import { useChapters } from "@/composables/useChapters";
     import { useGlossary } from "@/composables/useGlossary";
     import { useJobs } from "@/composables/useJobs";
@@ -233,6 +234,11 @@
     const selectedIds = computed(() => Object.entries(rowSelection.value)
         .filter(([, picked]) => picked)
         .map(([id]) => Number(id)));
+
+    // Feeds run.store and activity.store from whatever is already live, so the strip below shows an
+    // import or a translation run in progress the moment this screen is the one landed on, rather
+    // than only after a visit to the run's own sub-screen.
+    useActivity(id);
 
     const { data: novelData } = useNovel(id);
     const { data: chapterData, isLoading: chaptersLoading } = useChapters(id);

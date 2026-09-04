@@ -5,13 +5,15 @@ import { decodeJobScopeKind, decodeJobState } from "@/utils/wire";
 import { apiClient } from "./client";
 
 
-interface RawTranslationJob extends Omit<TranslationJob, "scopeKind" | "state"> {
+// Exported so imports.api.ts can decode the `translation` half of `GET .../activity` with the exact
+// same rules, rather than a second copy of this decoding drifting out of sync with it.
+export interface RawTranslationJob extends Omit<TranslationJob, "scopeKind" | "state"> {
     scopeKind: number | string;
     state: number | string;
 }
 
 
-function toJob(raw: RawTranslationJob): TranslationJob {
+export function toJob(raw: RawTranslationJob): TranslationJob {
     return {
         ...raw,
         scopeKind: decodeJobScopeKind(raw.scopeKind),

@@ -1,3 +1,54 @@
+// Common literary source and target languages, offered as a searchable starting point rather than a
+// closed set — `CreateNovelModal` pairs this with `create-item` so a pairing that is not on the list
+// still works. English names throughout: the model reads the language as a name regardless of which
+// script that name is written in, and an English list is the one every translator on this list of
+// languages can still read.
+export const LANGUAGES: string[] = [
+    "Arabic",
+    "Armenian",
+    "Azerbaijani",
+    "Bengali",
+    "Bulgarian",
+    "Burmese",
+    "Chinese",
+    "Croatian",
+    "Czech",
+    "Danish",
+    "Dutch",
+    "English",
+    "Filipino",
+    "Finnish",
+    "French",
+    "Georgian",
+    "German",
+    "Greek",
+    "Hebrew",
+    "Hindi",
+    "Hungarian",
+    "Indonesian",
+    "Italian",
+    "Japanese",
+    "Khmer",
+    "Korean",
+    "Malay",
+    "Mongolian",
+    "Norwegian",
+    "Persian",
+    "Polish",
+    "Portuguese",
+    "Romanian",
+    "Russian",
+    "Serbian",
+    "Spanish",
+    "Swedish",
+    "Tamil",
+    "Thai",
+    "Turkish",
+    "Ukrainian",
+    "Vietnamese",
+];
+
+
 // Han characters are drawn differently in Japanese and Chinese typography — 直, 骨 and 今 all
 // differ — and a browser given untagged text picks whichever regional face it happens to prefer.
 // Tagging the element is what makes a Japanese novel look Japanese.

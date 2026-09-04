@@ -4,10 +4,12 @@ import type { ChapterSummary } from "@/types/models/domain";
 
 import { useQueryClient } from "@tanstack/vue-query";
 import { onScopeDispose, toValue, watch } from "vue";
+import { importsApi } from "@/api";
 import { createTranslationStream } from "@/realtime/stream";
 
+import { useActivityStore } from "@/stores/activity.store";
 import { useRunStore } from "@/stores/run.store";
-import { decodeJobState, decodeTranslationState } from "@/utils/wire";
+import { decodeImportItemState, decodeImportKind, decodeJobState, decodeTranslationState } from "@/utils/wire";
 import { chapterKey, chaptersKey } from "./useChapters";
 import { glossaryKey } from "./useGlossary";
 import { jobsKey } from "./useJobs";
@@ -22,8 +24,12 @@ import { jobsKey } from "./useJobs";
 export function useTranslationStream(novelId: MaybeRefOrGetter<number | null>): void {
     const queryClient = useQueryClient();
     const run = useRunStore();
+    const activity = useActivityStore();
 
     let stream: TranslationStream | null = null;
+
+    // Import jobs being fetched because an event named one the store had not met yet.
+    const adopting = new Set<number>();
 
     function patchChapter(id: number, novel: number, patch: Partial<ChapterSummary>): void {
         queryClient.setQueryData<ChapterSummary[]>(chaptersKey(novel), (rows) => {
@@ -73,6 +79,57 @@ export function useTranslationStream(novelId: MaybeRefOrGetter<number | null>): 
 
         stream.on("AgentMessage", (payload) => {
             run.pushMessage(payload.message);
+        });
+
+        stream.on("ImportStateChanged", (payload) => {
+            const state = decodeJobState(payload.state);
+
+            // A page that was open before the job started has never seen it: no start response, and
+            // /activity was answered before there was anything to report. The event alone is not
+            // enough to build a row from, but it is enough to know what to fetch - once, however many
+            // events arrive while the fetch is in flight.
+            if (activity.jobs[payload.jobId] === undefined) {
+                if (!adopting.has(payload.jobId)) {
+                    adopting.add(payload.jobId);
+
+                    importsApi.getById(novel, payload.jobId)
+                        .then(job => activity.adoptJob(job))
+                        .catch(() => undefined)
+                        .finally(() => adopting.delete(payload.jobId));
+                }
+
+                return;
+            }
+
+            activity.applyImportState({
+                jobId: payload.jobId,
+                kind: decodeImportKind(payload.kind),
+                state,
+                processed: payload.processed,
+                total: payload.total,
+                currentTitle: payload.currentTitle,
+            });
+
+            // Imported chapters land as the job runs, not in one batch at the end, so the chapter
+            // list is only worth refetching once there is nothing left to add — settling is that
+            // signal, and it fires once per job rather than once per chapter.
+            if (state === "Completed" || state === "Failed" || state === "Cancelled") {
+                void queryClient.invalidateQueries({ queryKey: chaptersKey(novel) });
+            }
+        });
+
+        stream.on("ImportItemFinished", (payload) => {
+            activity.applyImportItem({
+                jobId: payload.jobId,
+                position: payload.position,
+                sourceUrl: payload.sourceUrl,
+                title: payload.title,
+                chapterIndex: payload.chapterIndex,
+                chapterId: payload.chapterId,
+                state: decodeImportItemState(payload.state),
+                status: payload.status,
+                finishedAt: payload.finishedAt,
+            });
         });
 
         void stream.watch(novel);

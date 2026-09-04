@@ -4,6 +4,7 @@ import type {
     ChatMessage,
     GlossaryEntry,
     GlossaryState,
+    ImportJob,
     Novel,
     ParserScriptSummary,
     TranslationJob,
@@ -136,6 +137,7 @@ export interface Seed {
     chapters: SeedChapter[];
     glossary: GlossaryEntry[];
     jobs: TranslationJob[];
+    imports: ImportJob[];
     settings: AppSettings;
     parsers: ParserScriptSummary[];
     parserSources: Record<string, string>;
@@ -600,6 +602,10 @@ export function createSeed(): Seed {
         chapters: [...ashTown, ...longNight],
         glossary,
         jobs,
+        // Import history is not worth seeding, unlike the translation jobs above: the activity
+        // endpoint only ever reports live ones, and the mock backend creates these itself the moment
+        // a screen starts one.
+        imports: [],
         // The server's own defaults, deliberately, so working against mocks shows the same starting
         // point a real installation has rather than a set of numbers invented here.
         settings: {

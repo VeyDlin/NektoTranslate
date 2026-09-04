@@ -1,4 +1,4 @@
-import type { GlossaryCategory, JobScopeKind, StatusMessage } from "@/types/models/domain";
+import type { GlossaryCategory, ImportKind, JobScopeKind, ParsedChapterLink } from "@/types/models/domain";
 
 
 export interface CreateNovelRequest {
@@ -87,21 +87,6 @@ export interface UpdateSettingsRequest {
 }
 
 
-// Why one entry of an imported translation did not land. Reported rather than thrown: an import of
-// a hundred chapters that fails wholesale because one entry had nowhere to go is worse than one that
-// lands ninety-nine and says which one did not.
-export interface TranslationImportRejection {
-    chapterIndex: number;
-    reason: StatusMessage;
-}
-
-
-export interface TranslationImportResult {
-    imported: number;
-    rejected: TranslationImportRejection[];
-}
-
-
 // Moves the translations of a span of chapters onto a different span.
 //
 // A span plus an offset rather than a list of pairs, because that is what the interface produces: a
@@ -125,11 +110,15 @@ export interface ParserSupport {
 }
 
 
-// A batch that fetched forty-nine of fifty is a success with a note, not a failure, so the chapters
-// that could not be read come back with their reasons rather than as an exception.
-export interface ImportFromUrlResult {
-    imported: number;
-    failures: string[];
+// One request starts an import job, whichever kind: the chapters picked from a site's contents page,
+// brought in either as fresh originals or as an existing translation attached to chapters already in
+// the book. `language` and `startAtChapterIndex` only mean anything for `Translation` — the server
+// ignores them for `Originals`.
+export interface StartImportRequest {
+    kind: ImportKind;
+    chapters: ParsedChapterLink[];
+    language?: string | null;
+    startAtChapterIndex?: number | null;
 }
 
 
