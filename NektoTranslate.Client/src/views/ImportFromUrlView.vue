@@ -52,7 +52,7 @@
              and stays through a navigate-away-and-back because it reads the store, not local state. -->
         <div v-if="job !== null" class="run">
             <div class="run-head">
-                <span class="run-state" :class="job.state.toLowerCase()">{{ jobStateLabel(job.state) }}</span>
+                <span class="run-state" :class="job.state.toLowerCase()">{{ importStateLabel(job.state) }}</span>
 
                 <span
                     v-if="job.currentTitle"
@@ -138,6 +138,28 @@
             <div v-if="links.length > 0" class="picked">
                 <span>{{ formatCount(selectedLinks.length) }} of {{ formatCount(links.length) }} chosen</span>
 
+                <!-- Chapters one to twenty out of nine hundred is the ordinary request, and twenty
+                     clicks is not an answer to it. Rows are numbered as the site lists them. -->
+                <UInput
+                    v-model="rangeSpec"
+                    size="xs"
+                    class="range"
+                    placeholder="1-20"
+                    aria-label="Rows to pick, written as 1-20"
+                    :disabled="jobActive"
+                    @keydown.enter="selectRange"
+                />
+
+                <UButton
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    :disabled="jobActive || rangeSpec.trim() === ''"
+                    @click="selectRange"
+                >
+                    Pick rows
+                </UButton>
+
                 <UButton size="xs" color="neutral" variant="ghost" :disabled="jobActive" @click="selectAll">
                     Select all
                 </UButton>
@@ -197,8 +219,9 @@
     import { useActivity, useCancelImport, usePauseImport, useResumeImport, useStartImport } from "@/composables/useActivity";
     import { useNovel } from "@/composables/useNovels";
     import { useActivityStore } from "@/stores/activity.store";
-    import { formatCount, jobStateLabel } from "@/utils/format";
+    import { formatCount, importStateLabel } from "@/utils/format";
     import { scriptLangFor, scriptLangIf } from "@/utils/language";
+    import { parseRanges } from "@/utils/ranges";
     import { describe } from "@/utils/status";
 
 
@@ -218,6 +241,7 @@
     const support = ref<ParserSupport | null>(null);
     const links = ref<ParsedChapterLink[]>([]);
     const rowSelection = ref<Record<string, boolean>>({});
+    const rangeSpec = ref("");
     const isLoading = ref(false);
 
     const { mutateAsync: startImport, isPending: starting } = useStartImport(id);
@@ -281,6 +305,19 @@
 
     function selectAll(): void {
         rowSelection.value = Object.fromEntries(links.value.map(link => [link.sourceUrl, true]));
+    }
+
+
+    // Replaces the selection rather than adding to it: the field describes the whole pick, so typing
+    // a second range after a first is a correction, not an addition.
+    function selectRange(): void {
+        const positions = parseRanges(rangeSpec.value, links.value.length);
+
+        if (positions.length === 0) {
+            return;
+        }
+
+        rowSelection.value = Object.fromEntries(positions.map(position => [links.value[position - 1].sourceUrl, true]));
     }
 
 
@@ -537,6 +574,10 @@
             padding: 0.5rem 1.5rem;
             border-bottom: 1px solid var(--ui-border);
             background: var(--ui-bg-elevated);
+
+            .range {
+                width: 7rem;
+            }
 
             .spacer {
                 flex: 1;

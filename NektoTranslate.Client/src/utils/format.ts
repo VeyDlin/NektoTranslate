@@ -57,6 +57,22 @@ export function formatWhen(iso: string): string {
 }
 
 
+// The site a stored address points at, as a reader would name it. Anything unparseable is not worth
+// putting on screen as itself, so it becomes nothing rather than a broken-looking string.
+export function hostOf(url: string | null): string | null {
+    if (url === null || url.trim() === "") {
+        return null;
+    }
+
+    try {
+        return new URL(url).host.replace(/^www\./, "");
+    }
+    catch {
+        return null;
+    }
+}
+
+
 const TRANSLATION_STATE_LABELS: Record<TranslationState, string> = {
     None: "Not translated",
     Queued: "Queued",
@@ -81,6 +97,22 @@ const JOB_STATE_LABELS: Record<JobState, string> = {
 
 export function jobStateLabel(state: JobState): string {
     return JOB_STATE_LABELS[state];
+}
+
+
+// An import carries the same states as a translation run, but a screen fetching chapters that says
+// "Translating" reads as the subscription being spent, which is the one thing an import never does.
+const IMPORT_STATE_LABELS: Record<JobState, string> = {
+    Queued: "Queued",
+    Running: "Importing",
+    Paused: "Paused",
+    Completed: "Finished",
+    Failed: "Failed",
+    Cancelled: "Cancelled",
+};
+
+export function importStateLabel(state: JobState): string {
+    return IMPORT_STATE_LABELS[state];
 }
 
 

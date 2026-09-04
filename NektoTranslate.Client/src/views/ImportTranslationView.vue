@@ -51,7 +51,7 @@
              and stays through a navigate-away-and-back because it reads the store, not local state. -->
         <div v-if="job !== null" class="run">
             <div class="run-head">
-                <span class="run-state" :class="job.state.toLowerCase()">{{ jobStateLabel(job.state) }}</span>
+                <span class="run-state" :class="job.state.toLowerCase()">{{ importStateLabel(job.state) }}</span>
 
                 <span v-if="job.currentTitle" class="run-title">{{ job.currentTitle }}</span>
 
@@ -131,6 +131,28 @@
             <div v-if="links.length > 0" class="picked">
                 <span>{{ formatCount(selectedLinks.length) }} of {{ formatCount(links.length) }} chosen</span>
 
+                <!-- The translation usually covers a run of chapters, not the whole book: entries one
+                     to twenty when only those were translated by a human. -->
+                <UInput
+                    v-model="rangeSpec"
+                    size="xs"
+                    class="range"
+                    placeholder="1-20"
+                    aria-label="Entries to pick, written as 1-20"
+                    :disabled="jobActive"
+                    @keydown.enter="selectRange"
+                />
+
+                <UButton
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    :disabled="jobActive || rangeSpec.trim() === ''"
+                    @click="selectRange"
+                >
+                    Pick entries
+                </UButton>
+
                 <UButton size="xs" color="neutral" variant="ghost" :disabled="jobActive" @click="selectAll">
                     Select all
                 </UButton>
@@ -143,7 +165,14 @@
 
                 <span class="starts">First chosen entry becomes chapter</span>
 
-                <UInputNumber v-model="startAt" :min="0" :max="100000" :disabled="jobActive" size="sm" class="start" />
+                <UInputNumber
+                    v-model="startAtNumber"
+                    :min="1"
+                    :max="100000"
+                    :disabled="jobActive"
+                    size="sm"
+                    class="start"
+                />
 
                 <span class="spacer" />
 
@@ -163,9 +192,10 @@
              mistake. Showing the mapping before the import makes that visible while it is still
              free to fix. -->
         <p v-if="selectedLinks.length > 0" class="mapping">
-            <strong>{{ firstTitle }}</strong> → chapter {{ startAt }}
+            <strong>{{ firstTitle }}</strong> → chapter {{ startAtNumber }}
             <template v-if="selectedLinks.length > 1">
-                &nbsp;·&nbsp; <strong>{{ lastTitle }}</strong> → chapter {{ startAt + selectedLinks.length - 1 }}
+                &nbsp;·&nbsp;
+                <strong>{{ lastTitle }}</strong> → chapter {{ startAtNumber + selectedLinks.length - 1 }}
             </template>
         </p>
 
@@ -208,7 +238,8 @@
     import { useActivity, useCancelImport, usePauseImport, useResumeImport, useStartImport } from "@/composables/useActivity";
     import { useNovel } from "@/composables/useNovels";
     import { useActivityStore } from "@/stores/activity.store";
-    import { formatCount, jobStateLabel } from "@/utils/format";
+    import { formatCount, importStateLabel } from "@/utils/format";
+    import { parseRanges } from "@/utils/ranges";
     import { describe } from "@/utils/status";
 
 
@@ -228,8 +259,12 @@
     const support = ref<ParserSupport | null>(null);
     const links = ref<ParsedChapterLink[]>([]);
     const rowSelection = ref<Record<string, boolean>>({});
-    const startAt = ref(0);
+    const rangeSpec = ref("");
     const isLoading = ref(false);
+
+    // Chapters are numbered from one everywhere the reader looks, so this field takes that number and
+    // the 0-based index the API stores is derived at the call, not carried around the screen.
+    const startAtNumber = ref(1);
 
     const { mutateAsync: startImport, isPending: starting } = useStartImport(id);
     const { mutateAsync: pauseImport, isPending: pausing } = usePauseImport(id);
@@ -300,6 +335,19 @@
     }
 
 
+    // Replaces the selection rather than adding to it: the field describes the whole pick, so typing
+    // a second range after a first is a correction, not an addition.
+    function selectRange(): void {
+        const positions = parseRanges(rangeSpec.value, links.value.length);
+
+        if (positions.length === 0) {
+            return;
+        }
+
+        rowSelection.value = Object.fromEntries(positions.map(position => [links.value[position - 1].sourceUrl, true]));
+    }
+
+
     // Support is checked first because it is answered from the host name alone. Telling the user the
     // address is unreadable costs nothing; finding out after a download does.
     async function loadContents(): Promise<void> {
@@ -333,7 +381,7 @@
             kind: "Translation",
             chapters: selectedLinks.value,
             language: language.value,
-            startAtChapterIndex: startAt.value,
+            startAtChapterIndex: startAtNumber.value - 1,
         });
 
         rowSelection.value = {};
@@ -545,6 +593,10 @@
             padding: 0.5rem 1.5rem;
             border-bottom: 1px solid var(--ui-border);
             background: var(--ui-bg-elevated);
+
+            .range {
+                width: 7rem;
+            }
 
             .gap {
                 width: 1rem;

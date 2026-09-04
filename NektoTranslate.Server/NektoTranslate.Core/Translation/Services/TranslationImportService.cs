@@ -34,7 +34,8 @@ public interface ITranslationImportService {
 // because replacing one silently is how a user loses work they paid for.
 public class TranslationImportService(
     NektoDbContext database,
-    IMarkdownConversion conversion
+    IMarkdownConversion conversion,
+    IChapterTranslationStateSync stateSync
 ) : ITranslationImportService {
 
     public async Task<TranslationImportResult> ImportAsync(
@@ -67,6 +68,7 @@ public class TranslationImportService(
             .ToListAsync(cancellationToken)).ToHashSet();
 
         int imported = 0;
+        List<long> touched = [];
 
         foreach (ImportedTranslation entry in translations) {
             if (!chapterIds.TryGetValue(entry.chapterIndex, out long chapterId)) {
@@ -112,10 +114,16 @@ public class TranslationImportService(
                 costUsd = null
             });
 
+            touched.Add(chapterId);
             imported++;
         }
 
         await database.SaveChangesAsync(cancellationToken);
+
+        // A chapter that now holds somebody else's translation is translated, and every count and
+        // every scope in the application has to agree with that — not least the one that decides
+        // which chapters a run pays to translate.
+        await stateSync.SyncAsync(novelId, touched, cancellationToken);
 
         return new TranslationImportResult(imported, rejected);
     }

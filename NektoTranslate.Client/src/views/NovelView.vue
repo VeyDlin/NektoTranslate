@@ -56,25 +56,22 @@
                     Continue chapter {{ chapterNumber(resumePosition.index) }}
                 </UButton>
 
-                <UButton
-                    size="sm"
-                    color="neutral"
-                    variant="ghost"
-                    icon="i-material-symbols:link-rounded"
+                <!-- Named for what they bring in, not for where it comes from: both of the first two
+                     read a site, and the difference that matters is original against translation.
+                     Each is also the way back to its own screen, and says so while a job is running. -->
+                <ImportActionButton
                     :to="{ name: 'import-from-url', params: { novelId: id } }"
-                >
-                    From a site
-                </UButton>
+                    icon="i-material-symbols:link-rounded"
+                    label="Import original"
+                    :job="originalsImport"
+                />
 
-                <UButton
-                    size="sm"
-                    color="neutral"
-                    variant="ghost"
-                    icon="i-material-symbols:translate-rounded"
+                <ImportActionButton
                     :to="{ name: 'import-translation', params: { novelId: id } }"
-                >
-                    Existing translation
-                </UButton>
+                    icon="i-material-symbols:translate-rounded"
+                    label="Import translation"
+                    :job="translationImport"
+                />
 
                 <UButton
                     size="sm"
@@ -83,7 +80,7 @@
                     icon="i-material-symbols:content-paste-rounded"
                     :to="{ name: 'import-chapter', params: { novelId: id } }"
                 >
-                    Paste
+                    Paste a chapter
                 </UButton>
 
                 <UButton
@@ -104,6 +101,18 @@
                 <UButton size="xs" color="neutral" variant="ghost" @click="rowSelection = {}">
                     Clear
                 </UButton>
+
+                <span class="spacer" />
+
+                <UButton
+                    size="xs"
+                    color="error"
+                    variant="ghost"
+                    icon="i-material-symbols:delete-outline-rounded"
+                    @click="removing = true"
+                >
+                    Delete
+                </UButton>
             </div>
         </Transition>
 
@@ -111,18 +120,40 @@
             <USkeleton v-for="index in 8" :key="index" class="skeleton" />
         </div>
 
+        <!-- A book created with an address already told us where its chapters are. Sending that user
+             to the paste form is asking them for something they have given once already. -->
         <div v-else-if="rows.length === 0 && tab === 'chapters'" class="blank">
             <h1>No chapters yet</h1>
-            <p>
+
+            <p v-if="sourceHost !== null">
+                This book was added with a link to {{ sourceHost }}. Read its contents and pick what
+                to bring in — nothing is downloaded until you choose. Everything the agent translates
+                becomes readable as soon as it lands, so you do not have to wait for the book to finish.
+            </p>
+
+            <p v-else>
                 Paste the first chapter and the agent can start. Everything it translates becomes
                 readable as soon as it lands, so you do not have to wait for the book to finish.
             </p>
-            <UButton
-                icon="i-material-symbols:content-paste-rounded"
-                :to="{ name: 'import-chapter', params: { novelId: id } }"
-            >
-                Add chapter
-            </UButton>
+
+            <div class="blank-actions">
+                <UButton
+                    v-if="sourceHost !== null"
+                    icon="i-material-symbols:link-rounded"
+                    :to="{ name: 'import-from-url', params: { novelId: id } }"
+                >
+                    Import from {{ sourceHost }}
+                </UButton>
+
+                <UButton
+                    icon="i-material-symbols:content-paste-rounded"
+                    :color="sourceHost === null ? 'primary' : 'neutral'"
+                    :variant="sourceHost === null ? 'solid' : 'ghost'"
+                    :to="{ name: 'import-chapter', params: { novelId: id } }"
+                >
+                    Paste a chapter
+                </UButton>
+            </div>
         </div>
 
         <template v-else-if="tab === 'chapters'">
@@ -163,7 +194,7 @@
                 </span>
 
                 <span v-else class="found">
-                    {{ formatCount(rows.length) }} chapters
+                    {{ formatCount(rows.length) }} {{ rows.length === 1 ? "chapter" : "chapters" }}
                 </span>
             </div>
 
@@ -194,6 +225,13 @@
             :selected-ids="selectedIds"
             :average-cost="averageCost"
         />
+
+        <DeleteChaptersModal
+            v-model:open="removing"
+            :novel-id="id"
+            :chapters="selectedRows"
+            @deleted="rowSelection = {}"
+        />
     </div>
 </template>
 
@@ -201,8 +239,10 @@
     import { computed, ref } from "vue";
 
     import ChapterTable from "@/components/chapters/ChapterTable.vue";
+    import DeleteChaptersModal from "@/components/chapters/DeleteChaptersModal.vue";
     import ChatPanel from "@/components/chat/ChatPanel.vue";
     import GlossaryList from "@/components/glossary/GlossaryList.vue";
+    import ImportActionButton from "@/components/imports/ImportActionButton.vue";
     import JobHistory from "@/components/jobs/JobHistory.vue";
     import StartRunModal from "@/components/jobs/StartRunModal.vue";
     import { useActivity } from "@/composables/useActivity";
@@ -211,8 +251,9 @@
     import { useJobs } from "@/composables/useJobs";
     import { useNovelProgress } from "@/composables/useNovelProgress";
     import { useNovel } from "@/composables/useNovels";
+    import { useActivityStore } from "@/stores/activity.store";
     import { useProgressStore } from "@/stores/progress.store";
-    import { chapterNumber, formatCount } from "@/utils/format";
+    import { chapterNumber, formatCount, hostOf } from "@/utils/format";
     import { scriptLangFor, scriptLangIf } from "@/utils/language";
 
 
@@ -222,10 +263,12 @@
 
     const tab = ref("chapters");
     const starting = ref(false);
+    const removing = ref(false);
     const chapterQuery = ref("");
     const newestFirst = ref(false);
 
     const progressStore = useProgressStore();
+    const activityStore = useActivityStore();
 
     // The table owns selection in TanStack's shape: a map of row id to boolean. Chapter ids are the
     // row ids, so the picked set falls out of the keys without a parallel structure to keep in sync.
@@ -252,6 +295,18 @@
     const jobs = computed(() => jobData.value ?? []);
 
     const scriptLang = computed(() => (novel.value === null ? undefined : scriptLangFor(novel.value.sourceLanguage)));
+
+    const sourceHost = computed(() => hostOf(novel.value?.sourceUrl ?? null));
+
+    // The delete confirmation names the chapters rather than counting them, so the rows themselves
+    // have to reach it — an id list would only let it say "3 chapters", which is not enough to hand
+    // someone before an irreversible action.
+    const selectedRows = computed(() => rows.value.filter(row => rowSelection.value[String(row.id)] === true));
+
+    // The two site-reading screens each own one kind of job, and each of their buttons carries that
+    // job's progress, so the way back to a running import is the button that started it.
+    const originalsImport = computed(() => activityStore.importFor("Originals"));
+    const translationImport = computed(() => activityStore.importFor("Translation"));
 
     // A digits-only query matches the index by prefix, so typing towards a number narrows the list
     // the way scrolling towards it would: "14" reaches chapter 14, then 140-149, then 1400-1499.
@@ -365,6 +420,10 @@
             padding: 0.5rem 1.5rem;
             border-bottom: 1px solid var(--ui-border);
             background: var(--ui-bg-elevated);
+
+            .spacer {
+                flex: 1;
+            }
         }
 
         .finder {
@@ -413,6 +472,11 @@
                 margin: 0 0 1.5rem;
                 line-height: 1.6;
                 color: var(--ui-text-muted);
+            }
+
+            .blank-actions {
+                display: flex;
+                gap: 0.5rem;
             }
         }
     }

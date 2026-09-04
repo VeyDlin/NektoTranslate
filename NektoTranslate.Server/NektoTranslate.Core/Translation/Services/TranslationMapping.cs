@@ -37,7 +37,10 @@ public interface ITranslationMapping {
 // A chapter can hold several versions in one language - an import, then a hand correction - and they
 // move together. Splitting a chapter's history across two chapters would leave the older version
 // sitting against text it was never a translation of.
-public class TranslationMapping(NektoDbContext database) : ITranslationMapping {
+public class TranslationMapping(
+    NektoDbContext database,
+    IChapterTranslationStateSync stateSync
+) : ITranslationMapping {
 
     public async Task<DeleteTranslationsResult> DeleteRangeAsync(
         long novelId,
@@ -68,6 +71,10 @@ public class TranslationMapping(NektoDbContext database) : ITranslationMapping {
         database.chapterTranslationIssues.RemoveRange(issues);
 
         await database.SaveChangesAsync(cancellationToken);
+
+        // The chapters are back to untranslated, and the counters and the run scope have to say so —
+        // otherwise a range deleted to be redone is a range the next run refuses to touch.
+        await stateSync.SyncAsync(novelId, chapterIds, cancellationToken);
 
         return new DeleteTranslationsResult(
             versions.Select(version => version.chapterId).Distinct().Count(),
@@ -145,6 +152,14 @@ public class TranslationMapping(NektoDbContext database) : ITranslationMapping {
         }
 
         await database.SaveChangesAsync(cancellationToken);
+
+        // Both ends of every move change hands: the chapter a translation left is untranslated
+        // again, and the one it landed on is not.
+        await stateSync.SyncAsync(
+            novelId,
+            destination.Keys.Concat(destination.Values).Distinct().ToList(),
+            cancellationToken
+        );
 
         return new MoveTranslationsResult(true, destination.Count, []);
     }

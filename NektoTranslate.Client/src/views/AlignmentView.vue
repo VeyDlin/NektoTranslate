@@ -10,17 +10,26 @@
                 aria-label="Back to the novel"
             />
 
+            <span class="book">{{ novel?.title ?? "" }}</span>
+
             <span class="where">Chapter alignment</span>
 
             <span class="spacer" />
 
             <span v-if="selection.size > 0" class="chosen">
-                {{ selection.size }} selected · chapters {{ span.from }}–{{ span.to }}
+                {{ selection.size }} selected · chapters {{ chapterNumber(span.from) }}–{{ chapterNumber(span.to) }}
             </span>
         </header>
 
         <div class="tools">
+            <!-- The usual reason to be here is a translator's note as the site's first entry, which
+                 puts every chapter one place late. Saying so is shorter than making the user work out
+                 what a bare number beside two buttons does. -->
+            <span class="verb">Shift the selected {{ language }} translations by</span>
+
             <UInputNumber v-model="offset" :min="-500" :max="500" class="offset" />
+
+            <span class="verb">{{ Math.abs(offset) === 1 ? "chapter" : "chapters" }}</span>
 
             <UButton
                 color="neutral"
@@ -43,11 +52,49 @@
                 variant="subtle"
                 :disabled="selection.size === 0"
                 :loading="isDeleting"
-                @click="removeTranslations"
+                @click="confirmingDelete = true"
             >
                 Delete translation
             </UButton>
         </div>
+
+        <!-- The one irreversible action on this screen, and the only one that destroys work somebody
+             else did. It says which chapters and which language before it happens. -->
+        <UModal
+            v-model:open="confirmingDelete"
+            :title="deleteTitle"
+            :description="`The original chapters stay. Only the ${language} translation is removed.`"
+        >
+            <template #body>
+                <div class="confirm">
+                    <p v-if="deletableCount > 0">
+                        {{ deletableCount }} of the selected chapters
+                        {{ deletableCount === 1 ? "carries a" : "carry a" }}
+                        {{ language }} translation. This cannot be undone.
+                    </p>
+
+                    <p v-else class="none">
+                        None of the selected chapters has a {{ language }} translation, so nothing
+                        would be removed.
+                    </p>
+
+                    <div class="actions">
+                        <UButton color="neutral" variant="ghost" @click="confirmingDelete = false">
+                            Cancel
+                        </UButton>
+
+                        <UButton
+                            color="error"
+                            :disabled="deletableCount === 0"
+                            :loading="isDeleting"
+                            @click="removeTranslations"
+                        >
+                            {{ deletableCount === 1 ? "Delete the translation" : `Delete ${deletableCount} translations` }}
+                        </UButton>
+                    </div>
+                </div>
+            </template>
+        </UModal>
 
         <!-- A refusal is the useful answer here, so it gets the room. The list says which chapter is
              in the way of which, rather than only that something is. -->
@@ -56,13 +103,15 @@
 
             <ul>
                 <li v-for="collision in collisions" :key="collision.fromIndex">
-                    Chapter {{ collision.fromIndex }} → {{ collision.targetIndex }}: {{ describe(collision.reason) }}
+                    Chapter {{ chapterNumber(collision.fromIndex) }} → {{ chapterNumber(collision.targetIndex) }}:
+                    {{ describe(collision.reason) }}
                 </li>
             </ul>
         </div>
 
         <p v-else-if="plan !== null" class="planned">
-            {{ plan }} translation(s) would move. Press Move to apply it.
+            {{ plan === 1 ? "One translation would move" : `${plan} translations would move` }}.
+            Press Move to apply it.
         </p>
 
         <div class="table">
@@ -88,7 +137,7 @@
                 :class="{ picked: selection.has(row.index), bare: row.translation === null }"
                 @click="onRowClick(row.index, $event)"
             >
-                <span class="cell num">{{ row.index }}</span>
+                <span class="cell num">{{ chapterNumber(row.index) }}</span>
 
                 <span class="cell">
                     <span class="title">{{ row.title }}</span>
@@ -119,6 +168,7 @@
     import { computed, ref, watch } from "vue";
     import { useAlignment, useDeleteTranslations, useMoveTranslations } from "@/composables/useAlignment";
     import { useNovel } from "@/composables/useNovels";
+    import { chapterNumber } from "@/utils/format";
     import { describe } from "@/utils/status";
 
 
@@ -145,6 +195,18 @@
     const collisions = ref<TranslationCollision[]>([]);
     const plan = ref<number | null>(null);
     const previewed = ref(false);
+    const confirmingDelete = ref(false);
+
+    // Only the rows that actually hold a translation are at risk, and that is the number the
+    // confirmation has to state — a selection of ten chapters where two carry a translation must not
+    // read as ten things about to be destroyed.
+    const deletableCount = computed(() => rows.value
+        .filter(row => selection.value.has(row.index) && row.translation !== null)
+        .length);
+
+    const deleteTitle = computed(() => (deletableCount.value === 1
+        ? "Delete this translation?"
+        : `Delete ${deletableCount.value} translations?`));
 
 
     // The API takes a span, so a scattered selection is sent as the span it covers. That is not a
@@ -240,6 +302,7 @@
             to: span.value.to,
         });
 
+        confirmingDelete.value = false;
         selection.value = new Set();
     }
 </script>
@@ -262,13 +325,46 @@
             padding: 0 1rem 0 0.5rem;
             border-bottom: 1px solid var(--ui-border);
 
+            .book {
+                color: var(--ui-text-muted);
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+
             .where {
+                flex: none;
                 color: var(--ui-text-highlighted);
+            }
+
+            .spacer {
+                flex: 1;
             }
 
             .chosen {
                 font-size: var(--nt-text-sm);
                 color: var(--ui-text-muted);
+            }
+        }
+
+        .confirm {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+
+            p {
+                margin: 0;
+                color: var(--ui-text-muted);
+            }
+
+            .none {
+                color: var(--ui-text-dimmed);
+            }
+
+            .actions {
+                display: flex;
+                justify-content: flex-end;
+                gap: 0.5rem;
             }
         }
 
@@ -279,6 +375,10 @@
             gap: 0.5rem;
             padding: 0.75rem 1rem;
             border-bottom: 1px solid var(--ui-border);
+
+            .verb {
+                color: var(--ui-text-muted);
+            }
 
             .offset {
                 width: 8rem;

@@ -70,6 +70,7 @@ public static class ServiceCollectionExtensions {
         services.AddScoped<ITranslationEditor, TranslationEditor>();
         services.AddScoped<ITranslationImportService, TranslationImportService>();
         services.AddScoped<ITranslationMapping, TranslationMapping>();
+        services.AddScoped<IChapterTranslationStateSync, ChapterTranslationStateSync>();
         services.AddScoped<ITranslationNotifier, SignalRTranslationNotifier>();
 
         services.AddScoped<ITermLocator, ExactTermLocator>();

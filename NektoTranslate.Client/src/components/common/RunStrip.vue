@@ -25,7 +25,14 @@
                     <UIcon v-else :name="settledIcon" class="settled-icon" />
                 </span>
 
-                <span class="headline">{{ headline }}</span>
+                <!-- The strip is the only thing on screen that knows a job is running, so it is also
+                     the way back to the screen that is running it. Leaving that screen otherwise loses
+                     the per-chapter report with no route back to it. -->
+                <RouterLink v-if="importRoute !== null" class="headline link" :to="importRoute">
+                    {{ headline }}
+                </RouterLink>
+
+                <span v-else class="headline">{{ headline }}</span>
 
                 <span v-if="counts !== null" class="counts">{{ counts }}</span>
 
@@ -98,7 +105,10 @@
 </template>
 
 <script setup lang="ts">
+    import type { RouteLocationRaw } from "vue-router";
+
     import { computed, ref } from "vue";
+    import { RouterLink } from "vue-router";
 
     import { importsApi, jobsApi } from "@/api";
     import ChapterStateDot from "@/components/chapters/ChapterStateDot.vue";
@@ -122,6 +132,17 @@
     const activeImport = computed(() => (run.state !== null ? null : activity.activeImports[0] ?? null));
 
     const visible = computed(() => run.state !== null || activeImport.value !== null);
+
+    const importRoute = computed<RouteLocationRaw | null>(() => {
+        if (activeImport.value === null) {
+            return null;
+        }
+
+        return {
+            name: activeImport.value.kind === "Translation" ? "import-translation" : "import-from-url",
+            params: { novelId: activeImport.value.novelId },
+        };
+    });
 
     const tone = computed(() => {
         if (run.state !== null) {
@@ -338,6 +359,16 @@
                 overflow: hidden;
                 text-overflow: ellipsis;
                 white-space: nowrap;
+            }
+
+            .link {
+                text-decoration: none;
+                color: inherit;
+
+                &:hover {
+                    color: var(--ui-primary);
+                    text-decoration: underline;
+                }
             }
 
             .counts,
