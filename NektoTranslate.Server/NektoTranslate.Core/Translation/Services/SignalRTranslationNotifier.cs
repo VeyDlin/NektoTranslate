@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.SignalR;
 using NektoTranslate.Chapters.Enums;
+using NektoTranslate.Jobs.Contracts;
+using NektoTranslate.Jobs.Enums;
 using NektoTranslate.Translation.Hubs;
 
 
@@ -42,6 +44,44 @@ public class SignalRTranslationNotifier(IHubContext<TranslationHub> hub) : ITran
 
     public Task AgentMessageAsync(long novelId, string message) {
         return Send(novelId, "AgentMessage", new { message });
+    }
+
+
+    // Enums go out as names here, as they do on every other event: the hub's serializer does not
+    // share the controllers' converter, and a client decoding numbers from one channel and names
+    // from the other is a bug waiting for a reordered enum.
+    public Task ImportStateChangedAsync(
+        long novelId,
+        long jobId,
+        ImportKind kind,
+        JobState state,
+        int processed,
+        int total,
+        string? currentTitle
+    ) {
+        return Send(novelId, "ImportStateChanged", new {
+            jobId,
+            kind = kind.ToString(),
+            state = state.ToString(),
+            processed,
+            total,
+            currentTitle
+        });
+    }
+
+
+    public Task ImportItemFinishedAsync(long novelId, long jobId, ImportJobItemView item) {
+        return Send(novelId, "ImportItemFinished", new {
+            jobId,
+            item.position,
+            item.sourceUrl,
+            item.title,
+            item.chapterIndex,
+            item.chapterId,
+            state = item.state.ToString(),
+            item.status,
+            item.finishedAt
+        });
     }
 
 

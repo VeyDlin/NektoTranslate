@@ -1,0 +1,90 @@
+using NektoTranslate.Common.Contracts;
+using NektoTranslate.Jobs.Entities;
+using NektoTranslate.Jobs.Enums;
+using NektoTranslate.Parsing.Contracts;
+using NektoTranslate.Translation.Services;
+
+
+namespace NektoTranslate.Jobs.Contracts;
+
+
+// Takes the chapters the user chose, never a contents URL. A novel with two thousand entries must
+// not be pulled down wholesale because someone pasted a link.
+public sealed record StartImportJobRequest(
+    ImportKind kind,
+    IReadOnlyList<ParsedChapterLink> chapters,
+    // Translation imports only.
+    string? language = null,
+    int startAtChapterIndex = 0
+);
+
+
+public sealed partial record ImportJobItemView(
+    int position,
+    string sourceUrl,
+    string title,
+    int? chapterIndex,
+    long? chapterId,
+    ImportItemState state,
+    Status? status,
+    DateTimeOffset? finishedAt
+);
+
+
+public sealed record ImportJobView(
+    long id,
+    long novelId,
+    ImportKind kind,
+    string? language,
+    int startAtChapterIndex,
+    JobState state,
+    int processedCount,
+    int totalCount,
+    string? currentTitle,
+    DateTimeOffset createdAt,
+    DateTimeOffset? startedAt,
+    DateTimeOffset? finishedAt,
+    string? error,
+    // Null when the caller asked for the list without its rows; an empty list means the run had
+    // nothing in it.
+    IReadOnlyList<ImportJobItemView>? items
+) {
+
+    public static ImportJobView Of(ImportJob job, bool withItems) {
+        return new ImportJobView(
+            job.id,
+            job.novelId,
+            job.kind,
+            job.language,
+            job.startAtChapterIndex,
+            job.state,
+            job.processedCount,
+            job.totalCount,
+            job.currentTitle,
+            job.createdAt,
+            job.startedAt,
+            job.finishedAt,
+            job.error,
+            withItems ? job.items.OrderBy(item => item.position).Select(ImportJobItemView.Of).ToList() : null
+        );
+    }
+}
+
+
+public sealed partial record ImportJobItemView {
+
+    public static ImportJobItemView Of(ImportJobItem item) {
+        return new ImportJobItemView(
+            item.position,
+            item.sourceUrl,
+            item.title,
+            item.chapterIndex,
+            item.chapterId,
+            item.state,
+            item.statusCode is null
+                ? null
+                : IssueStatus.Rebuild(item.statusCode, item.statusText ?? string.Empty, item.statusArgsJson),
+            item.finishedAt
+        );
+    }
+}

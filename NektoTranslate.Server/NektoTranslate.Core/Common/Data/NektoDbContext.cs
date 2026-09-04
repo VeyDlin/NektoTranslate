@@ -36,6 +36,10 @@ public class NektoDbContext(DbContextOptions<NektoDbContext> options) : DbContex
 
     public DbSet<ChapterTranslationIssue> chapterTranslationIssues => Set<ChapterTranslationIssue>();
 
+    public DbSet<ImportJob> importJobs => Set<ImportJob>();
+
+    public DbSet<ImportJobItem> importJobItems => Set<ImportJobItem>();
+
 
     // SQLite has no date type and refuses to ORDER BY a DateTimeOffset, which every "most recent
     // first" query in the application needs. Storing UTC ticks keeps the expressive type in the
@@ -144,6 +148,26 @@ public class NektoDbContext(DbContextOptions<NektoDbContext> options) : DbContex
                 .WithMany()
                 .HasForeignKey(j => j.novelId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Read two ways: "what is running on this novel" on every screen, and "what happened to
+        // each chapter of this run" when one is opened. Both are indexed.
+        builder.Entity<ImportJob>(job => {
+            job.HasIndex(j => new { j.novelId, j.state });
+
+            job.HasOne(j => j.novel!)
+                .WithMany()
+                .HasForeignKey(j => j.novelId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            job.HasMany(j => j.items)
+                .WithOne(i => i.job!)
+                .HasForeignKey(i => i.jobId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ImportJobItem>(item => {
+            item.HasIndex(i => new { i.jobId, i.position }).IsUnique();
         });
     }
 }

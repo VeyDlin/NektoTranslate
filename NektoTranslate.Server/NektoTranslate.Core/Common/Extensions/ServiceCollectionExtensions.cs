@@ -112,6 +112,12 @@ public static class ServiceCollectionExtensions {
         services.AddScoped<ITranslationJobService, TranslationJobService>();
         services.AddHostedService<TranslationJobWorker>();
 
+        // Imports run on their own queue and worker: they wait on websites, translations wait on a
+        // model, and neither should hold the other up.
+        services.AddSingleton<ImportJobQueue>();
+        services.AddScoped<IImportJobService, ImportJobService>();
+        services.AddHostedService<ImportJobWorker>();
+
         return services;
     }
 }

@@ -33,6 +33,21 @@ public static class Statuses {
         "Could not read {url}: {reason}"
     );
 
+    public static readonly Status ParserFoundNoContent = new(
+        "PARSER_FOUND_NO_CONTENT",
+        "The page at {url} has no chapter text the parser recognises."
+    );
+
+    public static readonly Status NoParserForSite = new(
+        "NO_PARSER_FOR_SITE",
+        "No parser claims {url}."
+    );
+
+    public static readonly Status ImportCancelled = new(
+        "IMPORT_CANCELLED",
+        "The import was cancelled before this chapter was reached."
+    );
+
     // --- moving translations between chapters --------------------------------------------------
 
     public static readonly Status MoveTargetMissing = new(

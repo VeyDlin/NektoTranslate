@@ -1,4 +1,6 @@
 using NektoTranslate.Chapters.Enums;
+using NektoTranslate.Jobs.Contracts;
+using NektoTranslate.Jobs.Enums;
 
 
 namespace NektoTranslate.Translation.Services;
@@ -27,4 +29,22 @@ public interface ITranslationNotifier {
 
 
     Task AgentMessageAsync(long novelId, string message);
+
+
+    // Imports report the same way runs do, and for the same reason: a page opened while forty
+    // chapters are being fetched has to show the fetch, and a strip that only updates at the end
+    // is a strip that looks frozen.
+    Task ImportStateChangedAsync(
+        long novelId,
+        long jobId,
+        ImportKind kind,
+        JobState state,
+        int processed,
+        int total,
+        string? currentTitle
+    );
+
+
+    // One chapter's outcome, the moment it is known. The list of these is the report.
+    Task ImportItemFinishedAsync(long novelId, long jobId, ImportJobItemView item);
 }
