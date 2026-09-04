@@ -22,6 +22,7 @@ public class StartTranslationJobCommandHandler(ITranslationJobService jobs)
     ) {
         return await jobs.EnqueueAsync(
             command.novelId,
+            command.request.mode,
             command.request.scopeKind,
             command.request.fromIndex,
             command.request.toIndex,

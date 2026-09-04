@@ -11,6 +11,7 @@ using NektoTranslate.Jobs.Services;
 using NektoTranslate.Parsing.Services;
 using NektoTranslate.Settings.Services;
 using NektoTranslate.Translation.Checks;
+using NektoTranslate.Translation.Contracts;
 using NektoTranslate.Translation.Services;
 
 
@@ -67,6 +68,9 @@ public static class ServiceCollectionExtensions {
         ));
 
         services.AddScoped<IChapterTranslator, ChapterTranslator>();
+        // IVoiceLearner is registered where it is implemented - it is being built in parallel with
+        // this file, against the same Translation.Contracts interface.
+        services.AddScoped<IChapterRepairer, ChapterRepairer>();
         services.AddScoped<ITranslationEditor, TranslationEditor>();
         services.AddScoped<ITranslationImportService, TranslationImportService>();
         services.AddScoped<ITranslationMapping, TranslationMapping>();

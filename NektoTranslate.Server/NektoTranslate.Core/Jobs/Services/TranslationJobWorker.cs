@@ -86,6 +86,8 @@ public class TranslationJobWorker(
         NektoDbContext database = scope.ServiceProvider.GetRequiredService<NektoDbContext>();
         ITranslationJobService jobs = scope.ServiceProvider.GetRequiredService<ITranslationJobService>();
         IChapterTranslator translator = scope.ServiceProvider.GetRequiredService<IChapterTranslator>();
+        IChapterRepairer repairer = scope.ServiceProvider.GetRequiredService<IChapterRepairer>();
+        IVoiceLearner voiceLearner = scope.ServiceProvider.GetRequiredService<IVoiceLearner>();
         ITranslationNotifier notifier = scope.ServiceProvider.GetRequiredService<ITranslationNotifier>();
 
         TranslationJob? job = await database.translationJobs.FirstOrDefaultAsync(j => j.id == jobId, stoppingToken);
@@ -100,6 +102,17 @@ public class TranslationJobWorker(
             stoppingToken,
             cancellation.Token
         );
+
+        // LearnVoice does not walk the chapter loop below at all - it reads its sample directly and
+        // writes one profile - so it is handled and finished here, before ResolveScopeAsync (which
+        // returns nothing for this mode) would otherwise leave the run looking like an empty,
+        // instantly-completed translate pass.
+        if (job.mode == TranslationJobMode.LearnVoice) {
+            await RunLearnVoiceAsync(database, voiceLearner, notifier, job, linked.Token);
+            queue.Release(jobId);
+
+            return;
+        }
 
         IReadOnlyList<long> chapterIds = await jobs.ResolveScopeAsync(job, stoppingToken);
 
@@ -129,7 +142,11 @@ public class TranslationJobWorker(
                     return;
                 }
 
-                await TranslateOneAsync(database, translator, notifier, job, chapterId, linked.Token);
+                if (job.mode == TranslationJobMode.Repair) {
+                    await RepairOneAsync(database, repairer, notifier, job, chapterId, linked.Token);
+                } else {
+                    await TranslateOneAsync(database, translator, notifier, job, chapterId, linked.Token);
+                }
             }
 
             await Finish(database, notifier, job, JobState.Completed, null, stoppingToken);
@@ -196,6 +213,117 @@ public class TranslationJobWorker(
         job.processedCount++;
         await database.SaveChangesAsync(CancellationToken.None);
         await Publish(notifier, job);
+    }
+
+
+    // Mirrors TranslateOneAsync's shape, so a repair reports through the exact events the strip and
+    // the reader already listen to and no client change is needed to show one running.
+    //
+    // It differs in one respect: a repair that fails or is cancelled reports no partial spend.
+    // ChapterRepairer does not cache its progress batch by batch the way ClaudeSegmentTranslator
+    // does for a translation, because a repair chapter is ordinarily a single request - the added
+    // bookkeeping was not worth it for the rare chapter long enough to need more than one.
+    private async Task RepairOneAsync(
+        NektoDbContext database,
+        IChapterRepairer repairer,
+        ITranslationNotifier notifier,
+        TranslationJob job,
+        long chapterId,
+        CancellationToken cancellationToken
+    ) {
+        await notifier.ChapterStateChangedAsync(job.novelId, chapterId, ChapterTranslationState.Running);
+
+        try {
+            RepairedChapter outcome = await repairer.RepairAsync(chapterId, cancellationToken);
+
+            job.costUsd += outcome.costUsd;
+            await notifier.ChapterTranslatedAsync(job.novelId, chapterId);
+        } catch (OperationCanceledException) {
+            throw;
+        } catch (Exception failure) {
+            logger.LogError(failure, "Chapter {ChapterId} failed to repair", chapterId);
+
+            // The rendering this chapter already had is untouched - a repair never overwrites or
+            // deletes it. Marking the chapter Failed here carries the same meaning it already carries
+            // for a forced re-translation that breaks on an already-translated chapter: the last
+            // attempt did not add a better version, not that nothing usable is on file.
+            await database.chapters
+                .Where(chapter => chapter.id == chapterId)
+                .ExecuteUpdateAsync(
+                    update => update.SetProperty(
+                        chapter => chapter.translationState,
+                        ChapterTranslationState.Failed
+                    ),
+                    CancellationToken.None
+                );
+
+            await notifier.ChapterStateChangedAsync(job.novelId, chapterId, ChapterTranslationState.Failed);
+        }
+
+        job.processedCount++;
+        await database.SaveChangesAsync(CancellationToken.None);
+        await Publish(notifier, job);
+    }
+
+
+    // LearnVoice never claims a chapter from the queue - ResolveScopeAsync returns nothing for this
+    // mode - so it has no per-chapter loop to share with the other two. One call, one unit of
+    // progress, reported through the same job-state event the strip already listens to.
+    private async Task RunLearnVoiceAsync(
+        NektoDbContext database,
+        IVoiceLearner voiceLearner,
+        ITranslationNotifier notifier,
+        TranslationJob job,
+        CancellationToken cancellationToken
+    ) {
+        job.state = JobState.Running;
+        job.startedAt = DateTimeOffset.UtcNow;
+        job.totalCount = 1;
+        await database.SaveChangesAsync(cancellationToken);
+        await Publish(notifier, job);
+
+        try {
+            string? language = await database.novels
+                .Where(novel => novel.id == job.novelId)
+                .Select(novel => novel.targetLanguage)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (language is null) {
+                throw new InvalidOperationException($"Novel {job.novelId} was not found.");
+            }
+
+            if (job.fromIndex is null || job.toIndex is null) {
+                throw new InvalidOperationException(
+                    "A voice-learning run needs an explicit chapter range - fromIndex and toIndex - "
+                    + "to know which chapters already carry the human translation it is meant to "
+                    + "learn from."
+                );
+            }
+
+            LearnedVoice learned = await voiceLearner.LearnAsync(
+                job.novelId,
+                language,
+                job.fromIndex.Value,
+                job.toIndex.Value,
+                cancellationToken
+            );
+
+            job.costUsd += learned.costUsd;
+            job.processedCount = 1;
+
+            await notifier.AgentMessageAsync(
+                job.novelId,
+                $"Learned the {language} voice from chapters {job.fromIndex}-{job.toIndex}: "
+                + $"{learned.termCount} terms noted."
+            );
+
+            await Finish(database, notifier, job, JobState.Completed, null, CancellationToken.None);
+        } catch (OperationCanceledException) {
+            await Finish(database, notifier, job, JobState.Cancelled, null, CancellationToken.None);
+        } catch (Exception failure) {
+            logger.LogError(failure, "Voice-learning job {JobId} failed", job.id);
+            await Finish(database, notifier, job, JobState.Failed, failure.Message, CancellationToken.None);
+        }
     }
 
 
