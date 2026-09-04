@@ -130,6 +130,8 @@
                     <span v-if="item.status && (item.state === 'Skipped' || item.state === 'Failed')" class="reason">
                         {{ describe(item.status) }}
                     </span>
+
+                    <ImportItemRetryButton :novel-id="id" :job="job" :item="item" />
                 </li>
             </ul>
         </div>
@@ -215,6 +217,7 @@
 
     import { computed, h, ref, resolveComponent, watch } from "vue";
     import { parsingApi } from "@/api";
+    import ImportItemRetryButton from "@/components/imports/ImportItemRetryButton.vue";
     import ImportItemStateBadge from "@/components/imports/ImportItemStateBadge.vue";
     import { useActivity, useCancelImport, usePauseImport, useResumeImport, useStartImport } from "@/composables/useActivity";
     import { useNovel } from "@/composables/useNovels";

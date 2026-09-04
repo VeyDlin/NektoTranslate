@@ -120,6 +120,10 @@ public static class ServiceCollectionExtensions {
         // Imports run on their own queue and worker: they wait on websites, translations wait on a
         // model, and neither should hold the other up.
         services.AddSingleton<ImportJobQueue>();
+        // The one door a chapter goes through whether it is fetched by the sequential run or by a
+        // retry of a single failed item - scoped so either caller gets it from its own request or
+        // worker scope, the same as the services it wraps.
+        services.AddScoped<IImportItemRunner, ImportItemRunner>();
         services.AddScoped<IImportJobService, ImportJobService>();
         services.AddHostedService<ImportJobWorker>();
 

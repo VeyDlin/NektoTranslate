@@ -54,6 +54,18 @@ public static class Statuses {
         "The import was cancelled before this chapter was reached."
     );
 
+    // --- retrying one item of a settled import ---------------------------------------------------
+
+    public static readonly Status ImportJobStillActive = new(
+        "IMPORT_JOB_STILL_ACTIVE",
+        "This import is still running. Wait for it to finish, then retry the chapter."
+    );
+
+    public static readonly Status ImportItemNotFailed = new(
+        "IMPORT_ITEM_NOT_FAILED",
+        "This chapter did not fail, so there is nothing to retry."
+    );
+
     // --- moving translations between chapters --------------------------------------------------
 
     public static readonly Status MoveTargetMissing = new(
