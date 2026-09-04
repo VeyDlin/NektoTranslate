@@ -17,6 +17,12 @@ public class TranslationJob {
 
     public Novel? novel { get; set; }
 
+    // What this run of the job actually does. One job type now covers three kinds of work -
+    // translating chapters, learning a voice profile from a sample, and repairing an imported
+    // translation - because they share the same queue, progress tracking and cost accounting, and
+    // splitting them into separate tables would just duplicate all of that for no behavioural gain.
+    public TranslationJobMode mode { get; set; } = TranslationJobMode.Translate;
+
     public JobScopeKind scopeKind { get; set; }
 
     public int? fromIndex { get; set; }

@@ -40,6 +40,10 @@ public class NektoDbContext(DbContextOptions<NektoDbContext> options) : DbContex
 
     public DbSet<ImportJobItem> importJobItems => Set<ImportJobItem>();
 
+    public DbSet<VoiceProfile> voiceProfiles => Set<VoiceProfile>();
+
+    public DbSet<TranslationTerm> translationTerms => Set<TranslationTerm>();
+
 
     // SQLite has no date type and refuses to ORDER BY a DateTimeOffset, which every "most recent
     // first" query in the application needs. Storing UTC ticks keeps the expressive type in the
@@ -168,6 +172,26 @@ public class NektoDbContext(DbContextOptions<NektoDbContext> options) : DbContex
 
         builder.Entity<ImportJobItem>(item => {
             item.HasIndex(i => new { i.jobId, i.position }).IsUnique();
+        });
+
+        builder.Entity<VoiceProfile>(profile => {
+            profile.HasIndex(p => new { p.novelId, p.language });
+
+            profile.HasOne(p => p.novel!)
+                .WithMany()
+                .HasForeignKey(p => p.novelId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // One row per rendering per novel per language - a second row for the same term would leave
+        // repair and voice learning choosing between two variant lists instead of growing one.
+        builder.Entity<TranslationTerm>(term => {
+            term.HasIndex(t => new { t.novelId, t.language, t.term }).IsUnique();
+
+            term.HasOne(t => t.novel!)
+                .WithMany()
+                .HasForeignKey(t => t.novelId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }
