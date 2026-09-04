@@ -48,8 +48,10 @@ public class ModelCatalog(
     IHttpClientFactory httpClientFactory
 ) : IModelCatalog {
 
+    // Empty means "nothing configured", not "no models": the built-in list stands in. See the note
+    // on EngineOptions.models for why the default cannot live there.
     public IReadOnlyList<ModelOption> List() {
-        return options.models;
+        return options.models.Count == 0 ? EngineOptions.DefaultModels : options.models;
     }
 
 

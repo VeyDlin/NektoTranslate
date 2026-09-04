@@ -34,7 +34,12 @@ public sealed record EngineOptions {
     // there is no subcommand that prints its catalogue, and an unknown name is only discovered by
     // being rejected. Overriding this section is how a user reaches a model shipped after this
     // build, without waiting for a new one.
-    public IReadOnlyList<ModelOption> models { get; init; } = DefaultModels;
+    //
+    // Deliberately empty here rather than defaulting to DefaultModels. Configuration binding does
+    // not replace a collection it finds already populated - it appends to it - so a default list
+    // plus the same list in appsettings.json showed every model twice. Whoever reads this list
+    // substitutes DefaultModels when it is empty.
+    public IReadOnlyList<ModelOption> models { get; init; } = [];
 
 
     // Aliases rather than pinned names, deliberately. An alias tracks the newest model of its
