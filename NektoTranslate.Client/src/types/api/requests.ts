@@ -119,6 +119,10 @@ export interface StartImportRequest {
     chapters: ParsedChapterLink[];
     language?: string | null;
     startAtChapterIndex?: number | null;
+
+    // Translation imports only: make a chapter with no original for an entry that has nowhere to
+    // land, instead of reporting it as having no chapter.
+    createMissingChapters?: boolean;
 }
 
 

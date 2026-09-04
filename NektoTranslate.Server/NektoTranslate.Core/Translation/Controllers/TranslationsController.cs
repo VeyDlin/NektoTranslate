@@ -47,7 +47,12 @@ public class TranslationsController(
                 chapter.index,
                 chapter.title,
                 chapter.translationState,
-                source = chapter.sourcePlainText.Substring(0, PreviewLength),
+                // Null for a chapter that has no original, which the alignment screen shows as such.
+                // That is a state worth seeing rather than an empty cell: it is the whole shape of a
+                // book that arrived as a translation alone.
+                source = chapter.sourcePlainText == null
+                    ? null
+                    : chapter.sourcePlainText.Substring(0, PreviewLength),
 
                 // The newest version, because that is the one the reader sees. The count tells the
                 // interface that earlier ones exist without sending them.
@@ -78,6 +83,7 @@ public class TranslationsController(
             novelId,
             request.language,
             request.translations,
+            request.createMissingChapters,
             cancellationToken
         );
     }

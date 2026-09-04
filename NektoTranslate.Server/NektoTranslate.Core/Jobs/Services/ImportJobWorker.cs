@@ -201,7 +201,8 @@ public class ImportJobWorker(
                 TranslationImportResult result = await translations.ImportAsync(
                     job.novelId,
                     job.language ?? string.Empty,
-                    [new ImportedTranslation(chapterIndex, chapter.html, item.sourceUrl)],
+                    [new ImportedTranslation(chapterIndex, chapter.html, item.sourceUrl, title)],
+                    job.createMissingChapters,
                     cancellationToken
                 );
 

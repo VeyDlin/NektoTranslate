@@ -122,7 +122,9 @@
         return options;
     });
 
-    const inScope = computed(() => props.rows.filter((row) => {
+    // A chapter with no original is out of every scope, force included — the server refuses it for
+    // the same reason, and an estimate that counted it would promise work the run will not do.
+    const inScope = computed(() => props.rows.filter(row => row.hasOriginal).filter((row) => {
         switch (scope.value) {
             case "Range":
                 return chapterNumber(row.index) >= fromNumber.value

@@ -39,7 +39,12 @@ public class ChaptersController(IMediator mediator, NektoDbContext database) : C
                 chapter.index,
                 chapter.title,
                 chapter.glossaryState,
-                chapter.translationState
+                chapter.translationState,
+
+                // Whether there is anything to translate from. The source itself is deliberately not
+                // sent - that is the megabytes this projection exists to avoid - but its absence is
+                // a fact the list needs: it decides what a run can be asked to do with the chapter.
+                hasOriginal = chapter.sourceMarkdown != null
             })
             .ToListAsync<object>(cancellationToken);
     }

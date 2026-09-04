@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NektoTranslate.Chapters.Entities;
 using NektoTranslate.Chapters.Services;
 using NektoTranslate.Common.Contracts;
 using NektoTranslate.Common.Data;
@@ -16,6 +17,7 @@ public interface ITranslationImportService {
         long novelId,
         string language,
         IReadOnlyList<ImportedTranslation> translations,
+        bool createMissingChapters = false,
         CancellationToken cancellationToken = default
     );
 }
@@ -42,6 +44,7 @@ public class TranslationImportService(
         long novelId,
         string language,
         IReadOnlyList<ImportedTranslation> translations,
+        bool createMissingChapters = false,
         CancellationToken cancellationToken = default
     ) {
         List<TranslationImportRejection> rejected = [];
@@ -58,6 +61,10 @@ public class TranslationImportService(
         Dictionary<int, long> chapterIds = await database.chapters
             .Where(chapter => chapter.novelId == novelId && wanted.Contains(chapter.index))
             .ToDictionaryAsync(chapter => chapter.index, chapter => chapter.id, cancellationToken);
+
+        int createdChapters = createMissingChapters
+            ? await CreateMissingAsync(novelId, translations, chapterIds, cancellationToken)
+            : 0;
 
         HashSet<long> alreadyTranslated = (await database.chapterTranslations
             .Where(translation => translation.chapter!.novelId == novelId
@@ -125,6 +132,55 @@ public class TranslationImportService(
         // which chapters a run pays to translate.
         await stateSync.SyncAsync(novelId, touched, cancellationToken);
 
-        return new TranslationImportResult(imported, rejected);
+        return new TranslationImportResult(imported, rejected, createdChapters);
+    }
+
+
+    // Makes a chapter for every entry that has nowhere to land, with no original text in it.
+    //
+    // This is what lets a book exist as a translation alone. The usual case has an original and the
+    // translation is attached to it; this one has no original anywhere, and refusing the import
+    // would mean the only copy of the book the user has cannot be held at all - not read, not
+    // edited, not repaired.
+    //
+    // Saved before the translations are attached, because the rows that follow are addressed by
+    // chapter id and a chapter that has not been written yet does not have one.
+    private async Task<int> CreateMissingAsync(
+        long novelId,
+        IReadOnlyList<ImportedTranslation> translations,
+        Dictionary<int, long> chapterIds,
+        CancellationToken cancellationToken
+    ) {
+        List<Chapter> made = [];
+
+        foreach (ImportedTranslation entry in translations) {
+            if (chapterIds.ContainsKey(entry.chapterIndex) || made.Any(chapter => chapter.index == entry.chapterIndex)) {
+                continue;
+            }
+
+            made.Add(new Chapter {
+                novelId = novelId,
+                index = entry.chapterIndex,
+                title = string.IsNullOrWhiteSpace(entry.title)
+                    ? $"Chapter {entry.chapterIndex + 1}"
+                    : entry.title,
+                sourceMarkdown = null,
+                sourcePlainText = null,
+                sourceUrl = null
+            });
+        }
+
+        if (made.Count == 0) {
+            return 0;
+        }
+
+        database.chapters.AddRange(made);
+        await database.SaveChangesAsync(cancellationToken);
+
+        foreach (Chapter chapter in made) {
+            chapterIds[chapter.index] = chapter.id;
+        }
+
+        return made.Count;
     }
 }

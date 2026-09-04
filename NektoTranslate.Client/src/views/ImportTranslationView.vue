@@ -199,6 +199,28 @@
             </template>
         </p>
 
+        <!-- The case this screen could not hold until now: a translation of chapters the book has no
+             original for. Refusing them is right when the offset is simply wrong, and wrong when the
+             original does not exist anywhere — only the user knows which, so they are told the count
+             and asked. -->
+        <div v-if="missingCount > 0" class="orphans">
+            <USwitch v-model="createMissing" />
+
+            <span class="text">
+                <strong>{{ formatCount(missingCount) }}</strong>
+                {{ missingCount === 1 ? "entry lands on a chapter" : "entries land on chapters" }}
+                the book does not have.
+                <template v-if="createMissing">
+                    {{ missingCount === 1 ? "It" : "They" }} will be created with no original —
+                    readable and editable, but nothing to translate from.
+                </template>
+                <template v-else>
+                    {{ missingCount === 1 ? "It" : "They" }} will be reported and skipped. Turn this
+                    on if the original does not exist anywhere.
+                </template>
+            </span>
+        </div>
+
         <UTable
             v-if="links.length > 0"
             v-model:row-selection="rowSelection"
@@ -236,6 +258,7 @@
     import { parsingApi } from "@/api";
     import ImportItemStateBadge from "@/components/imports/ImportItemStateBadge.vue";
     import { useActivity, useCancelImport, usePauseImport, useResumeImport, useStartImport } from "@/composables/useActivity";
+    import { useChapters } from "@/composables/useChapters";
     import { useNovel } from "@/composables/useNovels";
     import { useActivityStore } from "@/stores/activity.store";
     import { formatCount, importStateLabel } from "@/utils/format";
@@ -252,6 +275,10 @@
 
     const { data: novelData } = useNovel(id);
 
+    // Shared with the novel screen's own query, so arriving here from the chapter list costs
+    // nothing: the indices are already in the cache.
+    const { data: chapterData } = useChapters(id);
+
     const novel = computed(() => novelData.value ?? null);
     const language = computed(() => novel.value?.targetLanguage ?? "");
 
@@ -261,6 +288,7 @@
     const rowSelection = ref<Record<string, boolean>>({});
     const rangeSpec = ref("");
     const isLoading = ref(false);
+    const createMissing = ref(false);
 
     // Chapters are numbered from one everywhere the reader looks, so this field takes that number and
     // the 0-based index the API stores is derived at the call, not carried around the screen.
@@ -314,6 +342,14 @@
 
     const firstTitle = computed(() => selectedLinks.value[0]?.title ?? "");
     const lastTitle = computed(() => selectedLinks.value[selectedLinks.value.length - 1]?.title ?? "");
+
+    // Which chapters the book actually has, so the mapping can say how many of the chosen entries
+    // have nowhere to land before the import runs rather than after it.
+    const existingIndices = computed(() => new Set((chapterData.value ?? []).map(row => row.index)));
+
+    const missingCount = computed(() => selectedLinks.value
+        .filter((_, position) => !existingIndices.value.has(startAtNumber.value - 1 + position))
+        .length);
 
     const summary = computed(() => {
         const items = job.value?.items ?? [];
@@ -382,6 +418,7 @@
             chapters: selectedLinks.value,
             language: language.value,
             startAtChapterIndex: startAtNumber.value - 1,
+            createMissingChapters: createMissing.value,
         });
 
         rowSelection.value = {};
@@ -613,6 +650,24 @@
 
             .spacer {
                 flex: 1;
+            }
+        }
+
+        .orphans {
+            flex: none;
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.625rem 1.5rem 0.875rem;
+
+            .text {
+                max-width: 60rem;
+                line-height: 1.5;
+                color: var(--ui-text-muted);
+
+                strong {
+                    color: var(--ui-text-highlighted);
+                }
             }
         }
 

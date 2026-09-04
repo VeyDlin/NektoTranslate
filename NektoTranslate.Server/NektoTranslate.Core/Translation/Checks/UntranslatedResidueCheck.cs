@@ -35,6 +35,13 @@ public class UntranslatedResidueCheck(EngineOptions options) : ITranslationCheck
 
 
     public IReadOnlyList<TranslationIssue> Run(TranslationCheckContext context) {
+        // Which script counts as residue is read off the original's own script. Without an original
+        // the question cannot be asked from the text alone — the language names are free text and
+        // cannot be turned into a script family reliably enough to accuse a paragraph on.
+        if (context.sourcePlainText is null) {
+            return [];
+        }
+
         Script source = ScriptFamily.Detect(context.sourcePlainText);
         Script target = ScriptFamily.Detect(context.translatedPlainText);
 

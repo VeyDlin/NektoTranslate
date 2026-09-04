@@ -32,10 +32,15 @@ public class ExactTermLocator(NektoDbContext database, EngineOptions options) : 
         // one an existing translation is most likely to have settled.
         var candidates = await database.chapters
             .AsNoTracking()
-            .Where(chapter => chapter.novelId == novelId && chapter.sourcePlainText.Contains(term))
+            // A chapter with no original has nothing to find a source term in. It is skipped rather
+            // than searched: the translation it holds is the answer to "how was this rendered", not
+            // the question.
+            .Where(chapter => chapter.novelId == novelId
+                && chapter.sourcePlainText != null
+                && chapter.sourcePlainText.Contains(term))
             .OrderBy(chapter => chapter.index)
             .Take(limit)
-            .Select(chapter => new { chapter.id, chapter.index, chapter.sourcePlainText })
+            .Select(chapter => new { chapter.id, chapter.index, sourcePlainText = chapter.sourcePlainText! })
             .ToListAsync(cancellationToken);
 
         List<TermOccurrence> occurrences = [];

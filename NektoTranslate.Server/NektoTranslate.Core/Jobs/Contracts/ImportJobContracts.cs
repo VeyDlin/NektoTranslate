@@ -15,7 +15,10 @@ public sealed record StartImportJobRequest(
     IReadOnlyList<ParsedChapterLink> chapters,
     // Translation imports only.
     string? language = null,
-    int startAtChapterIndex = 0
+    int startAtChapterIndex = 0,
+    // Translation imports only: make a chapter with no original for any entry that has nowhere to
+    // land. This is what lets a book exist as somebody else's translation and nothing more.
+    bool createMissingChapters = false
 );
 
 

@@ -24,6 +24,12 @@ public class GlossaryUsageCheck(IGlossaryUsageChecker checker) : ITranslationChe
 
 
     public IReadOnlyList<TranslationIssue> Run(TranslationCheckContext context) {
+        // The finding is "the source used this term and the translation did not". With no source
+        // there is no first half, and every term would read as ignored.
+        if (context.sourcePlainText is null) {
+            return [];
+        }
+
         return checker
             .FindIgnored(context.suppliedTerms, context.sourcePlainText, context.translatedPlainText)
             .Select(term => new TranslationIssue(

@@ -28,7 +28,10 @@
                     {{ reader.showRuby ? "Hide furigana" : "Show furigana" }}
                 </UButton>
 
-                <UFieldGroup size="sm">
+                <!-- A chapter with no original has one thing to read, so the choice is not offered.
+                     Leaving two of the three buttons to select an empty pane would be a control that
+                     only ever disappoints. -->
+                <UFieldGroup v-if="hasOriginal" size="sm">
                     <UButton
                         v-for="option in modeOptions"
                         :key="option.value"
@@ -53,7 +56,7 @@
         </div>
 
         <div v-else-if="chapter" class="panes" :class="paneClasses" :style="paneStyle">
-            <article v-if="reader.mode !== 'translation'" class="pane source-pane">
+            <article v-if="effectiveMode !== 'translation'" class="pane source-pane">
                 <div
                     class="prose source"
                     :class="{ 'no-ruby': !reader.showRuby }"
@@ -62,7 +65,7 @@
                 />
             </article>
 
-            <article v-if="reader.mode !== 'source'" class="pane translation-pane">
+            <article v-if="effectiveMode !== 'source'" class="pane translation-pane">
                 <div v-if="shown" class="prose" v-html="shownHtml" />
 
                 <!-- Prose as it is written. Shown only while no stored translation exists, so a
@@ -177,9 +180,20 @@
 
     // Both sides arrive as Markdown and are rendered here rather than in the template, so the parse
     // happens once per chapter instead of on every unrelated re-render.
-    const sourceHtml = computed(() => (chapter.value === null ? "" : renderMarkdown(chapter.value.sourceMarkdown)));
+    // A book can arrive as somebody else's translation with no original anywhere. The reader then
+    // shows the one side there is, rather than a blank pane beside it.
+    const hasOriginal = computed(() => (chapter.value?.sourceMarkdown ?? null) !== null);
 
-    const hasRuby = computed(() => chapter.value?.sourceMarkdown.includes("<ruby") ?? false);
+    // The stored preference can say "original" or "both" from a chapter that had one. Honouring it
+    // on a chapter that does not would render an empty screen, so the absence of an original decides
+    // the mode rather than the preference — and the preference is left untouched for the next one.
+    const effectiveMode = computed<ReaderMode>(() => (hasOriginal.value ? reader.mode : "translation"));
+
+    const sourceHtml = computed(() => (chapter.value?.sourceMarkdown == null
+        ? ""
+        : renderMarkdown(chapter.value.sourceMarkdown)));
+
+    const hasRuby = computed(() => chapter.value?.sourceMarkdown?.includes("<ruby") ?? false);
 
     const streaming = computed(() => run.deltas[chapterKey.value] ?? null);
 
@@ -210,8 +224,8 @@
     ];
 
     const paneClasses = computed(() => [
-        reader.mode,
-        reader.mode === "bilingual" ? "" : `align-${reader.align}`,
+        effectiveMode.value,
+        effectiveMode.value === "bilingual" ? "" : `align-${reader.align}`,
     ]);
 
     // Handed to the panes rather than written into the stylesheet: these are the reader's numbers,

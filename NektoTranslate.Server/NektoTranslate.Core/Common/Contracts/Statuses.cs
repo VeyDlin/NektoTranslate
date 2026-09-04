@@ -18,6 +18,12 @@ public static class Statuses {
         "There is no chapter {index}. Import the original first, or shift the mapping."
     );
 
+
+    public static readonly Status ChapterHasNoOriginal = new(
+        "CHAPTER_HAS_NO_ORIGINAL",
+        "Chapter {index} has no original text, so there is nothing to translate from."
+    );
+
     public static readonly Status TranslationAlreadyExists = new(
         "TRANSLATION_ALREADY_EXISTS",
         "Chapter {index} already has a {language} translation. Delete it first if it should be replaced."

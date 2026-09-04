@@ -185,6 +185,10 @@ export interface ChapterSummary {
     title: string;
     glossaryState: GlossaryState;
     translationState: TranslationState;
+
+    // False for a chapter that arrived as somebody else's translation with no original anywhere. It
+    // can be read, edited and repaired; it cannot be translated, and nothing may offer to.
+    hasOriginal: boolean;
 }
 
 
@@ -218,7 +222,9 @@ export interface ChapterIssue {
 
 
 export interface Chapter extends ChapterSummary {
-    sourceMarkdown: string;
+    // Null when the book arrived as somebody else's translation and the original is nowhere. Such a
+    // chapter is read, edited and repaired like any other — it simply has no left-hand side.
+    sourceMarkdown: string | null;
     translations: ChapterTranslation[];
 
     // Only the open ones, and carried with the chapter rather than fetched separately: the reader
@@ -255,7 +261,7 @@ export interface AlignmentRow {
     index: number;
     title: string;
     translationState: TranslationState;
-    source: string;
+    source: string | null;
 
     translation: {
         id: number;

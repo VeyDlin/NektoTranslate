@@ -85,6 +85,10 @@ public class TranslationJobService(NektoDbContext database, TranslationJobQueue 
             _ => chapters
         };
 
+        // A chapter with no original cannot be translated by any scope, force included. Scoping one
+        // in would spend a slot to fail: repairing those is a different run with a different input.
+        chapters = chapters.Where(chapter => chapter.sourceMarkdown != null);
+
         if (!job.force) {
             chapters = chapters.Where(chapter =>
                 chapter.translationState != ChapterTranslationState.Translated);

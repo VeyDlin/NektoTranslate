@@ -30,12 +30,19 @@ public class Chapter {
     // Furigana has no Markdown syntax and is kept as inline HTML (<ruby>兄<rt>あに</rt></ruby>),
     // which Markdown permits. That is what lets the format be uniform without losing the one thing
     // only the source carries.
-    public required string sourceMarkdown { get; set; }
+    //
+    // Null when the book arrived as somebody else's translation and the original is nowhere: the
+    // site that carried it is gone, or never had it. Those chapters are real chapters - they are
+    // read, edited, checked and repaired - they simply have nothing on the left-hand side. Every
+    // reader of this field has to say what it does without one; nothing may assume it is there.
+    public string? sourceMarkdown { get; set; }
 
     // Flat projection, one block per line, rebuilt whenever the source changes. Term search cannot
     // run against the Markdown: a name wrapped in emphasis or sitting inside a ruby annotation is
     // still that name, but the substring the glossary looks for is not there.
-    public required string sourcePlainText { get; set; }
+    //
+    // Null exactly when sourceMarkdown is: the two are written together or not at all.
+    public string? sourcePlainText { get; set; }
 
     [MaxLength(2000)]
     public string? sourceUrl { get; set; }

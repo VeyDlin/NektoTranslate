@@ -134,14 +134,19 @@
                 v-for="row in rows"
                 :key="row.chapterId"
                 class="row"
-                :class="{ picked: selection.has(row.index), bare: row.translation === null }"
+                :class="{
+                    picked: selection.has(row.index),
+                    bare: row.translation === null,
+                    orphan: row.source === null,
+                }"
                 @click="onRowClick(row.index, $event)"
             >
                 <span class="cell num">{{ chapterNumber(row.index) }}</span>
 
                 <span class="cell">
                     <span class="title">{{ row.title }}</span>
-                    <span class="preview">{{ row.source }}</span>
+                    <span v-if="row.source !== null" class="preview">{{ row.source }}</span>
+                    <span v-else class="preview none">no original</span>
                 </span>
 
                 <span class="cell">
@@ -455,6 +460,13 @@
                 // A chapter with nothing attached is the thing the user is hunting for, so it is
                 // dimmed rather than left looking like a filled row.
                 &.bare .cell:last-child {
+                    opacity: 0.5;
+                }
+
+                // The mirror image: a translation that never had an original. Not a fault to hunt
+                // down - it is how a book imported as somebody else's translation looks all the way
+                // through - so it is dimmed the same way rather than marked as wrong.
+                &.orphan .cell:nth-child(2) {
                     opacity: 0.5;
                 }
             }

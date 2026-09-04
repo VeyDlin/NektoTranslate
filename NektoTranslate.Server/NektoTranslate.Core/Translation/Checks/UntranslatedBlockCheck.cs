@@ -31,6 +31,11 @@ public class UntranslatedBlockCheck(EngineOptions options) : ITranslationCheck {
 
 
     public IReadOnlyList<TranslationIssue> Run(TranslationCheckContext context) {
+        // Block for block against the original. Without one there is nothing to compare a block to.
+        if (context.sourcePlainText is null) {
+            return [];
+        }
+
         if (ScriptFamily.Detect(context.sourcePlainText) == ScriptFamily.Detect(context.translatedPlainText)) {
             return [];
         }

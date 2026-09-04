@@ -39,6 +39,7 @@ public class ImportJobService(NektoDbContext database, ImportJobQueue queue) : I
             kind = request.kind,
             language = request.kind == ImportKind.Translation ? request.language : null,
             startAtChapterIndex = request.startAtChapterIndex,
+            createMissingChapters = request.kind == ImportKind.Translation && request.createMissingChapters,
             state = JobState.Queued,
             totalCount = request.chapters.Count
         };

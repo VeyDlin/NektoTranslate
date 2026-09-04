@@ -62,13 +62,23 @@ public class ChapterTranslator(
         Novel novel = chapter.novel!;
         string language = novel.targetLanguage;
 
+        // Nothing to translate from. A run never scopes these chapters, so reaching here means a
+        // single chapter was asked for by id — and saying so plainly is better than segmenting an
+        // empty string and calling the result a translation.
+        if (chapter.sourceMarkdown is null) {
+            throw new InvalidOperationException(
+                $"Chapter {chapterId} has no original text. It can be edited or repaired, "
+                + "but not translated."
+            );
+        }
+
         SegmentedChapter segmented = segmenter.Segment(chapter.sourceMarkdown);
 
         // A chapter with text that yields no segments is a markup shape the pipeline failed to
         // understand, not an empty chapter. Marking it translated would hand the reader a blank page
         // with a tick beside it, and the loss would only surface once the source was long gone.
         if (segmented.segments.Count == 0) {
-            if (chapter.sourcePlainText.Trim().Length > 0) {
+            if (chapter.sourcePlainText?.Trim().Length > 0) {
                 throw new InvalidOperationException(
                     $"Chapter {chapterId} has text but produced no translatable segments; "
                     + "its markup was not recognised."
@@ -251,15 +261,19 @@ public class ChapterTranslator(
             return [];
         }
 
+        // Only chapters that have both sides. The window teaches the model how this book's prose was
+        // rendered, which is a fact about a pair — a translation with no original beside it has
+        // nothing to demonstrate.
         var passages = await database.chapterTranslations
             .AsNoTracking()
             .Where(translation => translation.language == language
                 && translation.chapter!.novelId == novelId
-                && translation.chapter.index < beforeIndex)
+                && translation.chapter.index < beforeIndex
+                && translation.chapter.sourcePlainText != null)
             .OrderByDescending(translation => translation.chapter!.index)
             .Take(applicationSettings.voiceWindowChapters)
             .Select(translation => new {
-                source = translation.chapter!.sourcePlainText,
+                source = translation.chapter!.sourcePlainText!,
                 translated = translation.plainText
             })
             .ToListAsync(cancellationToken);

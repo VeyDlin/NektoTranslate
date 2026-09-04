@@ -34,6 +34,11 @@ public class ImportJob {
     // in order. This is what absorbs a translator's note at the top of a site's contents page.
     public int startAtChapterIndex { get; set; }
 
+    // For a translation import: whether an entry that lands on a chapter which does not exist may
+    // make one, with no original in it. Held on the job rather than passed per chapter because a run
+    // that is paused, resumed or picked up after a restart has to decide the same way throughout.
+    public bool createMissingChapters { get; set; }
+
     public JobState state { get; set; } = JobState.Queued;
 
     public int processedCount { get; set; }
