@@ -68,8 +68,7 @@ public static class ServiceCollectionExtensions {
         ));
 
         services.AddScoped<IChapterTranslator, ChapterTranslator>();
-        // IVoiceLearner is registered where it is implemented - it is being built in parallel with
-        // this file, against the same Translation.Contracts interface.
+        services.AddScoped<IVoiceLearner, VoiceLearner>();
         services.AddScoped<IChapterRepairer, ChapterRepairer>();
         services.AddScoped<ITranslationEditor, TranslationEditor>();
         services.AddScoped<ITranslationImportService, TranslationImportService>();
