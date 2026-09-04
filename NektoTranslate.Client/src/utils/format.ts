@@ -3,6 +3,7 @@ import type {
     GlossaryOrigin,
     ImportItemState,
     JobState,
+    TranslationJobMode,
     TranslationOrigin,
     TranslationState,
 } from "@/types/models/domain";
@@ -126,6 +127,21 @@ const IMPORT_STATE_LABELS: Record<JobState, string> = {
 
 export function importStateLabel(state: JobState): string {
     return IMPORT_STATE_LABELS[state];
+}
+
+
+// What a run of each kind is doing while it is actually in progress. `jobStateLabel`'s "Translating"
+// for JobState.Running predates modes and is still correct for the mode it was written for; this is
+// the version a caller reaches for once a job can also be learning a voice or repairing chapters, so
+// the run strip and the jobs table stop calling every live run a translation.
+const JOB_MODE_PROGRESS_LABELS: Record<TranslationJobMode, string> = {
+    Translate: "Translating",
+    LearnVoice: "Learning the voice",
+    Repair: "Repairing",
+};
+
+export function jobModeProgressLabel(mode: TranslationJobMode): string {
+    return JOB_MODE_PROGRESS_LABELS[mode];
 }
 
 

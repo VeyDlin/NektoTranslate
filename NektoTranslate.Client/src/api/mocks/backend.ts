@@ -719,6 +719,10 @@ export class MockBackend {
         const job: TranslationJob = {
             id: this.nextJobId,
             novelId,
+            // The mock only simulates the translate loop below — a learn or repair request still
+            // gets a job back with the mode it asked for, but the fixtures behind it never grow a
+            // voice profile or a repaired chapter, since nothing in this file reads for either.
+            mode: request.mode ?? "Translate",
             scopeKind: request.scopeKind,
             fromIndex: request.fromIndex ?? null,
             toIndex: request.toIndex ?? null,

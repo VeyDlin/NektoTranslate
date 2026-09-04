@@ -115,7 +115,7 @@
     import ChapterStateDot from "@/components/chapters/ChapterStateDot.vue";
     import { useActivityStore } from "@/stores/activity.store";
     import { useRunStore } from "@/stores/run.store";
-    import { formatCost, formatCount } from "@/utils/format";
+    import { formatCost, formatCount, jobModeProgressLabel } from "@/utils/format";
 
 
     // The screen each import kind has to itself, where Pause/Resume/Cancel already live in its own
@@ -224,7 +224,7 @@
                 return run.lastMessage ?? "Run finished.";
             }
 
-            return run.currentChapterId === null ? "Preparing the run" : "Translating";
+            return run.currentChapterId === null ? "Preparing the run" : jobModeProgressLabel(run.mode);
         }
 
         if (activeImport.value === null) {

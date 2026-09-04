@@ -24,6 +24,14 @@ export const JOB_SCOPE_KINDS = ["WholeBook", "Range", "Single", "Selection"] as 
 export type JobScopeKind = (typeof JOB_SCOPE_KINDS)[number];
 
 
+// What a job actually does to the chapters in its scope. Translate is the original and only mode
+// for a long time, which is why it is the enum's zero value on the server — a request that omits
+// `mode` entirely still means what it always meant.
+export const JOB_MODES = ["Translate", "LearnVoice", "Repair"] as const;
+
+export type TranslationJobMode = (typeof JOB_MODES)[number];
+
+
 export const IMPORT_KINDS = ["Originals", "Translation"] as const;
 
 export type ImportKind = (typeof IMPORT_KINDS)[number];
@@ -266,6 +274,35 @@ export interface GlossaryEntry {
 }
 
 
+// A prose fingerprint of how this book's translation is written, learned once from a chapter range
+// that already carries both sides rather than written by hand the way a style guide is. Every
+// translation and repair after that can match it instead of drifting chapter to chapter.
+export interface VoiceProfile {
+    profileId: number;
+    summary: string;
+    fromChapterIndex: number;
+    toChapterIndex: number;
+    model: string | null;
+    costUsd: number | null;
+    createdAt: string;
+}
+
+
+// A name or term the voice pass noticed while reading the learned range, kept apart from the
+// glossary because it is not a rendering choice — it is a fact about which terms the existing
+// translation actually uses and how often, tracked to gauge coverage rather than to render anything.
+// `term` is the target-language spelling exactly as that translation wrote it.
+export interface TranslationTerm {
+    id: number;
+    term: string;
+    variants: string[];
+    category: GlossaryCategory;
+    notes: string | null;
+    occurrences: number;
+    firstSeenChapterId: number | null;
+}
+
+
 // One row of the alignment screen: an original chapter and whatever translation is attached to it.
 //
 // Previews rather than prose. Alignment is judged by eye — the question is only "does this
@@ -314,6 +351,7 @@ export interface DeleteTranslationsResult {
 export interface TranslationJob {
     id: number;
     novelId: number;
+    mode: TranslationJobMode;
     scopeKind: JobScopeKind;
     fromIndex: number | null;
     toIndex: number | null;
