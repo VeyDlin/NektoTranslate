@@ -160,6 +160,19 @@ public class WebToEpubRunner(
             });
 
             await WaitOutChallengeAsync(page, timeoutMs);
+
+            // A site built on a framework keeps throwing for a moment after it loads - React's
+            // hydration errors are the usual ones - and a page error that lands while a script is
+            // being injected gets charged to that script. Letting the page settle first keeps the
+            // diagnostics honest; the cap keeps a site that never goes idle from stalling the parse.
+            try {
+                await page.WaitForLoadStateAsync(LoadState.NetworkIdle, new PageWaitForLoadStateOptions {
+                    Timeout = 3_000
+                });
+            }
+            catch (TimeoutException) {
+            }
+
             await InjectAsync(page);
 
             string wiring = await page.EvaluateAsync<string>(
@@ -352,11 +365,17 @@ public class WebToEpubRunner(
         }
 
         // A synchronous throw during evaluation is reported before the tag finishes loading, so
-        // anything new here belongs to this script.
+        // anything new here belongs to this script - unless the page has already thrown the very
+        // same thing, in which case it is the site's own noise repeating and not this script's.
         if (pageErrors.Count > before) {
-            failures.Add($"{script.name}: {pageErrors[^1]}");
+            string message = pageErrors[^1];
+            bool seenBefore = pageErrors.Take(before).Contains(message, StringComparer.Ordinal);
 
-            return false;
+            if (!seenBefore) {
+                failures.Add($"{script.name}: {message}");
+
+                return false;
+            }
         }
 
         return true;
