@@ -2,17 +2,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using NektoTranslate.Chapters.Contracts;
-using NektoTranslate.Chapters.Entities;
-using NektoTranslate.Chapters.Services;
 using NektoTranslate.Common.Contracts;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Jobs.Contracts;
 using NektoTranslate.Jobs.Entities;
 using NektoTranslate.Jobs.Enums;
-using NektoTranslate.Parsing.Contracts;
-using NektoTranslate.Parsing.Services;
-using NektoTranslate.Translation.Contracts;
 using NektoTranslate.Translation.Services;
 
 
@@ -86,9 +80,7 @@ public class ImportJobWorker(
         using IServiceScope scope = scopes.CreateScope();
 
         NektoDbContext database = scope.ServiceProvider.GetRequiredService<NektoDbContext>();
-        ISiteParser parser = scope.ServiceProvider.GetRequiredService<ISiteParser>();
-        IChapterImportService originals = scope.ServiceProvider.GetRequiredService<IChapterImportService>();
-        ITranslationImportService translations = scope.ServiceProvider.GetRequiredService<ITranslationImportService>();
+        IImportItemRunner runner = scope.ServiceProvider.GetRequiredService<IImportItemRunner>();
         ITranslationNotifier notifier = scope.ServiceProvider.GetRequiredService<ITranslationNotifier>();
 
         ImportJob? job = await database.importJobs
@@ -149,7 +141,7 @@ public class ImportJobWorker(
                 await database.SaveChangesAsync(stoppingToken);
                 await Publish(notifier, job);
 
-                await ImportOneAsync(database, parser, originals, translations, notifier, job, item, linked.Token);
+                await ImportOneAsync(database, runner, notifier, job, item, linked.Token);
             }
 
             await Finish(database, notifier, job, JobState.Completed, null);
@@ -169,64 +161,17 @@ public class ImportJobWorker(
 
 
     // One chapter, one commit. A failure is recorded on the item and the run moves on - one page a
-    // site would not serve must not stop the other forty.
-    private async Task ImportOneAsync(
+    // site would not serve must not stop the other forty. The fetch-and-import decision itself lives
+    // in ImportItemRunner, the one place a retry of a single item goes through too.
+    private static async Task ImportOneAsync(
         NektoDbContext database,
-        ISiteParser parser,
-        IChapterImportService originals,
-        ITranslationImportService translations,
+        IImportItemRunner runner,
         ITranslationNotifier notifier,
         ImportJob job,
         ImportJobItem item,
         CancellationToken cancellationToken
     ) {
-        try {
-            ParsedChapter chapter = await parser.GetChapterAsync(item.sourceUrl, cancellationToken);
-            string title = string.IsNullOrWhiteSpace(item.title) ? chapter.title : item.title;
-
-            if (job.kind == ImportKind.Originals) {
-                IReadOnlyList<Chapter> created = await originals.ImportAsync(
-                    job.novelId,
-                    [new ImportedChapter(title, chapter.html, null, item.sourceUrl)],
-                    cancellationToken
-                );
-
-                item.chapterId = created[0].id;
-                item.chapterIndex = created[0].index;
-                item.state = ImportItemState.Imported;
-            }
-            else {
-                int chapterIndex = job.startAtChapterIndex + item.position;
-
-                TranslationImportResult result = await translations.ImportAsync(
-                    job.novelId,
-                    job.language ?? string.Empty,
-                    [new ImportedTranslation(chapterIndex, chapter.html, item.sourceUrl)],
-                    cancellationToken
-                );
-
-                item.chapterIndex = chapterIndex;
-
-                if (result.imported == 1) {
-                    item.state = ImportItemState.Imported;
-                }
-                else {
-                    Status reason = result.rejected.Count > 0 ? result.rejected[0].reason : Statuses.ImportedTextEmpty;
-                    bool skipped = reason.code == Statuses.TranslationAlreadyExists.code;
-
-                    item.state = skipped ? ImportItemState.Skipped : ImportItemState.Failed;
-                    Record(item, reason);
-                }
-            }
-        }
-        catch (OperationCanceledException) {
-            throw;
-        }
-        catch (Exception failure) {
-            logger.LogWarning(failure, "Could not import {Url}", item.sourceUrl);
-            item.state = ImportItemState.Failed;
-            Record(item, Describe(item.sourceUrl, failure));
-        }
+        await runner.RunAsync(job, item, cancellationToken);
 
         item.finishedAt = DateTimeOffset.UtcNow;
         job.processedCount++;
@@ -235,27 +180,6 @@ public class ImportJobWorker(
 
         await notifier.ImportItemFinishedAsync(job.novelId, job.id, ImportJobItemView.Of(item));
         await Publish(notifier, job);
-    }
-
-
-    // The runner speaks in exceptions whose messages were written for a log. What the user needs is
-    // which of the few things that go wrong went wrong, without a JavaScript stack after it.
-    private static Status Describe(string url, Exception failure) {
-        string message = failure.Message.ReplaceLineEndings("\n").Split('\n')[0].Trim();
-
-        if (message.StartsWith("Error: ", StringComparison.Ordinal)) {
-            message = message["Error: ".Length..];
-        }
-
-        if (message.Contains("found no content", StringComparison.OrdinalIgnoreCase)) {
-            return Statuses.ParserFoundNoContent.With(("url", url));
-        }
-
-        if (message.Contains("No parser is registered", StringComparison.OrdinalIgnoreCase)) {
-            return Statuses.NoParserForSite.With(("url", url));
-        }
-
-        return Statuses.ChapterFetchFailed.With(("url", url), ("reason", message.Length > 200 ? message[..200] : message));
     }
 
 

@@ -1,11 +1,12 @@
 import type { MaybeRefOrGetter } from "vue";
 import type { StartImportRequest } from "@/types/api/requests";
-import { useMutation, useQuery } from "@tanstack/vue-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 
 import { computed, toValue, watch } from "vue";
 import { importsApi } from "@/api";
 import { useActivityStore } from "@/stores/activity.store";
 import { useRunStore } from "@/stores/run.store";
+import { chaptersKey } from "./useChapters";
 
 
 export function activityKey(novelId: number): unknown[] {
@@ -71,5 +72,30 @@ export function useResumeImport(novelId: MaybeRefOrGetter<number>) {
 export function useCancelImport(novelId: MaybeRefOrGetter<number>) {
     return useMutation({
         mutationFn: (jobId: number) => importsApi.cancel(toValue(novelId), jobId),
+    });
+}
+
+
+// One row of a settled job's report, fetched and imported again. The store is patched directly from
+// the response rather than waiting on the SignalR echo of it, so the badge on the row that was
+// clicked updates the instant the request resolves instead of a round trip later — the same
+// ImportItemFinished notification still arrives and applies the identical patch a second time.
+export function useRetryImportItem(novelId: MaybeRefOrGetter<number>) {
+    const activity = useActivityStore();
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (params: { jobId: number; position: number }) =>
+            importsApi.retryItem(toValue(novelId), params.jobId, params.position),
+        onSuccess: (item, params) => {
+            activity.applyImportItem({ jobId: params.jobId, ...item, finishedAt: item.finishedAt ?? "" });
+
+            // A retry that landed a chapter is the one case nothing else invalidates for: the run it
+            // belongs to already settled, so ImportStateChanged will never fire again to trigger the
+            // refetch the chapter list needs to show what just landed.
+            if (item.state === "Imported") {
+                void queryClient.invalidateQueries({ queryKey: chaptersKey(toValue(novelId)) });
+            }
+        },
     });
 }

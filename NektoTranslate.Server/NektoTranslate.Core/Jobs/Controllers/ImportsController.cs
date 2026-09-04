@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using NektoTranslate.Common.Contracts;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Jobs.Contracts;
 using NektoTranslate.Jobs.Entities;
@@ -74,5 +75,32 @@ public class ImportsController(NektoDbContext database, IImportJobService import
     [HttpPost("{jobId:long}/cancel")]
     public async Task<ActionResult> Cancel(long novelId, long jobId, CancellationToken cancellationToken) {
         return await imports.CancelAsync(novelId, jobId, cancellationToken) ? Accepted() : NotFound();
+    }
+
+
+    // The one entry the report screens actually need again: a chapter the run could not fetch, gone
+    // back to the site for a second try without disturbing the thirty-nine that already landed.
+    [HttpPost("{jobId:long}/items/{position:int}/retry")]
+    public async Task<ActionResult<ImportJobItemView>> RetryItem(
+        long novelId,
+        long jobId,
+        int position,
+        CancellationToken cancellationToken
+    ) {
+        ImportItemRetryOutcome outcome = await imports.RetryItemAsync(novelId, jobId, position, cancellationToken);
+
+        return outcome.result switch {
+            ImportItemRetryResult.Retried => Ok(outcome.item),
+
+            ImportItemRetryResult.JobNotFound or ImportItemRetryResult.ItemNotFound => NotFound(),
+
+            // 409 rather than 400: the request itself is fine, the moment is wrong, and the caller's
+            // remedy is to wait rather than to change what it sent.
+            ImportItemRetryResult.JobStillActive => Conflict(new { status = Statuses.ImportJobStillActive }),
+
+            ImportItemRetryResult.ItemNotFailed => Conflict(new { status = Statuses.ImportItemNotFailed }),
+
+            _ => StatusCode(500)
+        };
     }
 }

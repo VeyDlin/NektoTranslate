@@ -88,3 +88,27 @@ public sealed partial record ImportJobItemView {
         );
     }
 }
+
+
+public enum ImportItemRetryResult {
+
+    Retried = 0,
+
+    JobNotFound = 1,
+
+    ItemNotFound = 2,
+
+    // The run itself is still going. Retrying one of its items would race the worker for that very
+    // item, and the only honest answer is to wait for the run to settle.
+    JobStillActive = 3,
+
+    // Nothing to redo: the item never failed, so re-running it could only duplicate what already
+    // landed.
+    ItemNotFailed = 4
+}
+
+
+public sealed record ImportItemRetryOutcome(
+    ImportItemRetryResult result,
+    ImportJobItemView? item = null
+);

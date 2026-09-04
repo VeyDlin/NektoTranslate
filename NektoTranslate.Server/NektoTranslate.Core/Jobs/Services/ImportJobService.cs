@@ -3,6 +3,7 @@ using NektoTranslate.Common.Data;
 using NektoTranslate.Jobs.Contracts;
 using NektoTranslate.Jobs.Entities;
 using NektoTranslate.Jobs.Enums;
+using NektoTranslate.Translation.Services;
 
 
 namespace NektoTranslate.Jobs.Services;
@@ -24,10 +25,23 @@ public interface IImportJobService {
 
 
     Task<bool> CancelAsync(long novelId, long jobId, CancellationToken cancellationToken = default);
+
+
+    Task<ImportItemRetryOutcome> RetryItemAsync(
+        long novelId,
+        long jobId,
+        int position,
+        CancellationToken cancellationToken = default
+    );
 }
 
 
-public class ImportJobService(NektoDbContext database, ImportJobQueue queue) : IImportJobService {
+public class ImportJobService(
+    NektoDbContext database,
+    ImportJobQueue queue,
+    IImportItemRunner runner,
+    ITranslationNotifier notifier
+) : IImportJobService {
 
     public async Task<ImportJob> EnqueueAsync(
         long novelId,
@@ -114,6 +128,51 @@ public class ImportJobService(NektoDbContext database, ImportJobQueue queue) : I
         }
 
         return false;
+    }
+
+
+    // Re-runs one item of a run that has already settled - the same fetch-and-import ImportJobWorker
+    // would have done, through the same ImportItemRunner, just outside the sequential loop. A job
+    // still Queued, Running or Paused is refused rather than raced: the worker owns every item of a
+    // live run, and a retry landing on the same row at the same moment as the worker would be a
+    // write nobody could reason about afterwards.
+    public async Task<ImportItemRetryOutcome> RetryItemAsync(
+        long novelId,
+        long jobId,
+        int position,
+        CancellationToken cancellationToken = default
+    ) {
+        ImportJob? job = await database.importJobs
+            .Include(candidate => candidate.items)
+            .FirstOrDefaultAsync(candidate => candidate.id == jobId && candidate.novelId == novelId, cancellationToken);
+
+        if (job is null) {
+            return new ImportItemRetryOutcome(ImportItemRetryResult.JobNotFound);
+        }
+
+        if (job.state is JobState.Queued or JobState.Running or JobState.Paused) {
+            return new ImportItemRetryOutcome(ImportItemRetryResult.JobStillActive);
+        }
+
+        ImportJobItem? item = job.items.FirstOrDefault(candidate => candidate.position == position);
+
+        if (item is null) {
+            return new ImportItemRetryOutcome(ImportItemRetryResult.ItemNotFound);
+        }
+
+        if (item.state != ImportItemState.Failed) {
+            return new ImportItemRetryOutcome(ImportItemRetryResult.ItemNotFailed);
+        }
+
+        await runner.RunAsync(job, item, cancellationToken);
+
+        item.finishedAt = DateTimeOffset.UtcNow;
+        await database.SaveChangesAsync(cancellationToken);
+
+        ImportJobItemView view = ImportJobItemView.Of(item);
+        await notifier.ImportItemFinishedAsync(job.novelId, job.id, view);
+
+        return new ImportItemRetryOutcome(ImportItemRetryResult.Retried, view);
     }
 
 

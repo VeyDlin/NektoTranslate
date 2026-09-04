@@ -79,6 +79,16 @@ export const importsApi = {
         return apiClient<void>(`/api/novels/${novelId}/imports/${jobId}/cancel`, { method: "POST" });
     },
 
+    // Re-fetches and re-imports one item of a settled job, in place — the retry a failed row in the
+    // report offers. The server refuses with a 409 while the job is still active; there is nothing
+    // this method needs to do about that beyond letting it reach the caller.
+    retryItem(novelId: number, jobId: number, position: number): Promise<ImportJobItem> {
+        return apiClient<RawImportJobItem>(
+            `/api/novels/${novelId}/imports/${jobId}/items/${position}/retry`,
+            { method: "POST" },
+        ).then(toItem);
+    },
+
     // Only the jobs still Queued, Running or Paused, alongside whatever translation run is live — one
     // request answers "what is happening to this book right now", which is what a reloaded page needs
     // to land back where it was rather than replaying the event history from nothing.
