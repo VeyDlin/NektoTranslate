@@ -177,6 +177,21 @@ export interface Novel {
 }
 
 
+// The library screen's own row shape, from `GET /api/novels`. Counts are computed in SQL alongside
+// the novel itself, one query for the whole shelf, rather than a body-less chapter list fetched per
+// book just to draw a progress bar - the request-per-row this endpoint exists to avoid.
+export interface NovelListItem extends Novel {
+    totalChapters: number;
+    translatedChapters: number;
+    failedChapters: number;
+
+    // A translation job or an import job sits at Queued, Running or Paused for this novel right now.
+    // Folded into the same query as the counts above; a per-row call to GET .../activity would put
+    // back exactly the N+1 this endpoint was built to remove.
+    isActive: boolean;
+}
+
+
 // The table-of-contents shape. Deliberately carries no chapter body: a two-thousand-chapter novel
 // would otherwise send megabytes of prose to render a list.
 export interface ChapterSummary {

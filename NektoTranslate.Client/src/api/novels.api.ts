@@ -1,12 +1,12 @@
 import type { CreateNovelRequest, UpdateNovelRequest } from "@/types/api/requests";
 
-import type { Novel } from "@/types/models/domain";
+import type { Novel, NovelListItem } from "@/types/models/domain";
 import { apiClient } from "./client";
 
 
 export const novelsApi = {
-    list(): Promise<Novel[]> {
-        return apiClient<Novel[]>("/api/novels");
+    list(): Promise<NovelListItem[]> {
+        return apiClient<NovelListItem[]>("/api/novels");
     },
 
     getById(novelId: number): Promise<Novel> {

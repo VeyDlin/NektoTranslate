@@ -1,7 +1,9 @@
 using Mediator;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using NektoTranslate.Chapters.Enums;
 using NektoTranslate.Common.Data;
+using NektoTranslate.Jobs.Enums;
 using NektoTranslate.Novels.Commands;
 using NektoTranslate.Novels.Contracts;
 using NektoTranslate.Novels.Entities;
@@ -23,11 +25,33 @@ public class NovelsController(IMediator mediator, NektoDbContext database) : Con
     }
 
 
+    // Every row's progress in the one query that lists the library, not one GET .../chapters per
+    // book fired to draw a progress bar. `novel.chapters.Count(...)` and the two `Any` checks below
+    // are correlated subqueries EF folds into the same SQL statement - nothing here walks the result
+    // in a loop, which is the shape that would turn this back into the N+1 it replaces.
     [HttpGet]
-    public async Task<IReadOnlyList<Novel>> List(CancellationToken cancellationToken) {
+    public async Task<IReadOnlyList<NovelListItem>> List(CancellationToken cancellationToken) {
+        JobState[] activeStates = [JobState.Queued, JobState.Running, JobState.Paused];
+
         return await database.novels
             .AsNoTracking()
             .OrderByDescending(novel => novel.createdAt)
+            .Select(novel => new NovelListItem(
+                novel.id,
+                novel.title,
+                novel.sourceLanguage,
+                novel.targetLanguage,
+                novel.sourceUrl,
+                novel.styleGuide,
+                novel.model,
+                novel.normalizeQuotes,
+                novel.createdAt,
+                novel.chapters.Count,
+                novel.chapters.Count(chapter => chapter.translationState == ChapterTranslationState.Translated),
+                novel.chapters.Count(chapter => chapter.translationState == ChapterTranslationState.Failed),
+                database.translationJobs.Any(job => job.novelId == novel.id && activeStates.Contains(job.state))
+                    || database.importJobs.Any(job => job.novelId == novel.id && activeStates.Contains(job.state))
+            ))
             .ToListAsync(cancellationToken);
     }
 

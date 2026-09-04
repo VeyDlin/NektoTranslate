@@ -12,10 +12,10 @@ export interface NovelProgress {
 }
 
 
-// The novels endpoint returns the entity without its chapters loaded, so a count has to come from
-// the chapter list. That list is body-less and shared with the novel screen's own query, which turns
-// the cost into a prefetch — but it is still a two-thousand-row response fetched to render one
-// number. Worth an added count on `GET /api/novels` when the backend next moves.
+// GET /api/novels now carries these counts itself, computed in SQL for the whole library in one
+// query — see NovelRow, which reads them directly instead of calling this. This composable stays for
+// the novel screen, where the full chapter list is already loaded for its own sake (the table, the
+// search, the selection) and deriving the count from rows already in memory costs nothing further.
 export function useNovelProgress(novelId: MaybeRefOrGetter<number | null>) {
     const { data, isLoading } = useChapters(novelId);
 
