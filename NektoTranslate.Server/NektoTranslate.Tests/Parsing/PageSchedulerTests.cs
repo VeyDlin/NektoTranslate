@@ -107,6 +107,29 @@ public class PageSchedulerTests {
     }
 
 
+    // A page opened from inside a scheduled page - a parser's fetch turned into a navigation - must
+    // not queue for the lane the outer page is holding, or it waits on itself until the timeout. The
+    // tightest possible limits make the deadlock certain if the rule is wrong.
+    [Fact]
+    public async Task ANestedPageDoesNotWaitOnTheLaneItsParentHolds() {
+        using PageScheduler scheduler = Scheduler(global: 1, perHost: 1, intervalMs: 0);
+
+        Task<int> run = scheduler.RunAsync("https://nested.invalid/card", async () => {
+            return await scheduler.RunAsync(
+                "https://nested.invalid/chapters",
+                () => Task.FromResult(42),
+                CancellationToken.None,
+                nested: true
+            );
+        });
+
+        Task finished = await Task.WhenAny(run, Task.Delay(3000));
+
+        Assert.Same(run, finished);
+        Assert.Equal(42, await run);
+    }
+
+
     // about:blank is how a parser is asked which host it claims. It reaches no server, so pausing
     // before it would add a second to every support check for no one's benefit.
     [Fact]

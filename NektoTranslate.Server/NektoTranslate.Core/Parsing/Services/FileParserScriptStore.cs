@@ -27,6 +27,9 @@ public class FileParserScriptStore(string rootDirectory) : IParserScriptStore {
     // calls depends on them.
     private static readonly string[] coreOrder = [
         "UIText.js",
+        // UserPreferences constructs a ReadingList, and a parser cannot make a single fetch without a
+        // preferences object - so this is core in the strict sense, whatever the popup used it for.
+        "ReadingList.js",
         "UserPreferences.js",
         "EpubMetaInfo.js",
         "ErrorLog.js",
