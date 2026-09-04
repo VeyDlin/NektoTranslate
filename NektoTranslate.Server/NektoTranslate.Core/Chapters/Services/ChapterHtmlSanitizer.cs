@@ -26,6 +26,14 @@ public class ChapterHtmlSanitizer : IChapterHtmlSanitizer {
         "p", "h1", "h2", "h3", "h4", "blockquote", "ul", "ol", "li", "hr"
     ];
 
+    // Not kept, but not simply unwrapped either. A site that lays its paragraphs out in <div>s has
+    // put its structure in the container, and unwrapping it in place leaves the paragraphs touching.
+    // These leave a blank line on either side as they go, which the block pass reads as a break.
+    private static readonly HashSet<string> blockContainers = [
+        "div", "section", "article", "main", "figure", "figcaption", "dd", "dt",
+        "table", "thead", "tbody", "tfoot", "tr", "td", "th", "center"
+    ];
+
     // Removed with their contents. Everything else that is merely unknown gets unwrapped instead,
     // because an unknown wrapper usually still contains the prose.
     private static readonly HashSet<string> droppedElements = [
@@ -66,6 +74,11 @@ public class ChapterHtmlSanitizer : IChapterHtmlSanitizer {
             if (allowedElements.Contains(element.LocalName)) {
                 StripAttributes(element);
             } else {
+                if (blockContainers.Contains(element.LocalName)) {
+                    element.Parent.InsertBefore(document.CreateTextNode("\n\n"), element);
+                    element.Parent.InsertBefore(document.CreateTextNode("\n\n"), element.NextSibling);
+                }
+
                 Unwrap(element);
             }
         }
@@ -113,8 +126,9 @@ public class ChapterHtmlSanitizer : IChapterHtmlSanitizer {
             // Two breaks in a row are how a paragraph is written when nobody used <p>.
             if (node is IElement br && br.LocalName == "br") {
                 if (previousWasBreak) {
+                    WrapBuffer(document, body, buffer, br);
                     br.Remove();
-                    WrapBuffer(document, body, buffer, null);
+                    previousWasBreak = false;
                     continue;
                 }
 
@@ -124,6 +138,23 @@ public class ChapterHtmlSanitizer : IChapterHtmlSanitizer {
             }
 
             if (node.NodeType == NodeType.Text && node.TextContent.Trim().Length == 0) {
+                // Whitespace is not nothing. A blank line between two runs of prose is a paragraph
+                // break that survived unwrapping - a site that separates paragraphs with whitespace
+                // rather than tags, or a container this pass unwrapped a moment ago. Anything less
+                // is the space between two sentences, and discarding it is what welds them into
+                // "potions!Behind his counter".
+                if (CountNewlines(node.TextContent) >= 2) {
+                    WrapBuffer(document, body, buffer, node);
+                    node.Parent?.RemoveChild(node);
+                    previousWasBreak = false;
+                    continue;
+                }
+
+                if (buffer.Count > 0) {
+                    buffer.Add(document.CreateTextNode(" "));
+                }
+
+                node.Parent?.RemoveChild(node);
                 continue;
             }
 
@@ -132,6 +163,19 @@ public class ChapterHtmlSanitizer : IChapterHtmlSanitizer {
         }
 
         WrapBuffer(document, body, buffer, null);
+    }
+
+
+    private static int CountNewlines(string text) {
+        int count = 0;
+
+        foreach (char character in text) {
+            if (character == '\n') {
+                count++;
+            }
+        }
+
+        return count;
     }
 
 

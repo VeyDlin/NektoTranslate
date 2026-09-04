@@ -665,7 +665,17 @@ public class WebToEpubRunner(
 
             window.__nektoPrepare(parser);
 
-            const content = parser.findContent(document);
+            // A site that draws its text with a script has none of it at DOMContentLoaded, and how
+            // long it takes varies from page to page. The parser is asked again until it can see the
+            // content or the wait runs out - bounded, because a page that genuinely has no chapter
+            // must not cost the whole timeout to say so.
+            const deadline = Date.now() + 8000;
+            let content = parser.findContent(document);
+
+            while ((content === null || content === undefined) && Date.now() < deadline) {
+                await new Promise(resolve => setTimeout(resolve, 250));
+                content = parser.findContent(document);
+            }
 
             if (content === null || content === undefined) {
                 throw new Error("The parser found no content at " + url);
