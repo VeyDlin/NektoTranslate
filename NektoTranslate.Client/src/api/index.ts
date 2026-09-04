@@ -9,3 +9,4 @@ export { parsersApi } from "./parsers.api";
 export { parsingApi } from "./parsing.api";
 export { settingsApi } from "./settings.api";
 export { translationsApi } from "./translations.api";
+export { voiceApi } from "./voice.api";

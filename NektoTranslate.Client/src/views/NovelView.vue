@@ -90,7 +90,7 @@
                     size="sm"
                     icon="i-material-symbols:play-arrow-rounded"
                     :disabled="rows.length === 0"
-                    @click="starting = true"
+                    @click="openRun('Translate')"
                 >
                     Translate
                 </UButton>
@@ -183,13 +183,23 @@
             :script-lang="scriptLang"
         />
 
+        <VoicePanel
+            v-else-if="tab === 'voice'"
+            :novel-id="id"
+            :language="novel?.targetLanguage ?? ''"
+            :rows="rows"
+            @learn="openRun('LearnVoice')"
+        />
+
         <ChatPanel v-else-if="tab === 'chat'" :novel-id="id" />
 
         <JobHistory v-else :jobs="jobs" />
 
         <StartRunModal
             v-model:open="starting"
+            v-model:mode="startMode"
             :novel-id="id"
+            :language="novel?.targetLanguage ?? ''"
             :rows="rows"
             :selected-ids="selectedIds"
             :average-cost="averageCost"
@@ -198,6 +208,8 @@
 </template>
 
 <script setup lang="ts">
+    import type { TranslationJobMode } from "@/types/models/domain";
+
     import { computed, ref } from "vue";
 
     import ChapterTable from "@/components/chapters/ChapterTable.vue";
@@ -205,6 +217,7 @@
     import GlossaryList from "@/components/glossary/GlossaryList.vue";
     import JobHistory from "@/components/jobs/JobHistory.vue";
     import StartRunModal from "@/components/jobs/StartRunModal.vue";
+    import VoicePanel from "@/components/voice/VoicePanel.vue";
     import { useActivity } from "@/composables/useActivity";
     import { useChapters } from "@/composables/useChapters";
     import { useGlossary } from "@/composables/useGlossary";
@@ -222,6 +235,7 @@
 
     const tab = ref("chapters");
     const starting = ref(false);
+    const startMode = ref<TranslationJobMode>("Translate");
     const chapterQuery = ref("");
     const newestFirst = ref(false);
 
@@ -284,15 +298,18 @@
     const tabs = computed(() => [
         { label: "Chapters", value: "chapters" },
         { label: `Glossary (${formatCount(glossary.value.length)})`, value: "glossary" },
+        { label: "Voice", value: "voice" },
         { label: "Chat", value: "chat" },
         { label: "Runs", value: "runs" },
     ]);
 
-    // Derived from what past runs actually cost rather than a fixed rate. The price of a chapter
-    // depends on its length and the model, both of which vary per book, so a number taken from this
-    // book's own history is the only estimate worth showing.
+    // Derived from what past translate runs actually cost rather than a fixed rate. The price of a
+    // chapter depends on its length and the model, both of which vary per book, so a number taken
+    // from this book's own history is the only estimate worth showing — and only its own runs count,
+    // since a voice-learning pass is one call over a whole range rather than a per-chapter cost and
+    // would skew the average toward nothing a translation run actually resembles.
     const averageCost = computed(() => {
-        const finished = jobs.value.filter(job => job.processedCount > 0);
+        const finished = jobs.value.filter(job => job.mode === "Translate" && job.processedCount > 0);
 
         if (finished.length === 0) {
             return null;
@@ -303,6 +320,14 @@
 
         return spent / chapters;
     });
+
+
+    // Both the header's own Translate button and the Voice tab's call to action open the same
+    // dialog; which run it starts is just which mode it opens already set to.
+    function openRun(mode: TranslationJobMode): void {
+        startMode.value = mode;
+        starting.value = true;
+    }
 </script>
 
 <style scoped lang="scss">

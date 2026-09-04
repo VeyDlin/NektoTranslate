@@ -1,7 +1,9 @@
 <template>
-    <UModal v-model:open="open" title="Translate chapters" :description="sequentialNote">
+    <UModal v-model:open="open" :title="copy.title" :description="copy.description">
         <template #body>
             <div class="run">
+                <URadioGroup v-model="mode" :items="modeOptions" />
+
                 <URadioGroup v-model="scope" :items="scopeOptions" />
 
                 <div v-if="scope === 'Range'" class="range">
@@ -22,7 +24,7 @@
                     <UInputNumber v-model="budget" :min="0" :step="0.5" placeholder="No ceiling" />
                 </UFormField>
 
-                <div class="again">
+                <div v-if="mode === 'Translate'" class="again">
                     <USwitch v-model="force" label="Re-translate with current settings" />
 
                     <p class="detail">
@@ -33,19 +35,33 @@
                     </p>
                 </div>
 
+                <div v-if="mode === 'Repair'" class="limit">
+                    <p>
+                        Repair rewrites the existing translation on its own, with no original here to
+                        check it against. Names, terms, register and flow can be fixed; a fact the
+                        translation already got wrong cannot, because nothing catches it.
+                    </p>
+
+                    <p v-if="!voiceLoading && voiceProfile === null" class="detail">
+                        No voice has been learned for this book yet. Repair can still run, but without
+                        one it has far less to imitate.
+                    </p>
+                </div>
+
                 <div class="estimate">
                     <p class="headline">
                         <template v-if="targets.length === 0">
-                            Nothing to do. Every chapter in that scope is already translated.
+                            {{ copy.nothing }}
                         </template>
                         <template v-else>
                             {{ formatCount(targets.length) }}
-                            {{ targets.length === 1 ? "chapter" : "chapters" }} will be translated.
+                            {{ targets.length === 1 ? "chapter" : "chapters" }} will be {{ copy.verb }}.
                         </template>
                     </p>
 
                     <p v-if="skipped > 0" class="detail">
-                        {{ formatCount(skipped) }} already translated and will be skipped.
+                        {{ formatCount(skipped) }}
+                        {{ mode === 'Translate' ? "already translated and will be skipped." : "have no translation yet and will be skipped." }}
                     </p>
 
                     <p v-if="estimatedCost !== null && targets.length > 0" class="detail">
@@ -68,23 +84,32 @@
 </template>
 
 <script setup lang="ts">
-    import type { ChapterSummary, JobScopeKind } from "@/types/models/domain";
+    import type { ChapterSummary, JobScopeKind, TranslationJobMode } from "@/types/models/domain";
 
-    import { computed, ref } from "vue";
+    import { computed, ref, watch } from "vue";
     import { useStartJob } from "@/composables/useJobs";
+    import { useVoiceProfile } from "@/composables/useVoice";
     import { chapterNumber, formatCost, formatCount } from "@/utils/format";
 
 
     const props = defineProps<{
         novelId: number;
+        language: string;
         rows: ChapterSummary[];
         selectedIds: number[];
         averageCost: number | null;
     }>();
 
     const open = defineModel<boolean>("open", { required: true });
+    const mode = defineModel<TranslationJobMode>("mode", { required: true });
 
     const { mutateAsync, isPending } = useStartJob(() => props.novelId);
+    const { data: voiceProfileData, isLoading: voiceLoading } = useVoiceProfile(
+        () => props.novelId,
+        () => props.language,
+    );
+
+    const voiceProfile = computed(() => voiceProfileData.value ?? null);
 
     const scope = ref<JobScopeKind>("WholeBook");
     const budget = ref<number | undefined>(undefined);
@@ -101,18 +126,59 @@
         1,
     ));
 
-    // Translation is strictly sequential: chapter N+1 is translated with the glossary as chapter N
-    // left it. The dialog says so rather than offering an ordering or concurrency control the
-    // backend would refuse to honour.
-    const sequentialNote = "Chapters are translated in order, one at a time, so each one inherits the glossary the one before it left.";
+    // What each kind of run is called, what it does, and how the estimate below reads for it. Kept
+    // as one map rather than three separate switches, so a new mode only has one place to add copy
+    // to instead of three chances to leave one behind.
+    const MODE_COPY: Record<TranslationJobMode, { title: string; description: string; nothing: string; verb: string }> = {
+        Translate: {
+            title: "Translate chapters",
+            description: "Chapters are translated in order, one at a time, so each one inherits the "
+                + "glossary the one before it left.",
+            nothing: "Nothing to do. Every chapter in that scope is already translated.",
+            verb: "translated",
+        },
+        LearnVoice: {
+            title: "Learn the voice",
+            description: "Reads the chapters in this range once, in order, and writes a single "
+                + "profile of how they are translated. It does not translate anything itself.",
+            nothing: "Nothing to learn from. No chapter in that scope has a translation yet.",
+            verb: "read to learn the voice",
+        },
+        Repair: {
+            title: "Repair chapters",
+            description: "Repairs each chapter in scope in order, one at a time, using the learned "
+                + "voice where one exists.",
+            nothing: "Nothing to repair. No chapter in that scope has a translation yet.",
+            verb: "repaired",
+        },
+    };
 
+    const copy = computed(() => MODE_COPY[mode.value]);
+
+    // Repair needs nothing more than a chapter having a translation to work on; offering it over a
+    // book that has none yet would be a choice with nowhere to point.
+    const modeOptions = computed(() => {
+        const options: { value: TranslationJobMode; label: string }[] = [
+            { value: "Translate", label: "Translate" },
+            { value: "LearnVoice", label: "Learn the voice" },
+        ];
+
+        if (props.rows.some(row => row.translationState === "Translated")) {
+            options.push({ value: "Repair", label: "Repair" });
+        }
+
+        return options;
+    });
+
+    // Learning a voice reads a contiguous stretch of the book, not a scattered pick — there is no
+    // single range a handful of chapters from all over it would describe.
     const scopeOptions = computed(() => {
         const options = [
             { value: "WholeBook", label: "The whole book" },
             { value: "Range", label: "A range of chapters" },
         ];
 
-        if (props.selectedIds.length > 0) {
+        if (props.selectedIds.length > 0 && mode.value !== "LearnVoice") {
             options.push({
                 value: "Selection",
                 label: `The ${formatCount(props.selectedIds.length)} selected`,
@@ -120,6 +186,28 @@
         }
 
         return options;
+    });
+
+    // Reloaded whenever the dialog opens on Learn the voice, and again the moment it is switched to
+    // from inside an already-open one — both are "starting fresh", and the chapters that already
+    // carry a translation are the only sensible default range to read a voice from.
+    watch([open, mode], ([isOpen, current]) => {
+        if (!isOpen || current !== "LearnVoice") {
+            return;
+        }
+
+        if (scope.value === "Selection") {
+            scope.value = "Range";
+        }
+
+        const translated = props.rows
+            .filter(row => row.translationState === "Translated")
+            .map(row => chapterNumber(row.index));
+
+        if (translated.length > 0) {
+            fromNumber.value = Math.min(...translated);
+            toNumber.value = Math.max(...translated);
+        }
     });
 
     const inScope = computed(() => props.rows.filter((row) => {
@@ -137,26 +225,36 @@
     // `totalCount` on the job is the number of chapters that will actually be worked on, not the
     // size of the range picked. Showing the same arithmetic before the run starts is what stops a
     // "translate the whole book" click from looking like it will cost forty dollars when it is a
-    // top-up of the last twelve chapters.
-    const targets = computed(() => (force.value
-        ? inScope.value
-        : inScope.value.filter(row => row.translationState !== "Translated")));
+    // top-up of the last twelve chapters. Learning and repairing both read from what is already
+    // translated rather than adding to it, so their targets run the other way round from Translate's.
+    const targets = computed(() => {
+        if (mode.value === "Translate") {
+            return force.value
+                ? inScope.value
+                : inScope.value.filter(row => row.translationState !== "Translated");
+        }
+
+        return inScope.value.filter(row => row.translationState === "Translated");
+    });
 
     const skipped = computed(() => inScope.value.length - targets.value.length);
 
+    // Voice learning is one call over a whole range rather than a per-chapter cost, and there is no
+    // history of past repair runs to rate one against, so an estimate is only honest for Translate.
     const estimatedCost = computed(() => (
-        props.averageCost === null ? null : props.averageCost * targets.value.length
+        mode.value === "Translate" && props.averageCost !== null ? props.averageCost * targets.value.length : null
     ));
 
 
     async function start(): Promise<void> {
         await mutateAsync({
+            mode: mode.value,
             scopeKind: scope.value,
             fromIndex: scope.value === "Range" ? fromNumber.value - 1 : null,
             toIndex: scope.value === "Range" ? toNumber.value - 1 : null,
             chapterIds: scope.value === "Selection" ? [...props.selectedIds] : null,
             budgetUsd: budget.value ?? null,
-            force: force.value,
+            force: mode.value === "Translate" ? force.value : null,
         });
 
         open.value = false;
@@ -184,6 +282,25 @@
                 margin: 0;
                 font-size: var(--nt-text-sm);
                 line-height: 1.6;
+                color: var(--ui-text-muted);
+            }
+        }
+
+        // Stated plainly, at the same weight as the rest of the form, rather than folded into a
+        // hint or a tooltip — this is a limit on what the run can do, not a footnote to it.
+        .limit {
+            padding: 0.875rem 1rem;
+            border-left: 2px solid var(--ui-warning);
+
+            p {
+                margin: 0;
+                line-height: 1.6;
+                color: var(--ui-text-highlighted);
+            }
+
+            .detail {
+                margin-top: 0.5rem;
+                font-size: var(--nt-text-sm);
                 color: var(--ui-text-muted);
             }
         }

@@ -535,6 +535,7 @@ export function createSeed(): Seed {
         {
             id: 1,
             novelId: 1,
+            mode: "Translate",
             scopeKind: "Range",
             fromIndex: 121,
             toIndex: 187,
@@ -552,6 +553,7 @@ export function createSeed(): Seed {
         {
             id: 2,
             novelId: 2,
+            mode: "Translate",
             scopeKind: "Range",
             fromIndex: 1,
             toIndex: 40,

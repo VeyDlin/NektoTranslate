@@ -1,4 +1,4 @@
-import type { JobState, TranslationJob } from "@/types/models/domain";
+import type { JobState, TranslationJob, TranslationJobMode } from "@/types/models/domain";
 import { defineStore } from "pinia";
 
 import { computed, ref } from "vue";
@@ -10,6 +10,12 @@ import { computed, ref } from "vue";
 export const useRunStore = defineStore("run", () => {
     const novelId = ref<number | null>(null);
     const jobId = ref<number | null>(null);
+
+    // Set once from the job that started the run and never touched again: what a run does does not
+    // change while it is happening, unlike its state, so there is nothing for a job event to update
+    // it with.
+    const mode = ref<TranslationJobMode>("Translate");
+
     const state = ref<JobState | null>(null);
     const processed = ref(0);
     const total = ref(0);
@@ -37,6 +43,7 @@ export const useRunStore = defineStore("run", () => {
     function adopt(job: TranslationJob): void {
         novelId.value = job.novelId;
         jobId.value = job.id;
+        mode.value = job.mode;
         state.value = job.state;
         processed.value = job.processedCount;
         total.value = job.totalCount;
@@ -87,6 +94,7 @@ export const useRunStore = defineStore("run", () => {
     function clear(): void {
         novelId.value = null;
         jobId.value = null;
+        mode.value = "Translate";
         state.value = null;
         processed.value = 0;
         total.value = 0;
@@ -101,6 +109,7 @@ export const useRunStore = defineStore("run", () => {
     return {
         novelId,
         jobId,
+        mode,
         state,
         processed,
         total,

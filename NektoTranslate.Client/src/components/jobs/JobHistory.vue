@@ -9,7 +9,7 @@
     >
         <template #state-cell="{ row }">
             <span class="state" :class="row.original.state.toLowerCase()">
-                {{ jobStateLabel(row.original.state) }}
+                {{ stateLabel(row.original) }}
             </span>
         </template>
 
@@ -31,7 +31,7 @@
     import type { TableColumn } from "@nuxt/ui";
     import type { TranslationJob } from "@/types/models/domain";
 
-    import { chapterNumber, formatCost, formatCount, formatWhen, jobStateLabel } from "@/utils/format";
+    import { chapterNumber, formatCost, formatCount, formatWhen, jobModeProgressLabel, jobStateLabel } from "@/utils/format";
 
 
     defineProps<{ jobs: TranslationJob[] }>();
@@ -66,6 +66,13 @@
             cell: ({ row }) => formatWhen(row.original.createdAt),
         },
     ];
+
+
+    // jobStateLabel's "Translating" for Running predates modes and is still right for a Translate
+    // job; a voice-learning or repair run in the same state gets its own kind's label instead.
+    function stateLabel(job: TranslationJob): string {
+        return job.state === "Running" ? jobModeProgressLabel(job.mode) : jobStateLabel(job.state);
+    }
 
 
     function scopeLabel(job: TranslationJob): string {

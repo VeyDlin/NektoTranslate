@@ -1,4 +1,4 @@
-import type { GlossaryCategory, ImportKind, JobScopeKind, ParsedChapterLink } from "@/types/models/domain";
+import type { GlossaryCategory, ImportKind, JobScopeKind, ParsedChapterLink, TranslationJobMode } from "@/types/models/domain";
 
 
 export interface CreateNovelRequest {
@@ -28,10 +28,14 @@ export interface StartTranslationJobRequest {
     chapterIds?: number[] | null;
     budgetUsd?: number | null;
 
+    // Omitted defaults to Translate on the server — the enum's own zero value — so every call site
+    // that predates voice learning and repair keeps starting an ordinary translation run unchanged.
+    mode?: TranslationJobMode | null;
+
     // Includes chapters that are already translated. Not a promise of new text: batches are cached
     // against the instructions that produced them, so a forced run with nothing changed returns the
     // same translation at no cost. Change the glossary, either style guide, the quote setting or the
-    // model and it genuinely re-translates.
+    // model and it genuinely re-translates. Meaningless outside Translate mode and left unset there.
     force?: boolean | null;
 }
 

@@ -104,7 +104,7 @@
     import ChapterStateDot from "@/components/chapters/ChapterStateDot.vue";
     import { useActivityStore } from "@/stores/activity.store";
     import { useRunStore } from "@/stores/run.store";
-    import { formatCost, formatCount } from "@/utils/format";
+    import { formatCost, formatCount, jobModeProgressLabel } from "@/utils/format";
 
 
     const run = useRunStore();
@@ -182,7 +182,7 @@
                 return run.lastMessage ?? "Run finished.";
             }
 
-            return run.currentChapterId === null ? "Preparing the run" : "Translating";
+            return run.currentChapterId === null ? "Preparing the run" : jobModeProgressLabel(run.mode);
         }
 
         if (activeImport.value === null) {
