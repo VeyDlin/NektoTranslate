@@ -26,7 +26,9 @@
                 color="neutral"
                 variant="ghost"
                 size="sm"
-                aria-label="Chapter alignment"
+                :disabled="alignmentDisabledReason !== null"
+                :aria-label="alignmentDisabledReason ?? 'Chapter alignment'"
+                :title="alignmentDisabledReason ?? undefined"
             />
 
             <UButton
@@ -89,7 +91,8 @@
                 <UButton
                     size="sm"
                     icon="i-material-symbols:play-arrow-rounded"
-                    :disabled="rows.length === 0"
+                    :disabled="translateDisabledReason !== null"
+                    :title="translateDisabledReason ?? undefined"
                     @click="starting = true"
                 >
                     Translate
@@ -252,6 +255,18 @@
     const jobs = computed(() => jobData.value ?? []);
 
     const scriptLang = computed(() => (novel.value === null ? undefined : scriptLangFor(novel.value.sourceLanguage)));
+
+    // Both buttons dim the moment the book has nothing in it — correctly, since there is nothing to
+    // align or translate yet — but a greyed-out control with no explanation reads as broken rather
+    // than as "come back once you've imported something". The reason is what makes the disabled state
+    // legible instead of just present.
+    const translateDisabledReason = computed(() => (
+        rows.value.length === 0 ? "No chapters yet — nothing to translate" : null
+    ));
+
+    const alignmentDisabledReason = computed(() => (
+        rows.value.length === 0 ? "No chapters yet — nothing to align" : null
+    ));
 
     // A digits-only query matches the index by prefix, so typing towards a number narrows the list
     // the way scrolling towards it would: "14" reaches chapter 14, then 140-149, then 1400-1499.

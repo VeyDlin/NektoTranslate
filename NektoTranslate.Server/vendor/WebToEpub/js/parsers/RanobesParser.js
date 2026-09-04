@@ -20,7 +20,7 @@ class RanobesParser extends Parser {
             return [...dom.querySelectorAll("ul.chapters-scroll-list a")]
                 .map(a => ({
                     sourceUrl:  a.href,
-                    title: a.querySelector(".title").textContent
+                    title: RanobesParser.stripPostingDate(a.querySelector(".title").textContent)
                 })).reverse();
         }
         let options = {
@@ -63,14 +63,29 @@ class RanobesParser extends Parser {
         if (baseURL != "ranobes.com") {
             return RanobesParser.extractTocJson(dom).chapters.map(c => ({
                 sourceUrl:  c.link,
-                title: c.title
+                title: RanobesParser.stripPostingDate(c.title)
             }));
         } else {
             let Chapterlist = dom.querySelector("#dle-content");
             let RemoveNavigation = Chapterlist.querySelector(".navigation");
             Chapterlist.removeChild(RemoveNavigation);
-            return util.hyperlinksToChapterList(Chapterlist);
+            return util.hyperlinksToChapterList(Chapterlist).map(chapter => ({
+                ...chapter,
+                title: RanobesParser.stripPostingDate(chapter.title)
+            }));
         }
+    }
+
+    // Ranobes packs each entry's posting date into the very same text as its chapter title, with no
+    // space or markup between them - "твой друг2 августа 2022 в 09:04" is what the site sends, in the
+    // JSON feed (`c.title`) just as much as in the rendered anchors. There is no earlier point to cut
+    // the two apart: nothing in the source marks where the title ends and the date begins, so this
+    // trims the known Russian date/time shape off the end of the finished string. Kept as one static
+    // helper - shared by every branch above - rather than repeated regexes, and scoped to this parser
+    // alone so no other one of the four hundred bundled parsers is touched by it.
+    static stripPostingDate(title) {
+        const postingDate = /\s*,?\s*\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\s+\d{4}(?:\s*(?:г\.?|года))?(?:\s*,?\s*(?:в\s+)?\d{1,2}:\d{2})?\s*$/iu;
+        return (title ?? "").replace(postingDate, "").trim();
     }
 
     findContent(dom) {

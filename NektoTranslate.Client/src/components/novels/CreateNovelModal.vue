@@ -16,7 +16,7 @@
                             v-model="state.sourceLanguage"
                             :items="LANGUAGES"
                             create-item
-                            placeholder="Japanese"
+                            placeholder="Search or type a language"
                             class="w-full"
                         />
                     </UFormField>
@@ -26,15 +26,15 @@
                             v-model="state.targetLanguage"
                             :items="LANGUAGES"
                             create-item
-                            placeholder="English"
+                            placeholder="Search or type a language"
                             class="w-full"
                         />
                     </UFormField>
                 </div>
 
                 <p class="note">
-                    Languages are free text. The model reads them as names, so an unusual pair works
-                    as well as a common one.
+                    Pick one from the list or type your own — the model reads whatever you enter as a
+                    language name, so an unusual pair works as well as a common one.
                 </p>
 
                 <UFormField name="sourceUrl" label="Where it came from" hint="Optional">
@@ -66,6 +66,7 @@
 
 <script setup lang="ts">
     import type { CreateNovelInput } from "@/schemas/novel.schema";
+    import { useStorage } from "@vueuse/core";
     import { reactive } from "vue";
 
     import { useRouter } from "vue-router";
@@ -79,10 +80,15 @@
     const router = useRouter();
     const { mutateAsync, isPending } = useCreateNovel();
 
+    // Japanese → English was a placeholder that read as a default nobody asked for. The pair this
+    // reader actually uses is whatever they picked last time, so that is what a new book starts from
+    // — empty, same as today, only for the very first book this install ever creates.
+    const lastLanguages = useStorage("nekto:last-language-pair", { sourceLanguage: "", targetLanguage: "" });
+
     const state = reactive<CreateNovelInput>({
         title: "",
-        sourceLanguage: "",
-        targetLanguage: "",
+        sourceLanguage: lastLanguages.value.sourceLanguage,
+        targetLanguage: lastLanguages.value.targetLanguage,
         sourceUrl: "",
         styleGuide: "",
     });
@@ -96,6 +102,8 @@
             sourceUrl: state.sourceUrl || null,
             styleGuide: state.styleGuide || null,
         });
+
+        lastLanguages.value = { sourceLanguage: state.sourceLanguage, targetLanguage: state.targetLanguage };
 
         open.value = false;
         await router.push({ name: "novel", params: { novelId: novel.id } });

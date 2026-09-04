@@ -43,7 +43,7 @@
             </span>
 
             <span v-else-if="support?.parser" class="supported">
-                Read by <strong>{{ support.parser }}</strong>
+                Read by <strong>{{ siteLabel(loadedUrl) }}</strong>
             </span>
         </div>
 
@@ -208,7 +208,7 @@
     import { useActivity, useCancelImport, usePauseImport, useResumeImport, useStartImport } from "@/composables/useActivity";
     import { useNovel } from "@/composables/useNovels";
     import { useActivityStore } from "@/stores/activity.store";
-    import { formatCount, jobStateLabel } from "@/utils/format";
+    import { formatCount, jobStateLabel, siteLabel } from "@/utils/format";
     import { describe } from "@/utils/status";
 
 
@@ -226,6 +226,9 @@
 
     const url = ref("");
     const support = ref<ParserSupport | null>(null);
+    // The address `support` actually answered for — kept apart from `url` so editing the field after
+    // a successful read does not relabel the parser before the next read confirms it.
+    const loadedUrl = ref("");
     const links = ref<ParsedChapterLink[]>([]);
     const rowSelection = ref<Record<string, boolean>>({});
     const startAt = ref(0);
@@ -313,6 +316,7 @@
 
         try {
             support.value = await parsingApi.support(address);
+            loadedUrl.value = address;
 
             if (!support.value.supported) {
                 links.value = [];

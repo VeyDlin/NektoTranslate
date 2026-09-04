@@ -33,6 +33,19 @@ export function chapterNumber(index: number): number {
 }
 
 
+// Which parser answered is an implementation detail — "NovelLunarParser" names a class in this
+// codebase, not anything the person pasting a link would recognise. The site they typed is what they
+// know, and a parser is chosen by host name alone, so the host name is what gets shown.
+export function siteLabel(url: string): string {
+    try {
+        return new URL(url).hostname.replace(/^www\./, "");
+    }
+    catch {
+        return url;
+    }
+}
+
+
 export function formatWhen(iso: string): string {
     const then = new Date(iso).getTime();
     const minutes = Math.round((Date.now() - then) / 60_000);
