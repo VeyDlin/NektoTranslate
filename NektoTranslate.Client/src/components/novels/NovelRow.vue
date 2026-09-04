@@ -5,41 +5,43 @@
         <span class="meta">
             <span class="pair">{{ novel.sourceLanguage }} to {{ novel.targetLanguage }}</span>
 
-            <span v-if="progress.total === 0" class="empty">No chapters imported</span>
+            <span v-if="novel.totalChapters === 0" class="empty">No chapters imported</span>
             <span v-else class="counts">
-                {{ formatCount(progress.translated) }} of {{ formatCount(progress.total) }} translated
+                {{ formatCount(novel.translatedChapters) }} of {{ formatCount(novel.totalChapters) }} translated
             </span>
 
-            <span v-if="progress.failed > 0" class="failed">
-                {{ formatCount(progress.failed) }} failed
+            <span v-if="novel.failedChapters > 0" class="failed">
+                {{ formatCount(novel.failedChapters) }} failed
+            </span>
+
+            <span v-if="novel.isActive" class="running">
+                <span class="pulse" />
+                Running
             </span>
         </span>
 
         <UProgress
-            v-if="progress.total > 0"
+            v-if="novel.totalChapters > 0"
             class="gauge"
             size="2xs"
             color="success"
-            :model-value="progress.translated"
-            :max="progress.total"
+            :model-value="novel.translatedChapters"
+            :max="novel.totalChapters"
             :get-value-label="progressLabel"
         />
     </RouterLink>
 </template>
 
 <script setup lang="ts">
-    import type { Novel } from "@/types/models/domain";
-    import { computed, toRef } from "vue";
+    import type { NovelListItem } from "@/types/models/domain";
+    import { computed } from "vue";
 
     import { RouterLink } from "vue-router";
-    import { useNovelProgress } from "@/composables/useNovelProgress";
     import { formatCount } from "@/utils/format";
     import { scriptLangFor, scriptLangIf } from "@/utils/language";
 
 
-    const props = defineProps<{ novel: Novel }>();
-
-    const { progress } = useNovelProgress(toRef(() => props.novel.id));
+    const props = defineProps<{ novel: NovelListItem }>();
 
     const scriptLang = computed(() => scriptLangFor(props.novel.sourceLanguage));
 
@@ -80,11 +82,39 @@
             .failed {
                 color: var(--ui-error);
             }
+
+            .running {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.375rem;
+                color: var(--ui-primary);
+
+                .pulse {
+                    width: 0.5rem;
+                    height: 0.5rem;
+                    border-radius: 50%;
+                    background: var(--ui-primary);
+                    animation: pulse 1.4s ease-in-out infinite;
+                }
+            }
         }
 
         .gauge {
             position: absolute;
             inset: auto 0 -1px;
+        }
+    }
+
+    // The one piece of motion here that is not a response to a click - it marks a book with a run
+    // in progress, the same animation ChapterStateDot uses for a chapter being worked on right now.
+    @keyframes pulse {
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.35;
         }
     }
 </style>
