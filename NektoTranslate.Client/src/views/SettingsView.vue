@@ -119,7 +119,7 @@
                         </template>
 
                         <template v-else>
-                            {{ localModels.error ?? "That server did not answer." }}
+                            {{ localModels.error ? describe(localModels.error) : "That server did not answer." }}
                         </template>
                     </p>
                 </UFormField>
@@ -222,6 +222,7 @@
     import { computed, reactive, ref, watch } from "vue";
     import ModelField from "@/components/settings/ModelField.vue";
     import { useLocalModels, useSettings, useUpdateSettings } from "@/composables/useSettings";
+    import { describe } from "@/utils/status";
 
 
     const { data } = useSettings();

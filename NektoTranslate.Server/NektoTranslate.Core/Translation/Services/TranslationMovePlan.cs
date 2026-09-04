@@ -1,3 +1,4 @@
+using NektoTranslate.Common.Contracts;
 using NektoTranslate.Translation.Contracts;
 
 
@@ -48,7 +49,7 @@ public static class TranslationMovePlan {
                 collisions.Add(new TranslationCollision(
                     source,
                     target,
-                    "There is no chapter at that position."
+                    Statuses.MoveTargetMissing.With(("target", target))
                 ));
 
                 continue;
@@ -60,7 +61,7 @@ public static class TranslationMovePlan {
                 collisions.Add(new TranslationCollision(
                     source,
                     target,
-                    "That chapter already has a translation that is not part of this move."
+                    Statuses.MoveTargetOccupied.With(("target", target))
                 ));
 
                 continue;

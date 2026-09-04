@@ -1,3 +1,4 @@
+using NektoTranslate.Common.Contracts;
 using NektoTranslate.Glossary.Services;
 using NektoTranslate.Translation.Contracts;
 
@@ -27,7 +28,7 @@ public class GlossaryUsageCheck(IGlossaryUsageChecker checker) : ITranslationChe
             .FindIgnored(context.suppliedTerms, context.sourcePlainText, context.translatedPlainText)
             .Select(term => new TranslationIssue(
                 name,
-                $"The established rendering \"{term.sourceTerm}\" -> \"{term.targetTerm}\" was not used."
+                Statuses.GlossaryTermIgnored.With(("source", term.sourceTerm), ("target", term.targetTerm))
             ))
             .ToList();
     }

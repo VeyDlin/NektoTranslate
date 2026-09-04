@@ -5,6 +5,7 @@ import type {
     GlossaryState,
     JobScopeKind,
     JobState,
+    TranslationIssueState,
     TranslationOrigin,
     TranslationState,
 } from "@/types/models/domain";
@@ -15,6 +16,7 @@ import {
     GLOSSARY_STATES,
     JOB_SCOPE_KINDS,
     JOB_STATES,
+    TRANSLATION_ISSUE_STATES,
     TRANSLATION_ORIGINS,
     TRANSLATION_STATES,
 } from "@/types/models/domain";
@@ -66,6 +68,11 @@ export function decodeGlossaryOrigin(value: unknown): GlossaryOrigin {
 
 export function decodeTranslationOrigin(value: unknown): TranslationOrigin {
     return decodeEnum(TRANSLATION_ORIGINS, value, "Ai");
+}
+
+
+export function decodeTranslationIssueState(value: unknown): TranslationIssueState {
+    return decodeEnum(TRANSLATION_ISSUE_STATES, value, "Open");
 }
 
 

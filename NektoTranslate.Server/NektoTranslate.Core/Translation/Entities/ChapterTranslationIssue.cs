@@ -36,8 +36,19 @@ public class ChapterTranslationIssue {
     [MaxLength(64)]
     public required string check { get; set; }
 
+    // The status the finding was raised as, which is what a translation file is keyed on. The
+    // message beside it is that status rendered to English at the time, and stays as the fallback:
+    // a row outlives the wording it was written with, and an interface with no translation for the
+    // code still has something to show.
+    [MaxLength(64)]
+    public required string code { get; set; }
+
     [MaxLength(2000)]
     public required string message { get; set; }
+
+    // The status arguments as JSON, so a translation gets the run of text or the glossary term as
+    // a value to place where its own grammar wants it, rather than parsing it back out of English.
+    public string? argsJson { get; set; }
 
     // Which block of the translation this is about, when the check could tell. Null means the
     // finding is about the chapter as a whole.

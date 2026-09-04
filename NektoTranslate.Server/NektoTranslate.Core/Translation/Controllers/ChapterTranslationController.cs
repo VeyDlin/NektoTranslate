@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using NektoTranslate.Common.Contracts;
 using NektoTranslate.Translation.Contracts;
 using NektoTranslate.Translation.Services;
 
@@ -32,7 +33,8 @@ public class ChapterTranslationController(ITranslationEditor editor) : Controlle
         );
 
         // 409 for both refusals, because both mean "not now, look again" rather than "you asked
-        // wrongly" - and the reason is spelled out so the interface can say which.
+        // wrongly" - and the status code tells the interface which, so it can react to the busy case
+        // differently from the stale one without reading the sentence.
         return outcome.result switch {
             TranslationEditResult.Applied => Ok(new {
                 translationId = outcome.translationId,
@@ -42,22 +44,19 @@ public class ChapterTranslationController(ITranslationEditor editor) : Controlle
             TranslationEditResult.ChapterNotFound => NotFound(),
 
             TranslationEditResult.NoTranslation => NotFound(new {
-                error = "This chapter has no translation in that language yet."
+                status = Statuses.NoTranslationInLanguage.With(("language", request.language))
             }),
 
             TranslationEditResult.Busy => Conflict(new {
-                reason = "busy",
-                error = "This chapter is queued or being translated. The run would overwrite the edit."
+                status = Statuses.ChapterBusy
             }),
 
             TranslationEditResult.Stale => Conflict(new {
-                reason = "stale",
-                error = "The chapter has been translated again since this edit was started. "
-                    + "Reload it and make the change on the current text."
+                status = Statuses.TranslationStale
             }),
 
             TranslationEditResult.BlockOutOfRange => BadRequest(new {
-                error = "That block does not exist in this translation."
+                status = Statuses.BlockOutOfRange
             }),
 
             _ => StatusCode(500)

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Translation.Entities;
 using NektoTranslate.Translation.Enums;
+using NektoTranslate.Translation.Services;
 
 
 namespace NektoTranslate.Translation.Controllers;
@@ -49,7 +50,7 @@ public class TranslationIssuesController(NektoDbContext database) : ControllerBa
                 chapterTitle = issue.chapter.title,
                 issue.language,
                 issue.check,
-                issue.message,
+                message = IssueStatus.Rebuild(issue.code, issue.message, issue.argsJson),
                 issue.blockIndex,
                 issue.state,
                 issue.createdAt,

@@ -1,5 +1,6 @@
 using Mediator;
 using Microsoft.Extensions.Logging;
+using NektoTranslate.Common.Contracts;
 using NektoTranslate.Parsing.Contracts;
 using NektoTranslate.Parsing.Services;
 using NektoTranslate.Translation.Contracts;
@@ -65,7 +66,7 @@ public class ImportTranslationFromUrlCommandHandler(
                 // because one page happened to time out.
                 failures.Add(new TranslationImportRejection(
                     chapterIndex,
-                    $"{link.sourceUrl}: {failure.Message}"
+                    Statuses.ChapterFetchFailed.With(("url", link.sourceUrl), ("reason", failure.Message))
                 ));
             }
         }

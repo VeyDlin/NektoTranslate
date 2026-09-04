@@ -1,3 +1,4 @@
+using NektoTranslate.Common.Contracts;
 using NektoTranslate.Common.Models;
 using NektoTranslate.Translation.Contracts;
 
@@ -52,7 +53,7 @@ public class UntranslatedResidueCheck(EngineOptions options) : ITranslationCheck
             foreach (string run in FindRuns(blocks[index], source, minimumRun)) {
                 issues.Add(new TranslationIssue(
                     name,
-                    $"A run of source-language text survived into the translation: \"{run}\"",
+                    Statuses.SourceScriptResidue.With(("run", run)),
                     index
                 ));
 

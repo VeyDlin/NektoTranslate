@@ -1,3 +1,4 @@
+using NektoTranslate.Common.Contracts;
 using NektoTranslate.Common.Models;
 using NektoTranslate.Translation.Contracts;
 
@@ -46,11 +47,7 @@ public class UntranslatedBlockCheck(EngineOptions options) : ITranslationCheck {
             }
 
             if (original == translated[index].Trim()) {
-                issues.Add(new TranslationIssue(
-                    name,
-                    "This block came back unchanged from the source.",
-                    index
-                ));
+                issues.Add(new TranslationIssue(name, Statuses.BlockUnchanged, index));
 
                 if (issues.Count == maxReported) {
                     break;

@@ -1,3 +1,6 @@
+using NektoTranslate.Common.Contracts;
+
+
 namespace NektoTranslate.Translation.Contracts;
 
 
@@ -19,7 +22,7 @@ public sealed record ImportedTranslation(
 // which one did not.
 public sealed record TranslationImportRejection(
     int chapterIndex,
-    string reason
+    Status reason
 );
 
 

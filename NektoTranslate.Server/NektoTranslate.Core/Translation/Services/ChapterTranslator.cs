@@ -222,7 +222,9 @@ public class ChapterTranslator(
                 chapterId = chapterId,
                 language = language,
                 check = issue.check,
-                message = issue.message,
+                code = issue.message.code,
+                message = issue.message.text,
+                argsJson = IssueStatus.ArgsOf(issue.message),
                 blockIndex = issue.blockIndex
             });
         }

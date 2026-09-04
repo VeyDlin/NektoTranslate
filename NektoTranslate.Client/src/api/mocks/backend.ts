@@ -533,6 +533,11 @@ export class MockBackend {
                     costUsd: translation.costUsd,
                     createdAt: translation.createdAt,
                 })),
+
+            // No checks run against the mock, so there is never anything to report. The field is
+            // still sent because the reader reads it at render time, and a list that arrives
+            // missing is not the same thing as one that arrives empty.
+            issues: [],
         };
     }
 

@@ -56,7 +56,7 @@
 
             <ul>
                 <li v-for="collision in collisions" :key="collision.fromIndex">
-                    Chapter {{ collision.fromIndex }} → {{ collision.targetIndex }}: {{ collision.reason }}
+                    Chapter {{ collision.fromIndex }} → {{ collision.targetIndex }}: {{ describe(collision.reason) }}
                 </li>
             </ul>
         </div>
@@ -119,6 +119,7 @@
     import { computed, ref, watch } from "vue";
     import { useAlignment, useDeleteTranslations, useMoveTranslations } from "@/composables/useAlignment";
     import { useNovel } from "@/composables/useNovels";
+    import { describe } from "@/utils/status";
 
 
     // Correcting an imported translation that does not line up with the original — the usual cause

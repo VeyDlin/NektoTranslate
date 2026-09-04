@@ -32,7 +32,7 @@
             </template>
 
             <template v-else>
-                {{ probe.error ?? "This model was rejected." }}
+                {{ probe.error ? describe(probe.error) : "This model was rejected." }}
             </template>
         </p>
     </UFormField>
@@ -43,6 +43,7 @@
 
     import { computed, ref, watch } from "vue";
     import { useModels, useProbeModel } from "@/composables/useSettings";
+    import { describe } from "@/utils/status";
 
 
     // One field, used for the default model, the glossary model and a novel's own. Typing a model

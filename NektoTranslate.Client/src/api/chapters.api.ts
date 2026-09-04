@@ -1,7 +1,12 @@
 import type { ImportedChapter } from "@/types/api/requests";
 
-import type { Chapter, ChapterSummary } from "@/types/models/domain";
-import { decodeGlossaryState, decodeTranslationOrigin, decodeTranslationState } from "@/utils/wire";
+import type { Chapter, ChapterSummary, StatusMessage } from "@/types/models/domain";
+import {
+    decodeGlossaryState,
+    decodeTranslationIssueState,
+    decodeTranslationOrigin,
+    decodeTranslationState,
+} from "@/utils/wire";
 import { apiClient } from "./client";
 
 
@@ -23,6 +28,14 @@ interface RawChapter extends RawChapterSummary {
         origin: number | string;
         costUsd: number | null;
         createdAt: string;
+    }[];
+    issues: {
+        id: number;
+        language: string;
+        check: string;
+        message: StatusMessage;
+        blockIndex: number | null;
+        state: number | string;
     }[];
 }
 
@@ -54,6 +67,14 @@ export const chaptersApi = {
                 origin: decodeTranslationOrigin(translation.origin),
                 costUsd: translation.costUsd,
                 createdAt: translation.createdAt,
+            })),
+            issues: raw.issues.map(issue => ({
+                id: issue.id,
+                language: issue.language,
+                check: issue.check,
+                message: issue.message,
+                blockIndex: issue.blockIndex,
+                state: decodeTranslationIssueState(issue.state),
             })),
         }));
     },

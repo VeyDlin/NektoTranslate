@@ -1,3 +1,6 @@
+using NektoTranslate.Common.Contracts;
+
+
 namespace NektoTranslate.Translation.Contracts;
 
 
@@ -6,7 +9,7 @@ namespace NektoTranslate.Translation.Contracts;
 // reader than one that was refused.
 public sealed record TranslationIssue(
     string check,
-    string message,
+    Status message,
     // Which block the issue sits in, when the check knows. Carried separately rather than left
     // inside the message so the interface can take the reader to the place instead of describing
     // it - a report that says "somewhere in this chapter" is one the user has to search by hand.

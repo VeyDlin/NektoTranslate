@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using NektoTranslate.Chapters.Services;
+using NektoTranslate.Common.Contracts;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Translation.Contracts;
 using NektoTranslate.Translation.Entities;
@@ -71,7 +72,7 @@ public class TranslationImportService(
             if (!chapterIds.TryGetValue(entry.chapterIndex, out long chapterId)) {
                 rejected.Add(new TranslationImportRejection(
                     entry.chapterIndex,
-                    "There is no chapter at that index. Import the original first, or shift the mapping."
+                    Statuses.NoChapterAtIndex.With(("index", entry.chapterIndex))
                 ));
 
                 continue;
@@ -80,7 +81,7 @@ public class TranslationImportService(
             if (!alreadyTranslated.Add(chapterId)) {
                 rejected.Add(new TranslationImportRejection(
                     entry.chapterIndex,
-                    $"That chapter already has a {language} translation. Delete it first if it should be replaced."
+                    Statuses.TranslationAlreadyExists.With(("index", entry.chapterIndex), ("language", language))
                 ));
 
                 continue;
@@ -90,7 +91,10 @@ public class TranslationImportService(
             List<string> blocks = TranslationBlocks.Split(markdown);
 
             if (blocks.Count == 0) {
-                rejected.Add(new TranslationImportRejection(entry.chapterIndex, "The text was empty."));
+                rejected.Add(new TranslationImportRejection(
+                    entry.chapterIndex,
+                    Statuses.ImportedTextEmpty.With(("index", entry.chapterIndex))
+                ));
 
                 continue;
             }

@@ -39,6 +39,14 @@ export const GLOSSARY_CATEGORIES = ["Person", "Place", "Organization", "Techniqu
 export type GlossaryCategory = (typeof GLOSSARY_CATEGORIES)[number];
 
 
+// Resolved means the text was changed; dismissed means the finding was wrong. Kept apart because
+// they say opposite things about the check that raised it, and that is the only evidence there will
+// ever be about whether a check earns its place.
+export const TRANSLATION_ISSUE_STATES = ["Open", "Resolved", "Dismissed"] as const;
+
+export type TranslationIssueState = (typeof TRANSLATION_ISSUE_STATES)[number];
+
+
 // Tool turns are kept in the transcript deliberately, so the user can see what the agent did rather
 // than only what it said.
 export const CHAT_ROLES = ["User", "Agent", "Tool"] as const;
@@ -71,6 +79,18 @@ export interface ParserScriptSummary {
 }
 
 
+// Anything the server says to a person.
+//
+// `code` is the stable contract a translation is keyed on; `text` is the server's English, shown
+// whenever no translation exists; `args` are the values a translation places in its own word order.
+// See @/utils/status for the lookup.
+export interface StatusMessage {
+    code: string;
+    text: string;
+    args: Record<string, unknown> | null;
+}
+
+
 // One entry in a model dropdown.
 //
 // The list is configured on the server rather than discovered: the Claude CLI has no command that
@@ -90,7 +110,7 @@ export interface ModelOption {
 export interface ModelProbeResult {
     id: string;
     available: boolean;
-    error: string | null;
+    error: StatusMessage | null;
 }
 
 
@@ -101,7 +121,7 @@ export interface ModelProbeResult {
 export interface LocalModelList {
     reachable: boolean;
     models: string[];
-    error: string | null;
+    error: StatusMessage | null;
 }
 
 
@@ -170,9 +190,31 @@ export interface ChapterTranslation {
 }
 
 
+// What a quality check found in one translation. Never fatal: the chapter is written and the issues
+// travel with it, because an imperfect translation is worth far more to the reader than a refused
+// one.
+//
+// `blockIndex` is null when the finding is about the chapter as a whole — an ignored glossary term
+// says something about every occurrence of the name, and pointing at one would imply the others
+// are fine.
+export interface ChapterIssue {
+    id: number;
+    language: string;
+    check: string;
+    message: StatusMessage;
+    blockIndex: number | null;
+    state: TranslationIssueState;
+}
+
+
 export interface Chapter extends ChapterSummary {
     sourceMarkdown: string;
     translations: ChapterTranslation[];
+
+    // Only the open ones, and carried with the chapter rather than fetched separately: the reader
+    // needs them at the moment it renders the blocks, and a second request would make a marker
+    // beside a paragraph depend on a race.
+    issues: ChapterIssue[];
 }
 
 
@@ -221,7 +263,7 @@ export interface AlignmentRow {
 export interface TranslationCollision {
     fromIndex: number;
     targetIndex: number;
-    reason: string;
+    reason: StatusMessage;
 }
 
 

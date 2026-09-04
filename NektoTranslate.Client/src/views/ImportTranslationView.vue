@@ -125,7 +125,7 @@
 
                 <ul v-if="result.rejected.length > 0" class="failures">
                     <li v-for="rejection in result.rejected" :key="rejection.chapterIndex">
-                        Chapter {{ rejection.chapterIndex }}: {{ rejection.reason }}
+                        Chapter {{ rejection.chapterIndex }}: {{ describe(rejection.reason) }}
                     </li>
                 </ul>
 
@@ -147,6 +147,7 @@
     import { parsingApi } from "@/api";
     import { useNovel } from "@/composables/useNovels";
     import { formatCount } from "@/utils/format";
+    import { describe } from "@/utils/status";
 
 
     const props = defineProps<{ novelId: string }>();

@@ -6,6 +6,7 @@ using NektoTranslate.Chapters.Contracts;
 using NektoTranslate.Chapters.Entities;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Translation.Enums;
+using NektoTranslate.Translation.Services;
 
 
 namespace NektoTranslate.Chapters.Controllers;
@@ -102,7 +103,7 @@ public class ChaptersController(IMediator mediator, NektoDbContext database) : C
                         issue.id,
                         issue.language,
                         issue.check,
-                        issue.message,
+                        message = IssueStatus.Rebuild(issue.code, issue.message, issue.argsJson),
                         issue.blockIndex,
                         issue.state
                     })

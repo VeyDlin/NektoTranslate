@@ -29,7 +29,12 @@ public class TranslationCheckTests {
             "Танака ещё спал. 窓のカーテンを開けた"
         ));
 
-        Assert.Contains("窓のカーテンを開けた", Assert.Single(issues).message);
+        // The run travels as an argument, not only inside the English: a translation of the status
+        // needs it as a value it can place, and that is the thing to pin.
+        TranslationIssue issue = Assert.Single(issues);
+
+        Assert.Equal("SOURCE_SCRIPT_RESIDUE", issue.message.code);
+        Assert.Equal("窓のカーテンを開けた", issue.message.args?["run"]);
     }
 
 

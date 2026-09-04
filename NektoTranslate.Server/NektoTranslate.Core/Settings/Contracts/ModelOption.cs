@@ -1,3 +1,6 @@
+using NektoTranslate.Common.Contracts;
+
+
 namespace NektoTranslate.Settings.Contracts;
 
 
@@ -22,7 +25,7 @@ public sealed record ModelOption(
 public sealed record ModelProbeResult(
     string id,
     bool available,
-    string? error
+    Status? error
 );
 
 
@@ -33,5 +36,5 @@ public sealed record ModelProbeResult(
 public sealed record LocalModelList(
     bool reachable,
     IReadOnlyList<string> models,
-    string? error
+    Status? error
 );

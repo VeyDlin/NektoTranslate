@@ -1,4 +1,4 @@
-import type { GlossaryCategory, JobScopeKind } from "@/types/models/domain";
+import type { GlossaryCategory, JobScopeKind, StatusMessage } from "@/types/models/domain";
 
 
 export interface CreateNovelRequest {
@@ -92,7 +92,7 @@ export interface UpdateSettingsRequest {
 // lands ninety-nine and says which one did not.
 export interface TranslationImportRejection {
     chapterIndex: number;
-    reason: string;
+    reason: StatusMessage;
 }
 
 

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using ClaudeCodeSdk;
 using ClaudeCodeSdk.Types;
+using NektoTranslate.Common.Contracts;
 using NektoTranslate.Common.Models;
 using NektoTranslate.Settings.Contracts;
 using NektoTranslate.Settings.Entities;
@@ -75,7 +76,7 @@ public class ModelCatalog(
         try {
             await foreach (IMessage message in ClaudeQuery.QueryAsync(".", probe, null, cancellationToken)) {
                 if (message is ResultMessage result && result.IsError) {
-                    return new ModelProbeResult(model, false, Shorten(result.Result));
+                    return new ModelProbeResult(model, false, Rejected(result.Result));
                 }
             }
 
@@ -83,7 +84,7 @@ public class ModelCatalog(
         } catch (OperationCanceledException) {
             throw;
         } catch (Exception failure) {
-            return new ModelProbeResult(model, false, Shorten(failure.Message));
+            return new ModelProbeResult(model, false, Rejected(failure.Message));
         }
     }
 
@@ -94,7 +95,7 @@ public class ModelCatalog(
         ApplicationSettings current = await settings.GetAsync(cancellationToken);
 
         if (string.IsNullOrWhiteSpace(current.localModelEndpoint)) {
-            return new LocalModelList(false, [], "No local model endpoint is configured.");
+            return new LocalModelList(false, [], Statuses.LocalModelNotConfigured);
         }
 
         try {
@@ -110,18 +111,26 @@ public class ModelCatalog(
             using HttpResponseMessage response = await client.GetAsync(url, cancellationToken);
 
             if (!response.IsSuccessStatusCode) {
-                return new LocalModelList(false, [], $"{url} answered {(int)response.StatusCode}.");
+                return new LocalModelList(
+                    false,
+                    [],
+                    Statuses.LocalModelBadResponse.With(("url", url), ("status", (int)response.StatusCode))
+                );
             }
 
             string body = await response.Content.ReadAsStringAsync(cancellationToken);
 
             return new LocalModelList(true, ReadModelIds(body), null);
         } catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested) {
-            return new LocalModelList(false, [], "The local model server did not answer in time.");
+            return new LocalModelList(false, [], Statuses.LocalModelTimedOut);
         } catch (OperationCanceledException) {
             throw;
         } catch (Exception failure) {
-            return new LocalModelList(false, [], Shorten(failure.Message));
+            return new LocalModelList(
+                false,
+                [],
+                Statuses.LocalModelListFailed.With(("reason", Shorten(failure.Message) ?? failure.GetType().Name))
+            );
         }
     }
 
@@ -148,9 +157,22 @@ public class ModelCatalog(
     }
 
 
-    private static string Shorten(string? message) {
+    // The CLI does sometimes refuse without saying why - an empty result with the error flag set -
+    // and that gets its own status rather than a sentence with nothing after the colon.
+    private static Status Rejected(string? message) {
+        string? reason = Shorten(message);
+
+        return reason is null
+            ? Statuses.ModelRejectedWithoutReason
+            : Statuses.ModelRejected.With(("reason", reason));
+    }
+
+
+    // The first line only. A CLI failure arrives with its whole trace attached, and the line that
+    // names the problem is the first one; the rest is noise to a person choosing a model.
+    private static string? Shorten(string? message) {
         if (string.IsNullOrWhiteSpace(message)) {
-            return "The model was rejected.";
+            return null;
         }
 
         string line = message.Split('\n', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault() ?? message;

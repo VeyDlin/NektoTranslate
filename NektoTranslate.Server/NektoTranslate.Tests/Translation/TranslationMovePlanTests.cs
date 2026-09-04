@@ -105,7 +105,7 @@ public class TranslationMovePlanTests {
         );
 
         Assert.Equal(2, plan.collisions.Count);
-        Assert.All(plan.collisions, collision => Assert.Contains("no chapter", collision.reason));
+        Assert.All(plan.collisions, collision => Assert.Equal("MOVE_TARGET_MISSING", collision.reason.code));
     }
 
 

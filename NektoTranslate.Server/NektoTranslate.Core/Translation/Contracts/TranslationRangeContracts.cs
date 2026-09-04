@@ -1,3 +1,6 @@
+using NektoTranslate.Common.Contracts;
+
+
 namespace NektoTranslate.Translation.Contracts;
 
 
@@ -21,7 +24,7 @@ public sealed record MoveTranslationsRequest(
 public sealed record TranslationCollision(
     int fromIndex,
     int targetIndex,
-    string reason
+    Status reason
 );
 
 
