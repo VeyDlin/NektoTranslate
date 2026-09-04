@@ -1,3 +1,6 @@
+using NektoTranslate.Glossary.Enums;
+
+
 namespace NektoTranslate.Translation.Contracts;
 
 
@@ -8,6 +11,35 @@ public sealed record LearnedVoice(
     string summary,
     int termCount,
     double costUsd
+);
+
+
+// What the screens read back, as distinct from what the tables hold.
+//
+// The entities are not sent as themselves. VoiceProfile carries the novel it hangs off and calls its
+// key `id`; TranslationTerm keeps its variants as the JSON string a column can store. Neither is
+// what a reader's screen wants, and shipping the entity means every consumer either re-decodes the
+// storage shape or quietly renders nothing - which is exactly what happened here before these views
+// existed.
+public sealed record VoiceProfileView(
+    long profileId,
+    string summary,
+    int fromChapterIndex,
+    int toChapterIndex,
+    string? model,
+    double? costUsd,
+    DateTimeOffset createdAt
+);
+
+
+public sealed record TranslationTermView(
+    long id,
+    string term,
+    IReadOnlyList<string> variants,
+    GlossaryCategory category,
+    string? notes,
+    int occurrences,
+    long? firstSeenChapterId
 );
 
 

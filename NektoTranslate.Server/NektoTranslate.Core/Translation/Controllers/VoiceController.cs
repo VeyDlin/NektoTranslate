@@ -1,6 +1,8 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NektoTranslate.Common.Data;
+using NektoTranslate.Translation.Contracts;
 using NektoTranslate.Translation.Entities;
 
 
@@ -20,7 +22,7 @@ public class VoiceController(NektoDbContext database) : ControllerBase {
     // for a novel that has never had a human translation to learn from - not an error, so this
     // answers with a plain empty body rather than a 404.
     [HttpGet("voice")]
-    public async Task<VoiceProfile?> Voice(
+    public async Task<VoiceProfileView?> Voice(
         long novelId,
         [FromQuery] string language,
         CancellationToken cancellationToken
@@ -29,6 +31,15 @@ public class VoiceController(NektoDbContext database) : ControllerBase {
             .AsNoTracking()
             .Where(profile => profile.novelId == novelId && profile.language == language)
             .OrderByDescending(profile => profile.createdAt)
+            .Select(profile => new VoiceProfileView(
+                profile.id,
+                profile.summary,
+                profile.fromChapterIndex,
+                profile.toChapterIndex,
+                profile.model,
+                profile.costUsd,
+                profile.createdAt
+            ))
             .FirstOrDefaultAsync(cancellationToken);
     }
 
@@ -36,17 +47,32 @@ public class VoiceController(NektoDbContext database) : ControllerBase {
     // Most frequent first - the names a reader would actually recognise the book by, ahead of
     // something a single chunk happened to mention once.
     [HttpGet("terms")]
-    public async Task<IReadOnlyList<TranslationTerm>> Terms(
+    public async Task<IReadOnlyList<TranslationTermView>> Terms(
         long novelId,
         [FromQuery] string language,
         CancellationToken cancellationToken
     ) {
-        return await database.translationTerms
+        List<TranslationTerm> rows = await database.translationTerms
             .AsNoTracking()
             .Where(term => term.novelId == novelId && term.language == language)
             .OrderByDescending(term => term.occurrences)
-            .ThenBy(term => term.term, StringComparer.Ordinal)
+            // No explicit comparer: EF cannot translate one, and asking for StringComparer.Ordinal
+            // here threw at runtime rather than at compile time. The tie-break only has to be stable
+            // for a reader's eye, so the database's own collation is enough.
+            .ThenBy(term => term.term)
             .ToListAsync(cancellationToken);
+
+        return rows
+            .Select(term => new TranslationTermView(
+                term.id,
+                term.term,
+                Variants(term.variantsJson),
+                term.category,
+                term.notes,
+                term.occurrences,
+                term.firstSeenChapterId
+            ))
+            .ToList();
     }
 
 
@@ -57,5 +83,22 @@ public class VoiceController(NektoDbContext database) : ControllerBase {
             .ExecuteDeleteAsync(cancellationToken);
 
         return removed == 0 ? NotFound() : NoContent();
+    }
+
+
+    // Stored as JSON because a column cannot hold a list. A row written by an older pass, or edited
+    // by hand, is not worth failing a whole screen over: the term itself is the useful part and the
+    // variants are an extra, so unreadable JSON yields none rather than an error.
+    private static IReadOnlyList<string> Variants(string variantsJson) {
+        if (string.IsNullOrWhiteSpace(variantsJson)) {
+            return [];
+        }
+
+        try {
+            return JsonSerializer.Deserialize<List<string>>(variantsJson) ?? [];
+        }
+        catch (JsonException) {
+            return [];
+        }
     }
 }
