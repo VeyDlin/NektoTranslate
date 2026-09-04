@@ -65,7 +65,7 @@
                     />
                 </template>
 
-                <template v-else-if="activeImport !== null">
+                <template v-else-if="activeImport !== null && !onOwningImportScreen">
                     <UButton
                         v-if="activeImport.state === 'Running'"
                         size="xs"
@@ -106,9 +106,10 @@
 
 <script setup lang="ts">
     import type { RouteLocationRaw } from "vue-router";
+    import type { ImportKind } from "@/types/models/domain";
 
     import { computed, ref } from "vue";
-    import { RouterLink } from "vue-router";
+    import { RouterLink, useRoute } from "vue-router";
 
     import { importsApi, jobsApi } from "@/api";
     import ChapterStateDot from "@/components/chapters/ChapterStateDot.vue";
@@ -117,8 +118,17 @@
     import { formatCost, formatCount } from "@/utils/format";
 
 
+    // The screen each import kind has to itself, where Pause/Resume/Cancel already live in its own
+    // run panel. The strip still names what is running and links to it, but the buttons themselves
+    // give way there rather than repeating next to a second, identical set.
+    const IMPORT_OWNER_ROUTE: Record<ImportKind, string> = {
+        Originals: "import-from-url",
+        Translation: "import-translation",
+    };
+
     const run = useRunStore();
     const activity = useActivityStore();
+    const route = useRoute();
 
     const cancelling = ref(false);
     const importPausing = ref(false);
@@ -130,6 +140,17 @@
     // only while it is still active — once it settles it drops out of `activeImports`, and the
     // dedicated import screen is where the finished run and its Dismiss control live on.
     const activeImport = computed(() => (run.state !== null ? null : activity.activeImports[0] ?? null));
+
+    // True while the import's own screen is the one open — the route each kind owns, for the same
+    // book the job belongs to.
+    const onOwningImportScreen = computed(() => {
+        if (activeImport.value === null) {
+            return false;
+        }
+
+        return route.name === IMPORT_OWNER_ROUTE[activeImport.value.kind]
+            && Number(route.params.novelId) === activeImport.value.novelId;
+    });
 
     const visible = computed(() => run.state !== null || activeImport.value !== null);
 

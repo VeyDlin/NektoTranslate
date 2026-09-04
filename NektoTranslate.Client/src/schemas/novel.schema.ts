@@ -1,8 +1,9 @@
 import { z } from "zod";
 
 
-// Languages are free text on purpose. The model reads them as language names, so a closed dropdown
-// would block an unusual pair for no gain — which is exactly the case this application exists for.
+// Backed by a searchable list in the UI (`CreateNovelModal`'s `create-item` select), but not a closed
+// one: the model reads whatever lands here as a language name, so typing one that is not on the list
+// still works — which is exactly the case this application exists for.
 export const createNovelSchema = z.object({
     title: z.string().min(1, "Give the novel a title").max(500),
     sourceLanguage: z.string().min(1, "Name the language it is written in").max(32),
