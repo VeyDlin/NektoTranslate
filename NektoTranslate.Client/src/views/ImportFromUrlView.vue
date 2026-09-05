@@ -58,93 +58,7 @@
              behind a one-tab-per-site queue look like nothing had happened. -->
         <p class="status" :class="statusTone">{{ statusText }}</p>
 
-        <!-- Appears the moment a job of this kind exists — active, or settled and not yet dismissed —
-             and stays through a navigate-away-and-back because it reads the store, not local state. -->
-        <div v-if="job !== null" class="run">
-            <div class="run-head">
-                <span class="run-state" :class="job.state.toLowerCase()">{{ importStateLabel(job.state) }}</span>
-
-                <span
-                    v-if="job.currentTitle"
-                    class="run-title"
-                    :lang="scriptLangIf(job.currentTitle, scriptLang)"
-                >
-                    {{ job.currentTitle }}
-                </span>
-
-                <span v-if="job.totalCount > 0" class="run-counts">
-                    {{ formatCount(job.processedCount) }} of {{ formatCount(job.totalCount) }}
-                </span>
-
-                <span class="spacer" />
-
-                <UButton
-                    v-if="job.state === 'Running'"
-                    size="xs"
-                    color="neutral"
-                    variant="ghost"
-                    :loading="pausing"
-                    @click="pause"
-                >
-                    Pause
-                </UButton>
-
-                <UButton
-                    v-else-if="job.state === 'Paused'"
-                    size="xs"
-                    color="neutral"
-                    variant="ghost"
-                    :loading="resuming"
-                    @click="resume"
-                >
-                    Resume
-                </UButton>
-
-                <UButton
-                    v-if="job.state === 'Running' || job.state === 'Paused'"
-                    size="xs"
-                    color="neutral"
-                    variant="ghost"
-                    :loading="cancelling"
-                    @click="cancelRun"
-                >
-                    Cancel
-                </UButton>
-
-                <UButton
-                    v-else-if="settled"
-                    size="xs"
-                    color="neutral"
-                    variant="ghost"
-                    aria-label="Dismiss"
-                    icon="i-material-symbols:close-rounded"
-                    @click="dismiss"
-                />
-            </div>
-
-            <UProgress
-                size="2xs"
-                :color="job.state === 'Paused' ? 'warning' : 'primary'"
-                :model-value="job.totalCount > 0 ? job.processedCount : null"
-                :max="job.totalCount > 0 ? job.totalCount : 100"
-            />
-
-            <p class="summary">{{ summary }}</p>
-
-            <ul class="items">
-                <li v-for="item in job.items ?? []" :key="item.position">
-                    <span class="title" :lang="scriptLangIf(item.title, scriptLang)">{{ item.title }}</span>
-
-                    <ImportItemStateBadge :state="item.state" />
-
-                    <span v-if="item.status && (item.state === 'Skipped' || item.state === 'Failed')" class="reason">
-                        {{ describe(item.status) }}
-                    </span>
-
-                    <ImportItemRetryButton :novel-id="id" :job="job" :item="item" />
-                </li>
-            </ul>
-        </div>
+        <ImportRunPanel :novel-id="id" kind="Originals" />
 
         <Transition name="pick">
             <div v-if="links.length > 0" class="picked">
@@ -225,13 +139,12 @@
     import type { ParsedChapterLink } from "@/types/models/domain";
 
     import { computed, h, ref, resolveComponent, watch } from "vue";
-    import ImportItemRetryButton from "@/components/imports/ImportItemRetryButton.vue";
-    import ImportItemStateBadge from "@/components/imports/ImportItemStateBadge.vue";
-    import { useActivity, useCancelImport, usePauseImport, useResumeImport, useStartImport } from "@/composables/useActivity";
+    import ImportRunPanel from "@/components/imports/ImportRunPanel.vue";
+    import { useActivity, useStartImport } from "@/composables/useActivity";
     import { useCancelListing, useListing, useReadListing } from "@/composables/useListing";
     import { useNovel } from "@/composables/useNovels";
     import { useActivityStore } from "@/stores/activity.store";
-    import { formatCount, formatWhen, importStateLabel, siteLabel } from "@/utils/format";
+    import { formatCount, formatWhen, siteLabel } from "@/utils/format";
     import { scriptLangFor, scriptLangIf } from "@/utils/language";
     import { parseRanges } from "@/utils/ranges";
     import { describe } from "@/utils/status";
@@ -267,20 +180,12 @@
     const rangeSpec = ref("");
 
     const { mutateAsync: startImport, isPending: starting } = useStartImport(id);
-    const { mutateAsync: pauseImport, isPending: pausing } = usePauseImport(id);
-    const { mutateAsync: resumeImport, isPending: resuming } = useResumeImport(id);
-    const { mutateAsync: cancelImportJob, isPending: cancelling } = useCancelImport(id);
 
     const job = computed(() => activity.importFor("Originals"));
 
     const jobActive = computed(() => (
         job.value !== null
         && (job.value.state === "Queued" || job.value.state === "Running" || job.value.state === "Paused")
-    ));
-
-    const settled = computed(() => (
-        job.value !== null
-        && (job.value.state === "Completed" || job.value.state === "Failed" || job.value.state === "Cancelled")
     ));
 
     // The address cannot be edited while the site is being read or while the chapters are being
@@ -361,15 +266,6 @@
 
     const selectedLinks = computed(() => links.value.filter(link => rowSelection.value[link.sourceUrl] === true));
 
-    const summary = computed(() => {
-        const items = job.value?.items ?? [];
-        const imported = items.filter(item => item.state === "Imported").length;
-        const skipped = items.filter(item => item.state === "Skipped").length;
-        const failed = items.filter(item => item.state === "Failed").length;
-
-        return `${formatCount(imported)} imported, ${formatCount(skipped)} skipped, ${formatCount(failed)} failed`;
-    });
-
 
     function getRowId(link: ParsedChapterLink): string {
         return link.sourceUrl;
@@ -442,42 +338,6 @@
     async function runImport(): Promise<void> {
         await startImport({ kind: "Originals", chapters: selectedLinks.value });
         rowSelection.value = {};
-    }
-
-
-    async function pause(): Promise<void> {
-        if (job.value === null) {
-            return;
-        }
-
-        await pauseImport(job.value.id);
-    }
-
-
-    async function resume(): Promise<void> {
-        if (job.value === null) {
-            return;
-        }
-
-        await resumeImport(job.value.id);
-    }
-
-
-    async function cancelRun(): Promise<void> {
-        if (job.value === null) {
-            return;
-        }
-
-        await cancelImportJob(job.value.id);
-    }
-
-
-    function dismiss(): void {
-        if (job.value === null) {
-            return;
-        }
-
-        activity.clearSettled(job.value.id);
     }
 </script>
 
@@ -556,108 +416,6 @@
 
             &.failed {
                 color: var(--ui-error);
-            }
-        }
-
-        .run {
-            flex: none;
-            display: flex;
-            flex-direction: column;
-            gap: 0.75rem;
-            padding: 1rem 1.5rem;
-            border-bottom: 1px solid var(--ui-border);
-            background: var(--ui-bg-elevated);
-
-            .run-head {
-                display: flex;
-                align-items: center;
-                gap: 1rem;
-
-                .run-state {
-                    color: var(--ui-text-muted);
-
-                    &.running {
-                        color: var(--ui-primary);
-                    }
-
-                    &.paused {
-                        color: var(--ui-warning);
-                    }
-
-                    &.failed {
-                        color: var(--ui-error);
-                    }
-
-                    &.completed {
-                        color: var(--ui-success);
-                    }
-                }
-
-                .run-title {
-                    flex: 1;
-                    min-width: 0;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                    color: var(--ui-text-highlighted);
-                }
-
-                .run-counts {
-                    flex: none;
-                    color: var(--ui-text-muted);
-                }
-
-                .spacer {
-                    flex: 1;
-                }
-            }
-
-            .summary {
-                margin: 0;
-                font-size: var(--nt-text-sm);
-                color: var(--ui-text-muted);
-            }
-
-            // Two thousand chapters imported in one job would otherwise print two thousand rows of
-            // wall with no way to see the run panel above it.
-            .items {
-                max-height: 22rem;
-                overflow-y: auto;
-                margin: 0;
-                padding: 0;
-                list-style: none;
-                border: 1px solid var(--ui-border);
-                border-radius: 0.375rem;
-                background: var(--ui-bg);
-
-                li {
-                    display: flex;
-                    align-items: center;
-                    gap: 0.75rem;
-                    padding: 0.5rem 0.75rem;
-
-                    & + li {
-                        border-top: 1px solid var(--ui-border);
-                    }
-
-                    .title {
-                        flex: 1;
-                        min-width: 0;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                    }
-
-                    .reason {
-                        flex: none;
-                        max-width: 20rem;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                        font-size: var(--nt-text-sm);
-                        color: var(--ui-text-muted);
-                    }
-                }
             }
         }
 
