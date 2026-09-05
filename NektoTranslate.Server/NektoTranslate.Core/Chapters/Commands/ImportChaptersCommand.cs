@@ -24,7 +24,14 @@ public class ImportChaptersCommandHandler(IChapterImportService importer)
         ImportChaptersCommand command,
         CancellationToken cancellationToken
     ) {
-        ChapterImportResult result = await importer.ImportAsync(command.novelId, command.chapters, cancellationToken);
+        // Pasted content has no site behind it to have changed, so there is nothing for it to
+        // replace - only a fetched re-import of an address the book already holds ever sets this.
+        ChapterImportResult result = await importer.ImportAsync(
+            command.novelId,
+            command.chapters,
+            replaceExisting: false,
+            cancellationToken
+        );
 
         return result.outcomes
             .Where(outcome => outcome.chapter is not null)

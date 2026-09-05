@@ -20,7 +20,11 @@ public sealed record StartImportJobRequest(
     int startAtChapterIndex = 0,
     // Translation imports only: make a chapter with no original for any entry that has nowhere to
     // land. This is what lets a book exist as somebody else's translation and nothing more.
-    bool createMissingChapters = false
+    bool createMissingChapters = false,
+    // For either kind: overwrite an entry the book already holds - matched by its own address for an
+    // original, by the chapter and language for a translation - instead of skipping or refusing it.
+    // Off by default: replacing is a choice the user makes, not the ordinary outcome of an import.
+    bool replaceExisting = false
 );
 
 

@@ -13,6 +13,7 @@ public interface IChapterImportService {
     Task<ChapterImportResult> ImportAsync(
         long novelId,
         IReadOnlyList<ImportedChapter> chapters,
+        bool replaceExisting = false,
         CancellationToken cancellationToken = default
     );
 }
@@ -30,6 +31,8 @@ public interface IChapterImportService {
 // chapters, and chapters deleted and re-imported came back at the wrong numbers. The address a
 // chapter was fetched from is the one thing that names it the same way every time, so it is checked
 // first and an explicit index second - the index only ever wins a slot nothing has already claimed.
+// That same address match is what replaceExisting acts on: it never overwrites by position, only a
+// chapter whose own address is the one the incoming page carries.
 public class ChapterImportService(
     NektoDbContext database,
     IMarkdownConversion conversion,
@@ -39,6 +42,7 @@ public class ChapterImportService(
     public async Task<ChapterImportResult> ImportAsync(
         long novelId,
         IReadOnlyList<ImportedChapter> chapters,
+        bool replaceExisting = false,
         CancellationToken cancellationToken = default
     ) {
         int? highest = await database.chapters
@@ -85,11 +89,32 @@ public class ChapterImportService(
             ImportedChapter incoming = chapters[position];
 
             if (incoming.sourceUrl is not null && bySourceUrl.TryGetValue(incoming.sourceUrl, out Chapter? already)) {
-                outcomes.Add(new ChapterImportOutcome(
-                    position,
-                    already,
-                    Statuses.ChapterAlreadyImported.With(("index", already.index))
-                ));
+                if (!replaceExisting) {
+                    outcomes.Add(new ChapterImportOutcome(
+                        position,
+                        already,
+                        Statuses.ChapterAlreadyImported.With(("index", already.index))
+                    ));
+
+                    continue;
+                }
+
+                // The page behind this address changed - a translation site corrected a chapter, an
+                // author fixed a typo - and that same address is why this is the same chapter rather
+                // than a new one. Its id, its index, its translations, its findings and the reader's
+                // position all stay; only the text this page supplies is replaced. Any translation
+                // already made from the old text stays too, because deleting work the user paid for
+                // is worse than leaving it beside newer text - and nothing here needs to touch the
+                // batch cache either: it is keyed by a hash of the source segment, so once the text
+                // changes a later forced re-translation simply hashes different segments and misses
+                // the old rows on its own, with no chunk of them ever having to be deleted.
+                string replacementMarkdown = conversion.ToMarkdown(incoming.html);
+
+                already.title = incoming.title;
+                already.sourceMarkdown = replacementMarkdown;
+                already.sourcePlainText = segmenter.Segment(replacementMarkdown).PlainText();
+
+                outcomes.Add(new ChapterImportOutcome(position, already, null, replaced: true));
 
                 continue;
             }

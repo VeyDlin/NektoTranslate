@@ -47,6 +47,7 @@ public class ImportItemRunner(
                 ChapterImportResult result = await originals.ImportAsync(
                     job.novelId,
                     [new ImportedChapter(title, chapter.html, index, item.sourceUrl)],
+                    job.replaceExisting,
                     cancellationToken
                 );
 
@@ -85,12 +86,17 @@ public class ImportItemRunner(
                     job.language ?? string.Empty,
                     [new ImportedTranslation(chapterIndex, chapter.html, item.sourceUrl, title)],
                     job.createMissingChapters,
+                    job.replaceExisting,
                     cancellationToken
                 );
 
                 item.chapterIndex = chapterIndex;
 
                 if (result.imported == 1) {
+                    // chapterIndex alone was never enough to find the chapter again without a query,
+                    // and until this line existed nothing gave it one: every translation item in the
+                    // import history has chapterId sitting null because of it.
+                    item.chapterId = result.landed[0].chapterId;
                     item.state = ImportItemState.Imported;
                     ClearStatus(item);
                 }
