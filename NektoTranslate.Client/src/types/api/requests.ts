@@ -128,6 +128,10 @@ export interface StartImportRequest {
     // Translation imports only: make a chapter with no original for an entry that has nowhere to
     // land, instead of reporting it as having no chapter.
     createMissingChapters?: boolean;
+
+    // Replace is by identity, never by position: an original matches its own source address, a
+    // translation lands on a chapter that already holds one — and neither ever deletes anything.
+    replaceExisting?: boolean;
 }
 
 

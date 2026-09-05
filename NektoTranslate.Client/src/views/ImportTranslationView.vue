@@ -106,6 +106,8 @@
                     Clear
                 </UButton>
 
+                <USwitch v-model="replaceExisting" :disabled="jobActive" label="Replace what the book already has" />
+
                 <span class="gap" />
 
                 <span class="starts">First chosen entry becomes chapter</span>
@@ -117,18 +119,19 @@
                     :disabled="jobActive"
                     size="sm"
                     class="start"
-                    @update:model-value="startAtTouched = true"
+                    @update:model-value="touchStartAt"
                 />
 
                 <span class="spacer" />
 
                 <UButton
                     size="sm"
+                    class="import"
                     :disabled="selectedLinks.length === 0 || jobActive"
                     :loading="starting"
                     @click="runImport"
                 >
-                    Import {{ formatCount(selectedLinks.length) }} into {{ language }}
+                    {{ importLabel }}
                 </UButton>
             </div>
         </Transition>
@@ -144,7 +147,8 @@
                 <strong>{{ lastTitle }}</strong> → chapter {{ startAtNumber + selectedLinks.length - 1 }}
             </template>
             <template v-if="alreadyImportedCount > 0">
-                &nbsp;·&nbsp;{{ formatCount(alreadyImportedCount) }} already in the book will be skipped
+                &nbsp;·&nbsp;{{ formatCount(alreadyImportedCount) }} already in the book will be
+                {{ replaceExisting ? "replaced" : "skipped" }}
             </template>
         </p>
 
@@ -229,6 +233,7 @@
     import { useCancelListing, useListing, useReadListing } from "@/composables/useListing";
     import { useNovel } from "@/composables/useNovels";
     import { useActivityStore } from "@/stores/activity.store";
+    import { useImportWorkbenchStore } from "@/stores/importWorkbench.store";
     import { chapterNumber, formatCount, formatWhen, siteLabel } from "@/utils/format";
     import { parseRanges } from "@/utils/ranges";
     import { describe } from "@/utils/status";
@@ -264,19 +269,50 @@
     const hasEntries = computed(() => links.value.length > 0);
 
     const url = ref("");
-    const rowSelection = ref<Record<string, boolean>>({});
     const rangeSpec = ref("");
-    const createMissing = ref(false);
+
+    const importWorkbench = useImportWorkbenchStore();
+
+    // The bench entry has to exist before anything below reads it. Ensured here, once, and again if
+    // this component is ever kept alive across a change of novel - never inside a computed, so
+    // creating the default entry is a plain effect of arriving on the screen rather than a side
+    // effect of reading from it.
+    watch(id, (novelId) => {
+        importWorkbench.bench(novelId, "Translation");
+    }, { immediate: true });
+
+    const bench = computed(() => importWorkbench.bench(id.value, "Translation"));
+
+    // Everything below is a view onto the store entry rather than state of its own, which is what
+    // lets the pick, the start chapter and both switches all survive leaving this screen and coming
+    // back to it - reloaded or not.
+    const rowSelection = computed<Record<string, boolean>>({
+        get: () => Object.fromEntries(bench.value.selectedUrls.map(sourceUrl => [sourceUrl, true])),
+        set: (value: Record<string, boolean>) => {
+            importWorkbench.patch(id.value, "Translation", {
+                selectedUrls: Object.keys(value).filter(sourceUrl => value[sourceUrl] === true),
+            });
+        },
+    });
 
     // Chapters are numbered from one everywhere the reader looks, so this field takes that number and
-    // the 0-based index the API stores is derived at the call, not carried around the screen.
-    const startAtNumber = ref(1);
+    // the 0-based index the API stores is derived at the call, not carried around the screen. Falls
+    // back to one for display only - the store itself keeps null until a pick or a keystroke actually
+    // sets it, so an untouched bench never persists a number nobody chose.
+    const startAtNumber = computed<number>({
+        get: () => bench.value.startAtNumber ?? 1,
+        set: (value: number) => importWorkbench.patch(id.value, "Translation", { startAtNumber: value }),
+    });
 
-    // True once the user has changed the field by hand; until then, picking a different run of
-    // entries keeps moving the number to match where that run starts - see the watcher below.
-    // Cleared when the pick empties out, so clearing the selection and choosing again starts the
-    // guess over.
-    const startAtTouched = ref(false);
+    const createMissing = computed<boolean>({
+        get: () => bench.value.createMissing,
+        set: (value: boolean) => importWorkbench.patch(id.value, "Translation", { createMissing: value }),
+    });
+
+    const replaceExisting = computed<boolean>({
+        get: () => bench.value.replaceExisting,
+        set: (value: boolean) => importWorkbench.patch(id.value, "Translation", { replaceExisting: value }),
+    });
 
     // Order matters and is the site's, not the click order: entries are mapped to consecutive
     // chapters in the order they appear in the contents.
@@ -294,6 +330,17 @@
     // "1-20" does not consult it - so the preview below has to account for what the server will
     // actually do with those rows: skip them.
     const alreadyImportedCount = computed(() => selectedLinks.value.filter(entry => entry.state === "Imported").length);
+
+    // Spelled out only once Replace would actually do something to the pick - turning the switch on
+    // with nothing already in the book selected leaves the button reading exactly as it did before.
+    const importLabel = computed<string>(() => {
+        const count = formatCount(selectedLinks.value.length);
+        const suffix = (replaceExisting.value && alreadyImportedCount.value > 0)
+            ? `, replacing ${formatCount(alreadyImportedCount.value)}`
+            : "";
+
+        return `Import ${count} into ${language.value}${suffix}`;
+    });
 
     const { mutateAsync: startImport, isPending: starting } = useStartImport(id);
 
@@ -376,8 +423,11 @@
     const UCheckbox = resolveComponent("UCheckbox");
 
     // The table's own header checkbox must not be able to select what a row's own checkbox refuses
-    // to - a row already in the book stays out of "select all" however "all" is triggered.
-    const rowSelectionOptions = { enableRowSelection: (row: { original: ListingEntry }) => row.original.state !== "Imported" };
+    // to - a row already in the book stays out of "select all" however "all" is triggered, unless
+    // Replace is on, in which case a row already in the book is exactly what it targets.
+    const rowSelectionOptions = {
+        enableRowSelection: (row: { original: ListingEntry }) => replaceExisting.value || row.original.state !== "Imported",
+    };
 
     const columns: TableColumn<ListingEntry>[] = [
         {
@@ -389,11 +439,12 @@
                 "aria-label": "Select every entry",
             }),
             // A row already in the book cannot be picked - the server would only skip it - so its
-            // checkbox is disabled alongside the "In the book" column that says why.
+            // checkbox is disabled alongside the "In the book" column that says why. Replace turns
+            // that off: the row is then exactly what the import is meant to act on.
             cell: ({ row }) => h(UCheckbox, {
                 "modelValue": row.getIsSelected(),
                 "onUpdate:modelValue": (value: boolean | "indeterminate") => row.toggleSelected(!!value),
-                "disabled": jobActive.value || row.original.state === "Imported",
+                "disabled": jobActive.value || (!replaceExisting.value && row.original.state === "Imported"),
                 "aria-label": `Select ${row.original.title}`,
             }),
             meta: { class: { th: "w-8", td: "w-8" } },
@@ -430,10 +481,13 @@
 
 
     // Rows already in the book are never a valid pick - the server would just skip them - so "all"
-    // means all of what is left to bring in, not literally every row on screen.
+    // means all of what is left to bring in, not literally every row on screen. With Replace on, a
+    // row already in the book is a valid pick again, so it joins the rest.
     function selectAll(): void {
         rowSelection.value = Object.fromEntries(
-            links.value.filter(entry => entry.state !== "Imported").map(entry => [entry.sourceUrl, true]),
+            links.value
+                .filter(entry => replaceExisting.value || entry.state !== "Imported")
+                .map(entry => [entry.sourceUrl, true]),
         );
     }
 
@@ -467,15 +521,22 @@
     // keeping whatever the last one left behind.
     watch(selectedLinks, (chosen) => {
         if (chosen.length === 0) {
-            startAtTouched.value = false;
+            importWorkbench.patch(id.value, "Translation", { startAtTouched: false });
 
             return;
         }
 
-        if (!startAtTouched.value) {
+        if (!bench.value.startAtTouched) {
             startAtNumber.value = links.value.indexOf(chosen[0]) + 1;
         }
     });
+
+
+    // The same event that moves `startAtNumber` also marks it touched, so the watcher above stops
+    // following the pick the moment the number has been changed by hand.
+    function touchStartAt(): void {
+        importWorkbench.patch(id.value, "Translation", { startAtTouched: true });
+    }
 
 
     // Starts the read and returns; the site is visited on the server. Whether the address is readable
@@ -505,9 +566,10 @@
             language: language.value,
             startAtChapterIndex: startAtNumber.value - 1,
             createMissingChapters: createMissing.value,
+            replaceExisting: replaceExisting.value,
         });
 
-        rowSelection.value = {};
+        importWorkbench.clearPick(id.value, "Translation");
     }
 </script>
 
@@ -617,6 +679,14 @@
 
             .spacer {
                 flex: 1;
+            }
+
+            // Wide enough for "Import 999 into Japanese, replacing 999" - its longest ordinary form -
+            // so turning Replace on and off never resizes the button and shifts the bar around it.
+            .import {
+                flex: none;
+                min-width: 18rem;
+                justify-content: center;
             }
         }
 
