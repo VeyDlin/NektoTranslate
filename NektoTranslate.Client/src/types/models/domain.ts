@@ -42,6 +42,13 @@ export const IMPORT_ITEM_STATES = ["Pending", "Imported", "Skipped", "Failed", "
 export type ImportItemState = (typeof IMPORT_ITEM_STATES)[number];
 
 
+// Reading a site's table of contents, as a state the server keeps rather than an answer held in one
+// request. Everything the import screens show about "have we read this site yet" comes from here.
+export const LISTING_STATES = ["Reading", "Ready", "Failed"] as const;
+
+export type ListingState = (typeof LISTING_STATES)[number];
+
+
 export const GLOSSARY_ORIGINS = ["AiExtracted", "FromExistingTranslation", "Manual"] as const;
 
 export type GlossaryOrigin = (typeof GLOSSARY_ORIGINS)[number];
@@ -406,6 +413,22 @@ export interface ImportJob {
     finishedAt: string | null;
     error: string | null;
     items: ImportJobItem[] | null;
+}
+
+
+// A site's contents as read for this book, kept on the server between visits to the screen.
+//
+// The entries cost a real page load behind a one-tab-per-site queue to obtain, which is why they are
+// not held in the component that asked for them: leaving the screen, refreshing it, or pressing the
+// button twice all used to end with either nothing on screen or a second visit to the same site.
+export interface SourceListing {
+    kind: ImportKind;
+    url: string;
+    state: ListingState;
+    entries: ParsedChapterLink[];
+    error: StatusMessage | null;
+    startedAt: string;
+    readAt: string | null;
 }
 
 

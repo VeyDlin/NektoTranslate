@@ -4,6 +4,7 @@ export { USE_MOCKS } from "./client";
 export { glossaryApi } from "./glossary.api";
 export { importsApi } from "./imports.api";
 export { jobsApi } from "./jobs.api";
+export { listingsApi } from "./listings.api";
 export { novelsApi } from "./novels.api";
 export { parsersApi } from "./parsers.api";
 export { parsingApi } from "./parsing.api";

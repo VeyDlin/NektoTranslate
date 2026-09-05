@@ -108,6 +108,11 @@ public static class ServiceCollectionExtensions {
         services.AddScoped<IParserScriptStore, MergedParserScriptStore>();
         services.AddScoped<ISiteParser, WebToEpubRunner>();
 
+        // Singleton because it owns the reads in flight: which books are being read right now is
+        // exactly the thing a second press has to find, and a scoped registry would give every
+        // request its own empty one.
+        services.AddSingleton<IListingReader, ListingReader>();
+
         // The agent chat. Reaches the same tool registry the rest of the application uses, so a
         // correction made in conversation lands in the glossary rather than only in the transcript.
         services.AddScoped<IChatAgentService, ChatAgentService>();

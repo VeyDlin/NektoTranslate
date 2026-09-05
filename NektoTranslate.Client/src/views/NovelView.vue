@@ -53,7 +53,7 @@
                     color="neutral"
                     variant="subtle"
                     icon="i-material-symbols:book-ribbon-outline-rounded"
-                    :to="{ name: 'reader', params: { novelId: id, chapterId: resumePosition.chapterId } }"
+                    :to="{ name: 'reader', params: { novelId: id, chapterId: resumePosition.id } }"
                 >
                     Continue chapter {{ chapterNumber(resumePosition.index) }}
                 </UButton>
@@ -355,6 +355,11 @@
 
     // A translation in progress grows from the end, so the chapter worth returning to is rarely the
     // one at the top of the list.
+    // Resolved against the chapter list every time rather than trusted as stored. The saved position
+    // is a snapshot taken when the chapter was open, and a snapshot outlives what it describes: after
+    // chapters are deleted it would otherwise keep offering a number that no longer belongs to
+    // anything. The id decides whether to show the button at all, and the row it points at - not the
+    // snapshot - decides which number the button says.
     const resumePosition = computed(() => {
         const saved = progressStore.positionFor(id.value);
 
@@ -362,7 +367,7 @@
             return null;
         }
 
-        return rows.value.some(row => row.id === saved.chapterId) ? saved : null;
+        return rows.value.find(row => row.id === saved.chapterId) ?? null;
     });
 
     const tabs = computed(() => [
@@ -404,6 +409,7 @@
     @use "@/assets/scss/variables" as *;
 
     .novel {
+        position: relative;
         display: flex;
         flex-direction: column;
         height: 100%;
@@ -452,17 +458,27 @@
             }
         }
 
+        // Floats over the list instead of being a row inserted above it. A bar that takes its own
+        // line pushes the whole table down the moment a checkbox is ticked, which moves the row the
+        // user was aiming at out from under the cursor - the one place in the interface where a
+        // layout shift is guaranteed to be mid-click.
         .picked {
-            flex: none;
+            position: absolute;
+            left: 50%;
+            bottom: 1.25rem;
+            transform: translateX(-50%);
+            z-index: 20;
             display: flex;
             align-items: center;
             gap: 0.75rem;
-            padding: 0.5rem 1.5rem;
-            border-bottom: 1px solid var(--ui-border);
+            padding: 0.5rem 0.75rem 0.5rem 1rem;
+            border: 1px solid var(--ui-border);
+            border-radius: var(--ui-radius);
             background: var(--ui-bg-elevated);
+            box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
 
             .spacer {
-                flex: 1;
+                width: 0.5rem;
             }
         }
 

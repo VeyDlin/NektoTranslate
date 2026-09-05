@@ -30,23 +30,31 @@
                 placeholder="Address of the novel's contents page"
                 size="sm"
                 class="url"
-                :disabled="jobActive"
-                @keydown.enter="loadContents"
+                :disabled="addressLocked"
+                @keydown.enter="read"
             />
 
-            <UButton size="sm" :loading="isLoading" :disabled="url.trim() === '' || jobActive" @click="loadContents">
-                Read the contents
+            <UButton size="sm" :loading="readStarting" :disabled="!canRead" @click="read">
+                {{ hasEntries ? "Read again" : "Read the contents" }}
             </UButton>
 
-            <span v-if="support && !support.supported" class="unsupported">
-                No parser claims that address. Its site may still be readable — check the list, or
-                write a parser for it.
-            </span>
-
-            <span v-else-if="support?.parser" class="supported">
-                Read by <strong>{{ siteLabel(loadedUrl) }}</strong>
-            </span>
+            <UButton
+                v-if="reading"
+                size="sm"
+                color="neutral"
+                variant="ghost"
+                :loading="cancellingRead"
+                @click="cancelRead"
+            >
+                Stop reading
+            </UButton>
         </div>
+
+        <!-- Always on screen, always the same height, and it names exactly one state. Both halves of
+             that matter: a line that appears only sometimes is what made the row jump when the parser
+             was identified, and a screen with no line at all is what made a read that takes a minute
+             behind a one-tab-per-site queue look like nothing had happened. -->
+        <p class="status" :class="statusTone">{{ statusText }}</p>
 
         <!-- Appears the moment a job of this kind exists — active, or settled and not yet dismissed —
              and stays through a navigate-away-and-back because it reads the store, not local state. -->
@@ -212,17 +220,16 @@
 
 <script setup lang="ts">
     import type { TableColumn } from "@nuxt/ui";
-    import type { ParserSupport } from "@/types/api/requests";
     import type { ParsedChapterLink } from "@/types/models/domain";
 
     import { computed, h, ref, resolveComponent, watch } from "vue";
-    import { parsingApi } from "@/api";
     import ImportItemRetryButton from "@/components/imports/ImportItemRetryButton.vue";
     import ImportItemStateBadge from "@/components/imports/ImportItemStateBadge.vue";
     import { useActivity, useCancelImport, usePauseImport, useResumeImport, useStartImport } from "@/composables/useActivity";
+    import { useCancelListing, useListing, useReadListing } from "@/composables/useListing";
     import { useNovel } from "@/composables/useNovels";
     import { useActivityStore } from "@/stores/activity.store";
-    import { formatCount, importStateLabel, siteLabel } from "@/utils/format";
+    import { formatCount, formatWhen, importStateLabel, siteLabel } from "@/utils/format";
     import { scriptLangFor, scriptLangIf } from "@/utils/language";
     import { parseRanges } from "@/utils/ranges";
     import { describe } from "@/utils/status";
@@ -240,15 +247,22 @@
     const novel = computed(() => novelData.value ?? null);
     const scriptLang = computed(() => (novel.value === null ? undefined : scriptLangFor(novel.value.sourceLanguage)));
 
+    // The contents this book has read from a site, as the server kept them. The address is seeded
+    // from that listing rather than held separately, so the field and the table can never disagree
+    // about which site is on screen — which is exactly how a refresh used to leave a filled address
+    // above an empty table.
+    const { data: listingData } = useListing(id, "Originals");
+    const { mutateAsync: readListing, isPending: readStarting } = useReadListing(id, "Originals");
+    const { mutateAsync: stopReading, isPending: cancellingRead } = useCancelListing(id, "Originals");
+
+    const listing = computed(() => listingData.value ?? null);
+    const links = computed(() => listing.value?.entries ?? []);
+    const reading = computed(() => listing.value?.state === "Reading");
+    const hasEntries = computed(() => links.value.length > 0);
+
     const url = ref("");
-    const support = ref<ParserSupport | null>(null);
-    // The address `support` actually answered for — kept apart from `url` so editing the field after
-    // a successful read does not relabel the parser before the next read confirms it.
-    const loadedUrl = ref("");
-    const links = ref<ParsedChapterLink[]>([]);
     const rowSelection = ref<Record<string, boolean>>({});
     const rangeSpec = ref("");
-    const isLoading = ref(false);
 
     const { mutateAsync: startImport, isPending: starting } = useStartImport(id);
     const { mutateAsync: pauseImport, isPending: pausing } = usePauseImport(id);
@@ -266,6 +280,42 @@
         job.value !== null
         && (job.value.state === "Completed" || job.value.state === "Failed" || job.value.state === "Cancelled")
     ));
+
+    // The address cannot be edited while the site is being read or while the chapters are being
+    // imported. Locking the button alone left a field that accepted a new address the run behind it
+    // was never going to use.
+    const addressLocked = computed(() => reading.value || jobActive.value);
+
+    const canRead = computed(() => url.value.trim() !== "" && !addressLocked.value && !readStarting.value);
+
+    // One sentence for whichever state this screen is in. Every branch returns something, so the line
+    // is never empty and the rows below it never move.
+    const statusText = computed(() => {
+        if (reading.value) {
+            return `Reading the contents of ${siteLabel(listing.value?.url ?? url.value)}. This can take a minute, `
+                + "and it keeps going if you leave this page.";
+        }
+
+        if (listing.value?.state === "Failed" && listing.value.error !== null) {
+            return describe(listing.value.error);
+        }
+
+        if (listing.value?.state === "Ready") {
+            const when = listing.value.readAt === null ? "" : `, read ${formatWhen(listing.value.readAt)}`;
+
+            return `${formatCount(links.value.length)} chapters from ${siteLabel(listing.value.url)}${when}.`;
+        }
+
+        return "Paste the address of the contents page. Nothing is downloaded until you choose chapters.";
+    });
+
+    const statusTone = computed(() => {
+        if (reading.value) {
+            return "working";
+        }
+
+        return listing.value?.state === "Failed" ? "failed" : "";
+    });
 
     const UCheckbox = resolveComponent("UCheckbox");
 
@@ -329,43 +379,46 @@
 
     // Support is checked first because it is answered from the host name alone. Telling the user the
     // address is unreadable costs nothing; finding out after a download does.
-    async function loadContents(): Promise<void> {
+    // Starts the read and returns; the site is visited on the server. Whether the address is readable
+    // at all is answered there too, as the read's own outcome, rather than by a second call here -
+    // one question with one answer is what makes the state on screen unambiguous.
+    async function read(): Promise<void> {
         const address = url.value.trim();
 
         if (address === "") {
             return;
         }
 
-        isLoading.value = true;
+        rowSelection.value = {};
+        await readListing(address);
+    }
 
-        try {
-            support.value = await parsingApi.support(address);
-            loadedUrl.value = address;
 
-            if (!support.value.supported) {
-                links.value = [];
-                return;
-            }
-
-            links.value = await parsingApi.tableOfContents(address);
-            rowSelection.value = {};
-        }
-        finally {
-            isLoading.value = false;
-        }
+    async function cancelRead(): Promise<void> {
+        await stopReading();
     }
 
 
     // The user already gave this address once, when creating the book — asking again on the very
     // next screen was the complaint. Guarded by `url` being empty so it only ever fires once, the
     // first time the novel's own address arrives.
-    watch(novel, (loaded) => {
-        if (loaded === null || loaded.sourceUrl === null || url.value !== "" || jobActive.value) {
+    // Seeded, never read automatically. Arriving here used to visit the site on its own, which was a
+    // free-looking convenience only until the listing was kept: now a return visit already has the
+    // entries, and re-reading every time would mean a page load the user did not ask for.
+    watch([novel, listing], ([loadedNovel, loadedListing]) => {
+        if (url.value.trim() !== "") {
             return;
         }
 
-        url.value = loaded.sourceUrl;
-        void loadContents();
+        if (loadedListing !== null) {
+            url.value = loadedListing.url;
+
+            return;
+        }
+
+        if (loadedNovel?.sourceUrl != null) {
+            url.value = loadedNovel.sourceUrl;
+        }
     }, { immediate: true });
 
 
@@ -459,15 +512,26 @@
                 min-width: 0;
             }
 
-            .unsupported {
-                flex: none;
-                max-width: 30rem;
-                color: var(--ui-warning);
+        }
+
+        // Fixed height on purpose. This line changes what it says, never whether it is there, so
+        // nothing below it ever moves because the screen changed state.
+        .status {
+            flex: none;
+            height: 2.5rem;
+            display: flex;
+            align-items: center;
+            margin: 0;
+            padding: 0 1.5rem;
+            border-bottom: 1px solid var(--ui-border);
+            color: var(--ui-text-muted);
+
+            &.working {
+                color: var(--ui-primary);
             }
 
-            .supported {
-                flex: none;
-                color: var(--ui-text-muted);
+            &.failed {
+                color: var(--ui-error);
             }
         }
 

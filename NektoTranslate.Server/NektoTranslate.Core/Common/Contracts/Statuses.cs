@@ -54,6 +54,13 @@ public static class Statuses {
         "The import was cancelled before this chapter was reached."
     );
 
+    // --- reading a site's contents ---------------------------------------------------------------
+
+    public static readonly Status ListingAlreadyReading = new(
+        "LISTING_ALREADY_READING",
+        "This book's contents are already being read. Wait for that read to finish, or cancel it."
+    );
+
     // --- retrying one item of a settled import ---------------------------------------------------
 
     public static readonly Status ImportJobStillActive = new(

@@ -30,22 +30,31 @@
                 placeholder="Address of the translation's contents page"
                 size="sm"
                 class="url"
-                :disabled="jobActive"
-                @keydown.enter="loadContents"
+                :disabled="addressLocked"
+                @keydown.enter="read"
             />
 
-            <UButton size="sm" :loading="isLoading" :disabled="url.trim() === '' || jobActive" @click="loadContents">
-                Read the contents
+            <UButton size="sm" :loading="starting" :disabled="!canRead" @click="read">
+                {{ hasEntries ? "Read again" : "Read the contents" }}
             </UButton>
 
-            <span v-if="support && !support.supported" class="unsupported">
-                No parser claims that address.
-            </span>
-
-            <span v-else-if="support?.parser" class="supported">
-                Read by <strong>{{ siteLabel(loadedUrl) }}</strong>
-            </span>
+            <UButton
+                v-if="reading"
+                size="sm"
+                color="neutral"
+                variant="ghost"
+                :loading="cancellingRead"
+                @click="cancelRead"
+            >
+                Stop reading
+            </UButton>
         </div>
+
+        <!-- Always on screen, always the same height, and it names exactly one state. Both halves of
+             that matter: a line that appears only sometimes is what made the row jump when the parser
+             was identified, and a screen with no line at all is what made a read that takes a minute
+             behind a one-tab-per-site queue look like nothing had happened. -->
+        <p class="status" :class="statusTone">{{ statusText }}</p>
 
         <!-- Appears the moment a job of this kind exists — active, or settled and not yet dismissed —
              and stays through a navigate-away-and-back because it reads the store, not local state. -->
@@ -253,18 +262,17 @@
 
 <script setup lang="ts">
     import type { TableColumn } from "@nuxt/ui";
-    import type { ParserSupport } from "@/types/api/requests";
     import type { ParsedChapterLink } from "@/types/models/domain";
 
-    import { computed, h, ref, resolveComponent } from "vue";
-    import { parsingApi } from "@/api";
+    import { computed, h, ref, resolveComponent, watch } from "vue";
     import ImportItemRetryButton from "@/components/imports/ImportItemRetryButton.vue";
     import ImportItemStateBadge from "@/components/imports/ImportItemStateBadge.vue";
     import { useActivity, useCancelImport, usePauseImport, useResumeImport, useStartImport } from "@/composables/useActivity";
     import { useChapters } from "@/composables/useChapters";
+    import { useCancelListing, useListing, useReadListing } from "@/composables/useListing";
     import { useNovel } from "@/composables/useNovels";
     import { useActivityStore } from "@/stores/activity.store";
-    import { formatCount, importStateLabel, siteLabel } from "@/utils/format";
+    import { formatCount, formatWhen, importStateLabel, siteLabel } from "@/utils/format";
     import { parseRanges } from "@/utils/ranges";
     import { describe } from "@/utils/status";
 
@@ -285,15 +293,22 @@
     const novel = computed(() => novelData.value ?? null);
     const language = computed(() => novel.value?.targetLanguage ?? "");
 
+    // The contents this book has read from a translation site, as the server kept them. The address
+    // is seeded from that listing rather than held separately, so the field and the table can never
+    // disagree about which site is on screen — which is exactly how a refresh used to leave a filled
+    // address above an empty table.
+    const { data: listingData } = useListing(id, "Translation");
+    const { mutateAsync: readListing, isPending: readStarting } = useReadListing(id, "Translation");
+    const { mutateAsync: stopReading, isPending: cancellingRead } = useCancelListing(id, "Translation");
+
+    const listing = computed(() => listingData.value ?? null);
+    const links = computed(() => listing.value?.entries ?? []);
+    const reading = computed(() => listing.value?.state === "Reading");
+    const hasEntries = computed(() => links.value.length > 0);
+
     const url = ref("");
-    const support = ref<ParserSupport | null>(null);
-    // The address `support` actually answered for — kept apart from `url` so editing the field after
-    // a successful read does not relabel the parser before the next read confirms it.
-    const loadedUrl = ref("");
-    const links = ref<ParsedChapterLink[]>([]);
     const rowSelection = ref<Record<string, boolean>>({});
     const rangeSpec = ref("");
-    const isLoading = ref(false);
     const createMissing = ref(false);
 
     // Chapters are numbered from one everywhere the reader looks, so this field takes that number and
@@ -316,6 +331,51 @@
         job.value !== null
         && (job.value.state === "Completed" || job.value.state === "Failed" || job.value.state === "Cancelled")
     ));
+
+    // The address cannot be edited while the site is being read or while the chapters are being
+    // imported. Locking the button alone left a field that accepted a new address the run behind it
+    // was never going to use.
+    const addressLocked = computed(() => reading.value || jobActive.value);
+
+    const canRead = computed(() => url.value.trim() !== "" && !addressLocked.value && !readStarting.value);
+
+    // One sentence for whichever state this screen is in. Every branch returns something, so the line
+    // is never empty and the rows below it never move.
+    const statusText = computed(() => {
+        if (reading.value) {
+            return `Reading the contents of ${siteLabel(listing.value?.url ?? url.value)}. This can take a minute, `
+                + "and it keeps going if you leave this page.";
+        }
+
+        if (listing.value?.state === "Failed" && listing.value.error !== null) {
+            return describe(listing.value.error);
+        }
+
+        if (listing.value?.state === "Ready") {
+            const when = listing.value.readAt === null ? "" : `, read ${formatWhen(listing.value.readAt)}`;
+
+            return `${formatCount(links.value.length)} entries from ${siteLabel(listing.value.url)}${when}.`;
+        }
+
+        return "Paste the address of the contents page of a translation this book already has.";
+    });
+
+    const statusTone = computed(() => {
+        if (reading.value) {
+            return "working";
+        }
+
+        return listing.value?.state === "Failed" ? "failed" : "";
+    });
+
+    // The address the listing was read for is the address the field should show on arrival - it is
+    // the same fact, and holding it twice is what let the two disagree. Only seeded while the user
+    // has not typed anything, so a half-written address is never overwritten by an event landing.
+    watch(listing, (loaded) => {
+        if (loaded !== null && url.value.trim() === "") {
+            url.value = loaded.url;
+        }
+    }, { immediate: true });
 
     const UCheckbox = resolveComponent("UCheckbox");
 
@@ -390,32 +450,23 @@
     }
 
 
-    // Support is checked first because it is answered from the host name alone. Telling the user the
-    // address is unreadable costs nothing; finding out after a download does.
-    async function loadContents(): Promise<void> {
+    // Starts the read and returns; the site is visited on the server. Whether the address is readable
+    // at all is answered there too, as the read's own outcome, rather than by a second call here -
+    // one question with one answer is what makes the state on screen unambiguous.
+    async function read(): Promise<void> {
         const address = url.value.trim();
 
         if (address === "") {
             return;
         }
 
-        isLoading.value = true;
+        rowSelection.value = {};
+        await readListing(address);
+    }
 
-        try {
-            support.value = await parsingApi.support(address);
-            loadedUrl.value = address;
 
-            if (!support.value.supported) {
-                links.value = [];
-                return;
-            }
-
-            links.value = await parsingApi.tableOfContents(address);
-            rowSelection.value = {};
-        }
-        finally {
-            isLoading.value = false;
-        }
+    async function cancelRead(): Promise<void> {
+        await stopReading();
     }
 
 
@@ -515,15 +566,26 @@
                 flex: 1;
                 min-width: 0;
             }
+        }
 
-            .unsupported {
-                flex: none;
-                color: var(--ui-warning);
+        // Fixed height on purpose. This line changes what it says, never whether it is there, so
+        // nothing below it ever moves because the screen changed state.
+        .status {
+            flex: none;
+            height: 2.5rem;
+            display: flex;
+            align-items: center;
+            margin: 0;
+            padding: 0 1.5rem;
+            border-bottom: 1px solid var(--ui-border);
+            color: var(--ui-text-muted);
+
+            &.working {
+                color: var(--ui-primary);
             }
 
-            .supported {
-                flex: none;
-                color: var(--ui-text-muted);
+            &.failed {
+                color: var(--ui-error);
             }
         }
 

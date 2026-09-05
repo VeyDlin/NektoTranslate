@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.SignalR;
 using NektoTranslate.Chapters.Enums;
 using NektoTranslate.Jobs.Contracts;
 using NektoTranslate.Jobs.Enums;
+using NektoTranslate.Parsing.Enums;
 using NektoTranslate.Translation.Hubs;
 
 
@@ -81,6 +82,15 @@ public class SignalRTranslationNotifier(IHubContext<TranslationHub> hub) : ITran
             state = item.state.ToString(),
             item.status,
             item.finishedAt
+        });
+    }
+
+
+    public Task ListingStateChangedAsync(long novelId, ImportKind kind, ListingState state, int entryCount) {
+        return Send(novelId, "ListingStateChanged", new {
+            kind = kind.ToString(),
+            state = state.ToString(),
+            entryCount
         });
     }
 

@@ -83,6 +83,17 @@ export interface TranslationEvents {
     AgentMessage: AgentMessageEvent;
     ImportStateChanged: ImportStateChangedEvent;
     ImportItemFinished: ImportItemFinishedEvent;
+    ListingStateChanged: ListingStateChangedEvent;
+}
+
+
+// The read of a site's contents landed, failed, or was abandoned. Carries no entries: the screen
+// refetches the listing, which is the one place the entries live, rather than assembling them from
+// a stream the way the per-chapter import report is assembled.
+export interface ListingStateChangedEvent {
+    kind: string;
+    state: string;
+    entryCount: number;
 }
 
 

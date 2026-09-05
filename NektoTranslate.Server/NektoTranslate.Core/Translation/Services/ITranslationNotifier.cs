@@ -1,6 +1,7 @@
 using NektoTranslate.Chapters.Enums;
 using NektoTranslate.Jobs.Contracts;
 using NektoTranslate.Jobs.Enums;
+using NektoTranslate.Parsing.Enums;
 
 
 namespace NektoTranslate.Translation.Services;
@@ -47,4 +48,10 @@ public interface ITranslationNotifier {
 
     // One chapter's outcome, the moment it is known. The list of these is the report.
     Task ImportItemFinishedAsync(long novelId, long jobId, ImportJobItemView item);
+
+
+    // Reading a site's contents is a page load behind a queue, so it is slow enough that a screen
+    // waiting on it has to be told when it lands - including a screen opened after the read began,
+    // which is the whole reason the read is persisted rather than held in a request.
+    Task ListingStateChangedAsync(long novelId, ImportKind kind, ListingState state, int entryCount);
 }

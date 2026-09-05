@@ -40,6 +40,8 @@ public class NektoDbContext(DbContextOptions<NektoDbContext> options) : DbContex
 
     public DbSet<ImportJobItem> importJobItems => Set<ImportJobItem>();
 
+    public DbSet<SourceListing> sourceListings => Set<SourceListing>();
+
     public DbSet<VoiceProfile> voiceProfiles => Set<VoiceProfile>();
 
     public DbSet<TranslationTerm> translationTerms => Set<TranslationTerm>();
@@ -172,6 +174,18 @@ public class NektoDbContext(DbContextOptions<NektoDbContext> options) : DbContex
 
         builder.Entity<ImportJobItem>(item => {
             item.HasIndex(i => new { i.jobId, i.position }).IsUnique();
+        });
+
+        // One listing per book per kind, enforced rather than assumed: the whole point is that a
+        // screen finds the read it left, and two rows for the same screen would make "the" listing a
+        // choice between them.
+        builder.Entity<SourceListing>(listing => {
+            listing.HasIndex(l => new { l.novelId, l.kind }).IsUnique();
+
+            listing.HasOne(l => l.novel!)
+                .WithMany()
+                .HasForeignKey(l => l.novelId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         builder.Entity<VoiceProfile>(profile => {

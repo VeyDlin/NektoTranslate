@@ -13,6 +13,7 @@ import { decodeImportItemState, decodeImportKind, decodeJobState, decodeTranslat
 import { chapterKey, chaptersKey } from "./useChapters";
 import { glossaryKey } from "./useGlossary";
 import { jobsKey } from "./useJobs";
+import { listingKey } from "./useListing";
 
 
 // Binds one novel's event stream to the query cache and the run store.
@@ -116,6 +117,15 @@ export function useTranslationStream(novelId: MaybeRefOrGetter<number | null>): 
             if (state === "Completed" || state === "Failed" || state === "Cancelled") {
                 void queryClient.invalidateQueries({ queryKey: chaptersKey(novel) });
             }
+        });
+
+        // The read landed, failed or was abandoned. Only the key is refetched: the entries live in
+        // the listing itself, and a screen that is not open for this kind simply keeps a stale cache
+        // entry it will refresh when it is opened.
+        stream.on("ListingStateChanged", (payload) => {
+            void queryClient.invalidateQueries({
+                queryKey: listingKey(novel, decodeImportKind(payload.kind)),
+            });
         });
 
         stream.on("ImportItemFinished", (payload) => {
