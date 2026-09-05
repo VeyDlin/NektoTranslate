@@ -7,6 +7,7 @@ import type {
     ImportKind,
     JobScopeKind,
     JobState,
+    ListingEntryState,
     ListingState,
     TranslationIssueState,
     TranslationOrigin,
@@ -21,6 +22,7 @@ import {
     IMPORT_KINDS,
     JOB_SCOPE_KINDS,
     JOB_STATES,
+    LISTING_ENTRY_STATES,
     LISTING_STATES,
     TRANSLATION_ISSUE_STATES,
     TRANSLATION_ORIGINS,
@@ -74,6 +76,11 @@ export function decodeImportKind(value: unknown): ImportKind {
 
 export function decodeListingState(value: unknown): ListingState {
     return decodeEnum(LISTING_STATES, value, "Reading");
+}
+
+
+export function decodeListingEntryState(value: unknown): ListingEntryState {
+    return decodeEnum(LISTING_ENTRY_STATES, value, "NotImported");
 }
 
 

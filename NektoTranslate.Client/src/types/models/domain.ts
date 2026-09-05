@@ -49,6 +49,13 @@ export const LISTING_STATES = ["Reading", "Ready", "Failed"] as const;
 export type ListingState = (typeof LISTING_STATES)[number];
 
 
+// Whether one entry of a listing is already a chapter, previously failed to become one, or neither -
+// see `ListingEntry` for how the three are told apart.
+export const LISTING_ENTRY_STATES = ["NotImported", "Imported", "Failed"] as const;
+
+export type ListingEntryState = (typeof LISTING_ENTRY_STATES)[number];
+
+
 export const GLOSSARY_ORIGINS = ["AiExtracted", "FromExistingTranslation", "Manual"] as const;
 
 export type GlossaryOrigin = (typeof GLOSSARY_ORIGINS)[number];
@@ -416,6 +423,23 @@ export interface ImportJob {
 }
 
 
+// How one entry of a listing stands against the book right now: whether that address is already a
+// chapter, why it failed the last time an import tried it, and whether it showed up since the read
+// before this one. None of it is stored on the entry itself - it is computed fresh every time the
+// listing is read back, from whatever chapters, translations and import history exist at that
+// moment, because an import running between two visits to this screen changes every field here
+// without the site's own contents changing at all.
+export interface ListingEntry {
+    sourceUrl: string;
+    title: string;
+    state: ListingEntryState;
+    chapterIndex: number | null;
+    chapterId: number | null;
+    error: StatusMessage | null;
+    isNew: boolean;
+}
+
+
 // A site's contents as read for this book, kept on the server between visits to the screen.
 //
 // The entries cost a real page load behind a one-tab-per-site queue to obtain, which is why they are
@@ -425,7 +449,7 @@ export interface SourceListing {
     kind: ImportKind;
     url: string;
     state: ListingState;
-    entries: ParsedChapterLink[];
+    entries: ListingEntry[];
     error: StatusMessage | null;
     startedAt: string;
     readAt: string | null;

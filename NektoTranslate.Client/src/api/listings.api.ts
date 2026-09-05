@@ -1,12 +1,23 @@
-import type { ImportKind, SourceListing } from "@/types/models/domain";
+import type { ImportKind, ListingEntry, SourceListing } from "@/types/models/domain";
 
-import { decodeImportKind, decodeListingState } from "@/utils/wire";
+import { decodeImportKind, decodeListingEntryState, decodeListingState } from "@/utils/wire";
 import { apiClient } from "./client";
 
 
-interface RawSourceListing extends Omit<SourceListing, "kind" | "state"> {
+interface RawListingEntry extends Omit<ListingEntry, "state"> {
+    state: number | string;
+}
+
+
+interface RawSourceListing extends Omit<SourceListing, "kind" | "state" | "entries"> {
     kind: number | string;
     state: number | string;
+    entries: RawListingEntry[];
+}
+
+
+function toEntry(raw: RawListingEntry): ListingEntry {
+    return { ...raw, state: decodeListingEntryState(raw.state) };
 }
 
 
@@ -15,6 +26,7 @@ function toListing(raw: RawSourceListing): SourceListing {
         ...raw,
         kind: decodeImportKind(raw.kind),
         state: decodeListingState(raw.state),
+        entries: raw.entries.map(toEntry),
     };
 }
 

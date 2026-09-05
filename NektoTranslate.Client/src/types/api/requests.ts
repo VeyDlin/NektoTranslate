@@ -116,8 +116,9 @@ export interface ParserSupport {
 
 // One request starts an import job, whichever kind: the chapters picked from a site's contents page,
 // brought in either as fresh originals or as an existing translation attached to chapters already in
-// the book. `language` and `startAtChapterIndex` only mean anything for `Translation` — the server
-// ignores them for `Originals`.
+// the book. `startAtChapterIndex` places both kinds now — the index the first chosen entry lands at —
+// so a re-import or a filled gap can land where the site's own numbering says rather than always
+// after whatever the book already has. `language` still only means anything for `Translation`.
 export interface StartImportRequest {
     kind: ImportKind;
     chapters: ParsedChapterLink[];

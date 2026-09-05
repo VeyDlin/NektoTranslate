@@ -90,6 +90,18 @@
                     Select all
                 </UButton>
 
+                <!-- Always here, whether or not the last read found anything new - a button that
+                     shows up only sometimes is a button whose absence has to be read as an answer. -->
+                <UButton
+                    size="xs"
+                    color="neutral"
+                    variant="ghost"
+                    :disabled="jobActive || newEntryCount === 0"
+                    @click="selectNew"
+                >
+                    Select new
+                </UButton>
+
                 <UButton size="xs" color="neutral" variant="ghost" :disabled="jobActive" @click="rowSelection = {}">
                     Clear
                 </UButton>
@@ -105,6 +117,7 @@
                     :disabled="jobActive"
                     size="sm"
                     class="start"
+                    @input="startAtTouched = true"
                 />
 
                 <span class="spacer" />
@@ -129,6 +142,9 @@
             <template v-if="selectedLinks.length > 1">
                 &nbsp;·&nbsp;
                 <strong>{{ lastTitle }}</strong> → chapter {{ startAtNumber + selectedLinks.length - 1 }}
+            </template>
+            <template v-if="alreadyImportedCount > 0">
+                &nbsp;·&nbsp;{{ formatCount(alreadyImportedCount) }} already in the book will be skipped
             </template>
         </p>
 
@@ -157,6 +173,7 @@
         <UTable
             v-if="links.length > 0"
             v-model:row-selection="rowSelection"
+            :row-selection-options="rowSelectionOptions"
             :data="links"
             :columns="columns"
             :get-row-id="getRowId"
@@ -164,7 +181,26 @@
             sticky
             class="flex-1 min-h-0"
             :ui="{ th: 'py-2 text-xs font-normal text-dimmed', td: 'py-0 h-10' }"
-        />
+        >
+            <!-- Fixed width so a row moving from nothing to "Chapter 12" never shifts the column
+                 beside it, and every value here names the row's state on screen rather than leaving a
+                 disabled checkbox to explain itself. -->
+            <template #relationship-cell="{ row }">
+                <span v-if="row.original.state === 'Imported'" class="relationship">
+                    {{ importedLabel(row.original) }}
+                </span>
+
+                <span
+                    v-else-if="row.original.state === 'Failed'"
+                    class="relationship failed"
+                    :title="row.original.error === null ? undefined : describe(row.original.error)"
+                >
+                    Failed
+                </span>
+
+                <UBadge v-else-if="row.original.isNew" label="New" color="info" variant="subtle" size="sm" />
+            </template>
+        </UTable>
 
         <div v-else-if="job === null" class="blank">
             <h1>Continue someone else's translation</h1>
@@ -184,7 +220,7 @@
 
 <script setup lang="ts">
     import type { TableColumn } from "@nuxt/ui";
-    import type { ParsedChapterLink } from "@/types/models/domain";
+    import type { ListingEntry } from "@/types/models/domain";
 
     import { computed, h, ref, resolveComponent, watch } from "vue";
     import ImportRunPanel from "@/components/imports/ImportRunPanel.vue";
@@ -193,7 +229,7 @@
     import { useCancelListing, useListing, useReadListing } from "@/composables/useListing";
     import { useNovel } from "@/composables/useNovels";
     import { useActivityStore } from "@/stores/activity.store";
-    import { formatCount, formatWhen, siteLabel } from "@/utils/format";
+    import { chapterNumber, formatCount, formatWhen, siteLabel } from "@/utils/format";
     import { parseRanges } from "@/utils/ranges";
     import { describe } from "@/utils/status";
 
@@ -235,6 +271,29 @@
     // Chapters are numbered from one everywhere the reader looks, so this field takes that number and
     // the 0-based index the API stores is derived at the call, not carried around the screen.
     const startAtNumber = ref(1);
+
+    // True once the user has changed the field by hand; until then, picking a different run of
+    // entries keeps moving the number to match where that run starts - see the watcher below.
+    // Cleared when the pick empties out, so clearing the selection and choosing again starts the
+    // guess over.
+    const startAtTouched = ref(false);
+
+    // Order matters and is the site's, not the click order: entries are mapped to consecutive
+    // chapters in the order they appear in the contents.
+    const selectedLinks = computed(() => links.value.filter(link => rowSelection.value[link.sourceUrl] === true));
+
+    const firstTitle = computed(() => selectedLinks.value[0]?.title ?? "");
+    const lastTitle = computed(() => selectedLinks.value[selectedLinks.value.length - 1]?.title ?? "");
+
+    // Feeds the "Select new" button's disabled state and the status line above: a read that turned up
+    // nothing new says so only while nothing is picked yet, since once something is picked the line
+    // belongs to the pick, not the read.
+    const newEntryCount = computed(() => links.value.filter(entry => entry.isNew).length);
+
+    // The range field can still pick a row already in the book - its checkbox is disabled, but typing
+    // "1-20" does not consult it - so the preview below has to account for what the server will
+    // actually do with those rows: skip them.
+    const alreadyImportedCount = computed(() => selectedLinks.value.filter(entry => entry.state === "Imported").length);
 
     const { mutateAsync: startImport, isPending: starting } = useStartImport(id);
 
@@ -284,7 +343,14 @@
         if (listing.value?.state === "Ready") {
             const when = listing.value.readAt === null ? "" : `, read ${formatWhen(listing.value.readAt)}`;
 
-            return `${formatCount(links.value.length)} entries from ${siteLabel(listing.value.url)}${when}.`;
+            // Told here, and only while nothing is picked yet: a re-read of a long-running translation
+            // buries a couple of new rows at the bottom of the table, and once something is picked
+            // this line belongs to the pick rather than to the read.
+            const since = (newEntryCount.value > 0 && selectedLinks.value.length === 0)
+                ? `, ${formatCount(newEntryCount.value)} new since the last read`
+                : "";
+
+            return `${formatCount(links.value.length)} entries from ${siteLabel(listing.value.url)}${when}${since}.`;
         }
 
         return "Paste the address of the contents page of a translation this book already has.";
@@ -309,7 +375,11 @@
 
     const UCheckbox = resolveComponent("UCheckbox");
 
-    const columns: TableColumn<ParsedChapterLink>[] = [
+    // The table's own header checkbox must not be able to select what a row's own checkbox refuses
+    // to - a row already in the book stays out of "select all" however "all" is triggered.
+    const rowSelectionOptions = { enableRowSelection: (row: { original: ListingEntry }) => row.original.state !== "Imported" };
+
+    const columns: TableColumn<ListingEntry>[] = [
         {
             id: "select",
             header: ({ table }) => h(UCheckbox, {
@@ -318,10 +388,12 @@
                 "disabled": jobActive.value,
                 "aria-label": "Select every entry",
             }),
+            // A row already in the book cannot be picked - the server would only skip it - so its
+            // checkbox is disabled alongside the "In the book" column that says why.
             cell: ({ row }) => h(UCheckbox, {
                 "modelValue": row.getIsSelected(),
                 "onUpdate:modelValue": (value: boolean | "indeterminate") => row.toggleSelected(!!value),
-                "disabled": jobActive.value,
+                "disabled": jobActive.value || row.original.state === "Imported",
                 "aria-label": `Select ${row.original.title}`,
             }),
             meta: { class: { th: "w-8", td: "w-8" } },
@@ -330,14 +402,12 @@
             accessorKey: "title",
             header: "Entry",
         },
+        {
+            id: "relationship",
+            header: "In the book",
+            meta: { class: { th: "w-32", td: "w-32 whitespace-nowrap" } },
+        },
     ];
-
-    // Order matters and is the site's, not the click order: entries are mapped to consecutive
-    // chapters in the order they appear in the contents.
-    const selectedLinks = computed(() => links.value.filter(link => rowSelection.value[link.sourceUrl] === true));
-
-    const firstTitle = computed(() => selectedLinks.value[0]?.title ?? "");
-    const lastTitle = computed(() => selectedLinks.value[selectedLinks.value.length - 1]?.title ?? "");
 
     // Which chapters the book actually has, so the mapping can say how many of the chosen entries
     // have nowhere to land before the import runs rather than after it.
@@ -347,13 +417,33 @@
         .filter((_, position) => !existingIndices.value.has(startAtNumber.value - 1 + position))
         .length);
 
-    function getRowId(link: ParsedChapterLink): string {
+    function getRowId(link: ListingEntry): string {
         return link.sourceUrl;
     }
 
 
+    // `chapterIndex` is only null when the state is not Imported - the server guarantees the two
+    // travel together - so the empty string here never actually reaches the screen.
+    function importedLabel(entry: ListingEntry): string {
+        return entry.chapterIndex === null ? "" : `Chapter ${chapterNumber(entry.chapterIndex)}`;
+    }
+
+
+    // Rows already in the book are never a valid pick - the server would just skip them - so "all"
+    // means all of what is left to bring in, not literally every row on screen.
     function selectAll(): void {
-        rowSelection.value = Object.fromEntries(links.value.map(link => [link.sourceUrl, true]));
+        rowSelection.value = Object.fromEntries(
+            links.value.filter(entry => entry.state !== "Imported").map(entry => [entry.sourceUrl, true]),
+        );
+    }
+
+
+    // Beside "Select all", for the read that follows up on an earlier one: pick only what showed up
+    // since this address was last read, without hand-picking rows out of a list of hundreds.
+    function selectNew(): void {
+        rowSelection.value = Object.fromEntries(
+            links.value.filter(entry => entry.isNew).map(entry => [entry.sourceUrl, true]),
+        );
     }
 
 
@@ -368,6 +458,24 @@
 
         rowSelection.value = Object.fromEntries(positions.map(position => [links.value[position - 1].sourceUrl, true]));
     }
+
+
+    // The default follows the pick instead of sitting at one: choosing entries six through ten should
+    // already read "chapter six" rather than landing there only once the number is corrected by hand.
+    // Only runs while the user has not typed a number of their own - see `startAtTouched` - and gives
+    // up tracking once the pick is cleared, so a fresh selection starts the guess over rather than
+    // keeping whatever the last one left behind.
+    watch(selectedLinks, (chosen) => {
+        if (chosen.length === 0) {
+            startAtTouched.value = false;
+
+            return;
+        }
+
+        if (!startAtTouched.value) {
+            startAtNumber.value = links.value.indexOf(chosen[0]) + 1;
+        }
+    });
 
 
     // Starts the read and returns; the site is visited on the server. Whether the address is readable
@@ -393,7 +501,7 @@
     async function runImport(): Promise<void> {
         await startImport({
             kind: "Translation",
-            chapters: selectedLinks.value,
+            chapters: selectedLinks.value.map(entry => ({ sourceUrl: entry.sourceUrl, title: entry.title })),
             language: language.value,
             startAtChapterIndex: startAtNumber.value - 1,
             createMissingChapters: createMissing.value,
@@ -541,6 +649,15 @@
             strong {
                 color: var(--ui-text-highlighted);
                 font-weight: 400;
+            }
+        }
+
+        .relationship {
+            font-size: var(--nt-text-sm);
+            color: var(--ui-text-muted);
+
+            &.failed {
+                color: var(--ui-error);
             }
         }
 
