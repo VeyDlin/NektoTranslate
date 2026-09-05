@@ -383,10 +383,18 @@ public static class VoicePrompt {
 
         prompt.AppendLine();
         prompt.AppendLine(VoiceHeading);
+        // Formatting is asked for by name. A web novel's translator settles on a typography of their
+        // own - skills in square brackets, system messages in their own block, thoughts in italics -
+        // and a rewrite that drops it reads as a different book even when every word is right. A
+        // model asked only about register and rhythm tends not to mention it.
         prompt.AppendLine(
             "In English, a few sentences on this translator's voice in this passage: register "
             + "(formal or casual), how dialogue is punctuated, how honorifics and names are handled, "
-            + "sentence length and rhythm, and any recurring vocabulary or turns of phrase."
+            + "sentence length and rhythm, any recurring vocabulary or turns of phrase, and the "
+            + "formatting conventions the translator uses - how skills, abilities, system messages, "
+            + "status windows, thoughts and sound effects are marked, whether with brackets, quotes, "
+            + "italics, capitals or a line of their own. Quote a short example of each convention you "
+            + "see."
         );
 
         prompt.AppendLine();
@@ -416,9 +424,11 @@ public static class VoicePrompt {
             + $"{language} prose, each written from a different passage of the same book. Merge them "
             + "into a single cohesive paragraph, in English, describing this translator's voice: "
             + "register, how dialogue is punctuated, how honorifics and names are handled, sentence "
-            + "length and rhythm, and recurring vocabulary habits. Write it as an instruction for a "
-            + "writer who must reproduce this voice, not as a report about it, and do not mention "
-            + "that it was assembled from separate notes. Answer with the paragraph alone.";
+            + "length and rhythm, recurring vocabulary habits, and the formatting conventions - how "
+            + "skills, system messages, thoughts and sound effects are marked, with the example each "
+            + "note quoted, kept. Write it as an instruction for a writer who must reproduce this "
+            + "voice, not as a report about it, and do not mention that it was assembled from "
+            + "separate notes. Answer with the paragraph alone.";
     }
 
 

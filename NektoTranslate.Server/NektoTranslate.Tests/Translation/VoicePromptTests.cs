@@ -229,4 +229,14 @@ public class VoicePromptTests {
     public void TheSynthesisPromptNamesTheTargetLanguage() {
         Assert.Contains("Russian", VoicePrompt.BuildSynthesisSystemPrompt("Russian"));
     }
+
+
+    // A translator's typography - skills in square brackets, system messages set apart - is part of
+    // the voice, and a model asked only about register and rhythm leaves it out. Both prompts have to
+    // ask for it by name: the chunk prompt to notice it, the synthesis prompt to keep it.
+    [Fact]
+    public void BothPromptsAskForTheFormattingConventions() {
+        Assert.Contains("formatting conventions", VoicePrompt.BuildChunkSystemPrompt("Russian"));
+        Assert.Contains("formatting conventions", VoicePrompt.BuildSynthesisSystemPrompt("Russian"));
+    }
 }
