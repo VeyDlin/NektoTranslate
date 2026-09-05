@@ -65,6 +65,7 @@ public class ListingReader(
         try {
             using IServiceScope scope = scopes.CreateScope();
             NektoDbContext database = scope.ServiceProvider.GetRequiredService<NektoDbContext>();
+            IListingAnnotator annotator = scope.ServiceProvider.GetRequiredService<IListingAnnotator>();
 
             SourceListing listing = await FindAsync(database, novelId, kind, cancellationToken)
                 ?? Add(database, novelId, kind);
@@ -72,11 +73,13 @@ public class ListingReader(
             // Entries survive a re-read of the same address, and only that. A read that comes back
             // with nothing - a slow page, a site that changed - would otherwise destroy a list that
             // was fine a minute ago, and the user would have no way back to it. A different address
-            // is a different book's contents, so those entries do go.
+            // is a different book's contents, so those entries do go, and so does what was new about
+            // them - that answer belonged to the address that just left.
             if (!string.Equals(listing.url, url, StringComparison.Ordinal)) {
                 listing.entriesJson = null;
                 listing.entryCount = 0;
                 listing.readAt = null;
+                listing.newEntriesJson = null;
             }
 
             listing.url = url;
@@ -86,7 +89,8 @@ public class ListingReader(
 
             await database.SaveChangesAsync(cancellationToken);
 
-            view = SourceListingView.Of(listing);
+            IReadOnlyList<ListingEntryView> entries = await annotator.AnnotateAsync(listing, cancellationToken);
+            view = SourceListingView.Of(listing, entries);
         }
         catch {
             Release(novelId, kind);
@@ -129,6 +133,13 @@ public class ListingReader(
             return;
         }
 
+        // Read before anything below overwrites it: this is the only place that still knows what the
+        // previous successful read of this same address found, and "new since last time" has nothing
+        // else to compare against. Null here means this address has never been read before, or was
+        // just reset because the address changed - either way, calling every entry new would only be
+        // noise, not news.
+        string? previousEntriesJson = listing.entriesJson;
+
         try {
             IReadOnlyList<ParsedChapterLink> entries = await parser.GetChapterListAsync(url, cancellationToken);
 
@@ -145,6 +156,7 @@ public class ListingReader(
                 listing.entryCount = entries.Count;
                 listing.state = ListingState.Ready;
                 listing.readAt = DateTimeOffset.UtcNow;
+                listing.newEntriesJson = JsonSerializer.Serialize(NewSourceUrls(previousEntriesJson, entries));
                 ClearStatus(listing);
             }
         }
@@ -220,6 +232,35 @@ public class ListingReader(
         listing.statusCode = null;
         listing.statusText = null;
         listing.statusArgsJson = null;
+    }
+
+
+    // Null previousEntriesJson means there is nothing to compare against - the first read of an
+    // address, or the one right after it changed - and the answer is deliberately empty rather than
+    // "everything", which a plain diff against nothing would otherwise produce.
+    private static List<string> NewSourceUrls(string? previousEntriesJson, IReadOnlyList<ParsedChapterLink> entries) {
+        if (previousEntriesJson is null) {
+            return [];
+        }
+
+        HashSet<string> previous = DecodeSourceUrls(previousEntriesJson);
+
+        return entries
+            .Select(entry => entry.sourceUrl)
+            .Where(sourceUrl => !previous.Contains(sourceUrl))
+            .ToList();
+    }
+
+
+    private static HashSet<string> DecodeSourceUrls(string entriesJson) {
+        try {
+            List<ParsedChapterLink>? decoded = JsonSerializer.Deserialize<List<ParsedChapterLink>>(entriesJson);
+
+            return decoded is null ? [] : decoded.Select(entry => entry.sourceUrl).ToHashSet();
+        }
+        catch (JsonException) {
+            return [];
+        }
     }
 
 
