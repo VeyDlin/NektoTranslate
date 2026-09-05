@@ -4,6 +4,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using NektoTranslate.Chapters.Enums;
 using NektoTranslate.Common.Data;
+using NektoTranslate.Glossary.Services;
 using NektoTranslate.Jobs.Entities;
 using NektoTranslate.Jobs.Enums;
 using NektoTranslate.Translation.Contracts;
@@ -88,6 +89,7 @@ public class TranslationJobWorker(
         IChapterTranslator translator = scope.ServiceProvider.GetRequiredService<IChapterTranslator>();
         IChapterRepairer repairer = scope.ServiceProvider.GetRequiredService<IChapterRepairer>();
         IVoiceLearner voiceLearner = scope.ServiceProvider.GetRequiredService<IVoiceLearner>();
+        IGlossaryLearner glossaryLearner = scope.ServiceProvider.GetRequiredService<IGlossaryLearner>();
         ITranslationNotifier notifier = scope.ServiceProvider.GetRequiredService<ITranslationNotifier>();
 
         TranslationJob? job = await database.translationJobs.FirstOrDefaultAsync(j => j.id == jobId, stoppingToken);
@@ -108,7 +110,7 @@ public class TranslationJobWorker(
         // returns nothing for this mode) would otherwise leave the run looking like an empty,
         // instantly-completed translate pass.
         if (job.mode == TranslationJobMode.LearnVoice) {
-            await RunLearnVoiceAsync(database, voiceLearner, notifier, job, linked.Token);
+            await RunLearnVoiceAsync(database, voiceLearner, glossaryLearner, notifier, job, linked.Token);
             queue.Release(jobId);
 
             return;
@@ -267,11 +269,17 @@ public class TranslationJobWorker(
 
 
     // LearnVoice never claims a chapter from the queue - ResolveScopeAsync returns nothing for this
-    // mode - so it has no per-chapter loop to share with the other two. One call, one unit of
-    // progress, reported through the same job-state event the strip already listens to.
+    // mode - so it has no per-chapter loop to share with the other two. Two calls over the same
+    // range, one unit of progress, reported through the same job-state event the strip already
+    // listens to.
+    //
+    // The voice pass reads every chapter's translation on its own; the glossary pass only has
+    // something to learn from the chapters of that range that also carry their original, which is
+    // usually a smaller set - the message says so rather than implying the two counts must match.
     private async Task RunLearnVoiceAsync(
         NektoDbContext database,
         IVoiceLearner voiceLearner,
+        IGlossaryLearner glossaryLearner,
         ITranslationNotifier notifier,
         TranslationJob job,
         CancellationToken cancellationToken
@@ -300,7 +308,7 @@ public class TranslationJobWorker(
                 );
             }
 
-            LearnedVoice learned = await voiceLearner.LearnAsync(
+            LearnedVoice learnedVoice = await voiceLearner.LearnAsync(
                 job.novelId,
                 language,
                 job.fromIndex.Value,
@@ -308,13 +316,22 @@ public class TranslationJobWorker(
                 cancellationToken
             );
 
-            job.costUsd += learned.costUsd;
+            job.costUsd += learnedVoice.costUsd;
+
+            LearnedGlossary learnedGlossary = await glossaryLearner.LearnAsync(
+                job.novelId,
+                language,
+                job.fromIndex.Value,
+                job.toIndex.Value,
+                cancellationToken
+            );
+
+            job.costUsd += learnedGlossary.costUsd;
             job.processedCount = 1;
 
             await notifier.AgentMessageAsync(
                 job.novelId,
-                $"Learned the {language} voice from chapters {job.fromIndex}-{job.toIndex}: "
-                + $"{learned.termCount} terms noted."
+                BuildLearnedMessage(language, job.fromIndex.Value, job.toIndex.Value, learnedVoice, learnedGlossary)
             );
 
             await Finish(database, notifier, job, JobState.Completed, null, CancellationToken.None);
@@ -324,6 +341,41 @@ public class TranslationJobWorker(
             logger.LogError(failure, "Voice-learning job {JobId} failed", job.id);
             await Finish(database, notifier, job, JobState.Failed, failure.Message, CancellationToken.None);
         }
+    }
+
+
+    // job.fromIndex/toIndex are stored in the same zero-based terms as Chapter.index - the same
+    // range the client shifted down by one when it sent the run, so a range typed as "1-20" arrives
+    // here as 0-19. The reader of this message never saw a zero-based chapter, so the numbers are
+    // shifted back before they are printed, the same shift the client applies wherever a job's range
+    // is shown.
+    //
+    // The glossary clause is dropped entirely when nothing qualified for it - a translation-only
+    // range with no original anywhere has nothing to say here, and a sentence reporting zero
+    // renderings from zero chapters would only read as a second failure.
+    public static string BuildLearnedMessage(
+        string language,
+        int fromIndex,
+        int toIndex,
+        LearnedVoice learnedVoice,
+        LearnedGlossary learnedGlossary
+    ) {
+        string message = $"Learned the {language} voice from chapters {fromIndex + 1}-{toIndex + 1}: "
+            + $"{learnedVoice.termCount} terms noted";
+
+        if (learnedGlossary.chaptersRead == 0) {
+            return message + ".";
+        }
+
+        string renderings = learnedGlossary.renderingsLearned == 1
+            ? "1 rendering"
+            : $"{learnedGlossary.renderingsLearned} renderings";
+
+        string chaptersPhrase = learnedGlossary.chaptersRead == 1
+            ? "the chapter that has its original"
+            : $"the {learnedGlossary.chaptersRead} chapters that have their original";
+
+        return message + $"; {renderings} learned from {chaptersPhrase}.";
     }
 
 

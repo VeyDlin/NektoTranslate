@@ -69,6 +69,7 @@ public static class ServiceCollectionExtensions {
 
         services.AddScoped<IChapterTranslator, ChapterTranslator>();
         services.AddScoped<IVoiceLearner, VoiceLearner>();
+        services.AddScoped<IGlossaryLearner, GlossaryLearner>();
         services.AddScoped<IChapterRepairer, ChapterRepairer>();
         services.AddScoped<ITranslationEditor, TranslationEditor>();
         services.AddScoped<ITranslationImportService, TranslationImportService>();
