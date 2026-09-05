@@ -91,11 +91,11 @@ public static class Statuses {
         + "contents page rather than one chapter, then read it again."
     );
 
-    // --- retrying one item of a settled import ---------------------------------------------------
+    // --- retrying one item of a settled import, or putting its report away -----------------------
 
     public static readonly Status ImportJobStillActive = new(
         "IMPORT_JOB_STILL_ACTIVE",
-        "This import is still running. Wait for it to finish, then retry the chapter."
+        "This import is still running. Wait for it to finish first."
     );
 
     public static readonly Status ImportItemNotFailed = new(

@@ -324,8 +324,8 @@
 
     // The two site-reading screens each own one kind of job, and each of their buttons carries that
     // job's progress, so the way back to a running import is the button that started it.
-    const originalsImport = computed(() => activityStore.importFor("Originals"));
-    const translationImport = computed(() => activityStore.importFor("Translation"));
+    const originalsImport = computed(() => activityStore.importFor("Originals", id.value));
+    const translationImport = computed(() => activityStore.importFor("Translation", id.value));
 
     // Both buttons dim the moment the book has nothing in it — correctly, since there is nothing to
     // align or translate yet — but a greyed-out control with no explanation reads as broken rather

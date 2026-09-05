@@ -78,6 +78,24 @@ public class ImportsController(NektoDbContext database, IImportJobService import
     }
 
 
+    // Puts a settled run's report away, for every screen and every reload alike. Kept on the job
+    // itself so that a report read once does not come back each time the screen is opened.
+    [HttpPost("{jobId:long}/dismiss")]
+    public async Task<ActionResult> Dismiss(long novelId, long jobId, CancellationToken cancellationToken) {
+        ImportDismissResult result = await imports.DismissAsync(novelId, jobId, cancellationToken);
+
+        return result switch {
+            ImportDismissResult.Dismissed => NoContent(),
+
+            ImportDismissResult.JobNotFound => NotFound(),
+
+            ImportDismissResult.JobStillActive => Conflict(new { status = Statuses.ImportJobStillActive }),
+
+            _ => StatusCode(500)
+        };
+    }
+
+
     // The one entry the report screens actually need again: a chapter the run could not fetch, gone
     // back to the site for a second try without disturbing the thirty-nine that already landed.
     [HttpPost("{jobId:long}/items/{position:int}/retry")]

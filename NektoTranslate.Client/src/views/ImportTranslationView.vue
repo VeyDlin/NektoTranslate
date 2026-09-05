@@ -357,7 +357,7 @@
 
     // Only what this screen decides with. Running the job — pausing, cancelling, dismissing it, and
     // reporting it chapter by chapter — belongs to ImportRunPanel, which both import screens share.
-    const job = computed(() => activity.importFor("Translation"));
+    const job = computed(() => activity.importFor("Translation", id.value));
 
     const jobActive = computed(() => (
         job.value !== null

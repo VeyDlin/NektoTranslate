@@ -320,7 +320,7 @@
 
     const { mutateAsync: startImport, isPending: starting } = useStartImport(id);
 
-    const job = computed(() => activity.importFor("Originals"));
+    const job = computed(() => activity.importFor("Originals", id.value));
 
     const jobActive = computed(() => (
         job.value !== null

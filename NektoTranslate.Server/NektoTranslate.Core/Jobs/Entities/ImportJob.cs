@@ -65,6 +65,12 @@ public class ImportJob {
 
     public DateTimeOffset? finishedAt { get; set; }
 
+    // When the reader put the settled run's report away. A run stays on its screen after it settles
+    // so the report can be read - on a page opened later, or reloaded - and it goes when the reader
+    // dismisses it, not when a tab is closed. Null while the run is live, and for a settled run whose
+    // report nobody has put away yet.
+    public DateTimeOffset? dismissedAt { get; set; }
+
     public string? error { get; set; }
 
     public List<ImportJobItem> items { get; set; } = [];

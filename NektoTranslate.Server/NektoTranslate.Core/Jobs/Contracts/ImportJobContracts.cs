@@ -121,3 +121,15 @@ public sealed record ImportItemRetryOutcome(
     ImportItemRetryResult result,
     ImportJobItemView? item = null
 );
+
+
+public enum ImportDismissResult {
+
+    Dismissed = 0,
+
+    JobNotFound = 1,
+
+    // The run is still going. Its report is still being written, and the strip and the panel both
+    // need it until it settles; cancelling is how a live run is stopped, not dismissing.
+    JobStillActive = 2
+}

@@ -36,6 +36,11 @@ interface ImportItemPatch {
 export const useActivityStore = defineStore("activity", () => {
     const jobs = ref<Record<number, ImportJob>>({});
 
+    // Reports put away in this session. `GET /activity` stops reporting a dismissed job once the
+    // server has been told, but a refetch that was already in flight when Dismiss was clicked still
+    // answers with it, and without this it would put the report straight back on screen.
+    const dismissed = ref(new Set<number>());
+
     const activeImports = computed(() => Object.values(jobs.value).filter(job => (
         job.state === "Queued" || job.state === "Running" || job.state === "Paused"
     )));
@@ -43,11 +48,12 @@ export const useActivityStore = defineStore("activity", () => {
     const isImporting = computed(() => activeImports.value.length > 0);
 
 
-    // Whichever job — active, or settled but not yet dismissed — currently represents this kind. At
-    // most one ever sits in the store per kind: `adoptJob` replaces it the moment a new one starts,
-    // and nothing else adds a second.
-    function importFor(kind: ImportKind): ImportJob | null {
-        const matches = Object.values(jobs.value).filter(job => job.kind === kind);
+    // Whichever job — active, or settled but not yet dismissed — currently represents this kind of
+    // import for this book. The store is not emptied between books, so the book is part of the
+    // question: a report left open on one book is no answer about another. At most one job per kind
+    // and book is ever current: `adoptJob` supersedes the last the moment a new one starts.
+    function importFor(kind: ImportKind, novelId: number): ImportJob | null {
+        const matches = Object.values(jobs.value).filter(job => job.kind === kind && job.novelId === novelId);
 
         if (matches.length === 0) {
             return null;
@@ -57,18 +63,21 @@ export const useActivityStore = defineStore("activity", () => {
     }
 
 
-    // From `GET /activity`, which only ever reports live jobs. Upserted rather than replacing the map
-    // outright, so a job that settled while this session was watching stays visible — with its
-    // Dismiss control — through a refetch that would otherwise have stopped mentioning it.
+    // From `GET /activity`: the live jobs and, behind each kind with none, the last settled run whose
+    // report is still open. Upserted rather than replacing the map outright, so a job that settled
+    // while this session was watching stays visible — with its Dismiss control — through a refetch
+    // that would otherwise have stopped mentioning it.
     function adoptActivity(activity: Activity): void {
-        if (activity.imports.length === 0) {
-            return;
-        }
-
         const patch: Record<number, ImportJob> = {};
 
         for (const job of activity.imports) {
-            patch[job.id] = job;
+            if (!dismissed.value.has(job.id)) {
+                patch[job.id] = job;
+            }
+        }
+
+        if (Object.keys(patch).length === 0) {
+            return;
         }
 
         jobs.value = { ...jobs.value, ...patch };
@@ -131,12 +140,14 @@ export const useActivityStore = defineStore("activity", () => {
 
 
     // The run stays on screen after it settles so the user can read what happened; this is what the
-    // Dismiss control calls once they are done with it.
+    // Dismiss control calls once they are done with it. The server is told separately, by
+    // useDismissImport, which is what keeps the report away after a reload.
     function clearSettled(jobId: number): void {
         const next = { ...jobs.value };
 
         delete next[jobId];
         jobs.value = next;
+        dismissed.value = new Set([...dismissed.value, jobId]);
     }
 
 

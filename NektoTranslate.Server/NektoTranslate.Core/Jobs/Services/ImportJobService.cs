@@ -27,6 +27,9 @@ public interface IImportJobService {
     Task<bool> CancelAsync(long novelId, long jobId, CancellationToken cancellationToken = default);
 
 
+    Task<ImportDismissResult> DismissAsync(long novelId, long jobId, CancellationToken cancellationToken = default);
+
+
     Task<ImportItemRetryOutcome> RetryItemAsync(
         long novelId,
         long jobId,
@@ -130,6 +133,33 @@ public class ImportJobService(
         }
 
         return false;
+    }
+
+
+    // Puts a settled run's report away. Recorded on the job rather than in the interface, so the
+    // report stays away across a reload and in any other browser that opens the book - the run
+    // belongs to the book, and so does the fact that its report was read. A live run is refused: its
+    // report is still being written, and the strip and the panel both need it until it settles.
+    public async Task<ImportDismissResult> DismissAsync(
+        long novelId,
+        long jobId,
+        CancellationToken cancellationToken = default
+    ) {
+        ImportJob? job = await FindAsync(novelId, jobId, cancellationToken);
+
+        if (job is null) {
+            return ImportDismissResult.JobNotFound;
+        }
+
+        if (job.state is JobState.Queued or JobState.Running or JobState.Paused) {
+            return ImportDismissResult.JobStillActive;
+        }
+
+        // Dismissing twice is dismissing once: the first time is the one that is kept.
+        job.dismissedAt ??= DateTimeOffset.UtcNow;
+        await database.SaveChangesAsync(cancellationToken);
+
+        return ImportDismissResult.Dismissed;
     }
 
 

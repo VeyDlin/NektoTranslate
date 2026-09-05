@@ -100,7 +100,7 @@
     import type { ImportJobItem, ImportKind } from "@/types/models/domain";
 
     import { computed, ref } from "vue";
-    import { useCancelImport, usePauseImport, useResumeImport } from "@/composables/useActivity";
+    import { useCancelImport, useDismissImport, usePauseImport, useResumeImport } from "@/composables/useActivity";
     import { useActivityStore } from "@/stores/activity.store";
     import { formatCount, importStateLabel } from "@/utils/format";
     import { describe } from "@/utils/status";
@@ -121,10 +121,11 @@
     const { mutateAsync: pauseImport, isPending: pausing } = usePauseImport(() => props.novelId);
     const { mutateAsync: resumeImport, isPending: resuming } = useResumeImport(() => props.novelId);
     const { mutateAsync: cancelImportJob, isPending: cancelling } = useCancelImport(() => props.novelId);
+    const { mutateAsync: dismissImport } = useDismissImport(() => props.novelId);
 
     const open = ref(true);
 
-    const job = computed(() => activity.importFor(props.kind));
+    const job = computed(() => activity.importFor(props.kind, props.novelId));
 
     const settled = computed(() => (
         job.value !== null
@@ -178,12 +179,12 @@
     }
 
 
-    function dismiss(): void {
+    async function dismiss(): Promise<void> {
         if (job.value === null) {
             return;
         }
 
-        activity.clearSettled(job.value.id);
+        await dismissImport(job.value.id);
     }
 </script>
 

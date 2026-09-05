@@ -76,6 +76,22 @@ export function useCancelImport(novelId: MaybeRefOrGetter<number>) {
 }
 
 
+// Puts a settled run's report away on screen and on the server. The store forgets the job before the
+// request goes out, so the panel closes on the click rather than a round trip later; the request is
+// what keeps it closed after a reload.
+export function useDismissImport(novelId: MaybeRefOrGetter<number>) {
+    const activity = useActivityStore();
+
+    return useMutation({
+        mutationFn: (jobId: number) => {
+            activity.clearSettled(jobId);
+
+            return importsApi.dismiss(toValue(novelId), jobId);
+        },
+    });
+}
+
+
 // One row of a settled job's report, fetched and imported again. The store is patched directly from
 // the response rather than waiting on the SignalR echo of it, so the badge on the row that was
 // clicked updates the instant the request resolves instead of a round trip later — the same

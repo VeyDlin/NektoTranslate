@@ -79,6 +79,12 @@ export const importsApi = {
         return apiClient<void>(`/api/novels/${novelId}/imports/${jobId}/cancel`, { method: "POST" });
     },
 
+    // Puts a settled run's report away on the server, so it stays away across a reload and in any
+    // other browser that opens the book.
+    dismiss(novelId: number, jobId: number): Promise<void> {
+        return apiClient<void>(`/api/novels/${novelId}/imports/${jobId}/dismiss`, { method: "POST" });
+    },
+
     // Re-fetches and re-imports one item of a settled job, in place — the retry a failed row in the
     // report offers. The server refuses with a 409 while the job is still active; there is nothing
     // this method needs to do about that beyond letting it reach the caller.
@@ -89,9 +95,11 @@ export const importsApi = {
         ).then(toItem);
     },
 
-    // Only the jobs still Queued, Running or Paused, alongside whatever translation run is live — one
-    // request answers "what is happening to this book right now", which is what a reloaded page needs
-    // to land back where it was rather than replaying the event history from nothing.
+    // The jobs still Queued, Running or Paused and, behind each kind that has none, the last run to
+    // settle unless its report was dismissed — alongside whatever translation run is live. One request
+    // answers "what is happening to this book right now, and what just happened", which is what a
+    // reloaded page needs to land back where it was rather than replaying the event history from
+    // nothing.
     activity(novelId: number): Promise<Activity> {
         return apiClient<RawActivity>(`/api/novels/${novelId}/activity`).then(toActivity);
     },
