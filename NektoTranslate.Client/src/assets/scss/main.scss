@@ -74,6 +74,22 @@ body {
 }
 
 
+// Nuxt UI floats a sticky table head on a 75%-opaque tint with a backdrop blur, and puts no
+// background on the cells themselves. Over a list of text rows that buys nothing - there is no
+// imagery behind it worth glimpsing - and it costs legibility: rows slide visibly through the header
+// as they pass, and the seam where the blurred tint meets the row beneath reads as a flicker.
+//
+// Opaque, with one line under it. Written here rather than per screen because every table in the
+// application has the same head: the chapter list, the two import pickers and the run history all
+// pass `sticky` to UTable, and a fix that has to be remembered four times is a fix that will be
+// remembered three. The alignment screen rolls its own head and was already opaque.
+thead.sticky {
+    background: var(--ui-bg);
+    backdrop-filter: none;
+    box-shadow: inset 0 -1px 0 var(--ui-border);
+}
+
+
 // Prose comes from the server as sanitized markup and is mounted with v-html, so it cannot be
 // styled from a scoped block. These are the only global element rules in the application.
 .prose {

@@ -15,7 +15,8 @@ public static class Statuses {
 
     public static readonly Status NoChapterAtIndex = new(
         "NO_CHAPTER_AT_INDEX",
-        "There is no chapter {index}. Import the original first, or shift the mapping."
+        "There is no chapter {index}. Import the original first, shift the mapping, or turn on "
+        + "creating chapters that have no original."
     );
 
 
