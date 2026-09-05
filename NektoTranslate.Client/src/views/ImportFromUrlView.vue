@@ -117,7 +117,7 @@
                     :disabled="jobActive"
                     size="sm"
                     class="start"
-                    @input="startAtTouched = true"
+                    @update:model-value="startAtTouched = true"
                 />
 
                 <span class="spacer" />
@@ -429,8 +429,6 @@
     });
 
 
-    // Support is checked first because it is answered from the host name alone. Telling the user the
-    // address is unreadable costs nothing; finding out after a download does.
     // Starts the read and returns; the site is visited on the server. Whether the address is readable
     // at all is answered there too, as the read's own outcome, rather than by a second call here -
     // one question with one answer is what makes the state on screen unambiguous.

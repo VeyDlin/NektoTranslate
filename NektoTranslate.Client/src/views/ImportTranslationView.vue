@@ -117,7 +117,7 @@
                     :disabled="jobActive"
                     size="sm"
                     class="start"
-                    @input="startAtTouched = true"
+                    @update:model-value="startAtTouched = true"
                 />
 
                 <span class="spacer" />
