@@ -35,10 +35,28 @@
                     </p>
                 </div>
 
+                <div
+                    v-if="mode === 'Translate' && translatedElsewhereCount > 0 && !voiceLoading && voiceProfile === null"
+                    class="limit"
+                >
+                    <p>
+                        {{ formatCount(translatedElsewhereCount) }}
+                        {{ translatedElsewhereCount === 1 ? "chapter was" : "chapters were" }}
+                        translated elsewhere and nothing has been learned from
+                        {{ translatedElsewhereCount === 1 ? "it" : "them" }} yet.
+                    </p>
+
+                    <p class="detail">
+                        Learn from {{ translatedElsewhereCount === 1 ? "it" : "them" }} first, so the
+                        rest is translated in the same voice and with the same names.
+                    </p>
+                </div>
+
                 <div v-if="mode === 'Repair'" class="limit">
                     <p>
                         Repair rewrites the existing translation on its own, with no original here to
-                        check it against. Names, terms, register and flow can be fixed; a fact the
+                        check it against, and it also uses the glossary learned from chapters that have
+                        their original. Names, terms, register and flow can be fixed; a fact the
                         translation already got wrong cannot, because nothing catches it.
                     </p>
 
@@ -111,6 +129,14 @@
 
     const voiceProfile = computed(() => voiceProfileData.value ?? null);
 
+    // "Translated elsewhere" is ChapterTable's glossaryMark signature for a chapter whose rendering
+    // came from outside this book — translated, but never read for its terms. Translate mode is the
+    // one place a book like that keeps drifting further from its own translator, so the hint below
+    // only needs this count, not the chapters themselves.
+    const translatedElsewhereCount = computed(() => props.rows.filter(row => (
+        row.translationState === "Translated" && row.glossaryState === "NotAnalyzed"
+    )).length);
+
     const scope = ref<JobScopeKind>("WholeBook");
     const budget = ref<number | undefined>(undefined);
     const force = ref(false);
@@ -138,11 +164,14 @@
             verb: "translated",
         },
         LearnVoice: {
-            title: "Learn the voice",
-            description: "Reads the chapters in this range once, in order, and writes a single "
-                + "profile of how they are translated. It does not translate anything itself.",
+            title: "Learn from the translation",
+            description: "Reads the chapters in this range once, in order, and writes a profile of "
+                + "how they are translated - register, names, formatting habits. Where a chapter "
+                + "also has its original, it records how each name and term was rendered, so the "
+                + "glossary starts from the translator's own choices rather than the model's. It "
+                + "does not translate anything itself.",
             nothing: "Nothing to learn from. No chapter in that scope has a translation yet.",
-            verb: "read to learn the voice",
+            verb: "read to learn from",
         },
         Repair: {
             title: "Repair chapters",
@@ -160,7 +189,7 @@
     const modeOptions = computed(() => {
         const options: { value: TranslationJobMode; label: string }[] = [
             { value: "Translate", label: "Translate" },
-            { value: "LearnVoice", label: "Learn the voice" },
+            { value: "LearnVoice", label: "Learn from the translation" },
         ];
 
         if (props.rows.some(row => row.translationState === "Translated")) {
@@ -188,9 +217,9 @@
         return options;
     });
 
-    // Reloaded whenever the dialog opens on Learn the voice, and again the moment it is switched to
-    // from inside an already-open one — both are "starting fresh", and the chapters that already
-    // carry a translation are the only sensible default range to read a voice from.
+    // Reloaded whenever the dialog opens on Learn from the translation, and again the moment it is
+    // switched to from inside an already-open one — both are "starting fresh", and the chapters
+    // that already carry a translation are the only sensible default range to read a voice from.
     watch([open, mode], ([isOpen, current]) => {
         if (!isOpen || current !== "LearnVoice") {
             return;

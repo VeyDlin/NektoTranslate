@@ -6,7 +6,9 @@
                 Learning reads a range of chapters that already carry a translation and writes a
                 short description of how that translation is written — register, rhythm, the small
                 habits a human translator repeats without deciding to each time. Every translation
-                and repair after that can follow it instead of drifting chapter to chapter.
+                and repair after that can follow it instead of drifting chapter to chapter. Where a
+                chapter also has its original, what it teaches about names and terms is recorded in
+                the Glossary tab instead of here.
             </p>
             <p v-if="!hasTranslatedChapters" class="requirement">
                 Needs at least one translated chapter to learn from. Translate part of the book
@@ -17,7 +19,7 @@
                 :disabled="!hasTranslatedChapters"
                 @click="emit('learn')"
             >
-                Learn the voice
+                Learn from the translation
             </UButton>
         </div>
 

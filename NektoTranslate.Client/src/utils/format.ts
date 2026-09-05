@@ -136,7 +136,7 @@ export function importStateLabel(state: JobState): string {
 // the run strip and the jobs table stop calling every live run a translation.
 const JOB_MODE_PROGRESS_LABELS: Record<TranslationJobMode, string> = {
     Translate: "Translating",
-    LearnVoice: "Learning the voice",
+    LearnVoice: "Learning from the translation",
     Repair: "Repairing",
 };
 
