@@ -55,6 +55,21 @@ public static class Statuses {
         "The import was cancelled before this chapter was reached."
     );
 
+    // --- importing originals ----------------------------------------------------------------------
+
+    // Not a failure: the page was already brought in, under whatever index it landed on at the time.
+    // Before an original carried its own address, the only way to notice this was to compare titles
+    // by eye, and the only way to fix it was to delete chapters and hope the recount landed right.
+    public static readonly Status ChapterAlreadyImported = new(
+        "CHAPTER_ALREADY_IMPORTED",
+        "This page is already in the book as chapter {index}."
+    );
+
+    public static readonly Status ChapterIndexOccupied = new(
+        "CHAPTER_INDEX_OCCUPIED",
+        "Chapter {index} already exists and came from a different page. Delete it first, or shift the mapping."
+    );
+
     // --- reading a site's contents ---------------------------------------------------------------
 
     public static readonly Status ListingAlreadyReading = new(

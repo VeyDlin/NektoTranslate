@@ -30,8 +30,11 @@ public class ImportJob {
     [MaxLength(32)]
     public string? language { get; set; }
 
-    // For a translation import: which chapter the first entry lands on. Everything after follows
-    // in order. This is what absorbs a translator's note at the top of a site's contents page.
+    // Which chapter the first entry lands on; everything after follows in order. Written for
+    // translation imports first, to absorb a translator's note at the top of a site's contents
+    // page, but an original import takes the same explicit index now that it is matched by address
+    // rather than only appended - a site's contents page can open with a prologue or an author's
+    // note there too.
     public int startAtChapterIndex { get; set; }
 
     // For a translation import: whether an entry that lands on a chapter which does not exist may

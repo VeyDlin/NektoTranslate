@@ -17,7 +17,7 @@ namespace NektoTranslate.Parsing.Controllers;
 // anything and holds nothing. This one owns the expensive answer and its state.
 [ApiController]
 [Route("api/novels/{novelId:long}/listings")]
-public class ListingsController(NektoDbContext database, IListingReader reader) : ControllerBase {
+public class ListingsController(NektoDbContext database, IListingReader reader, IListingAnnotator annotator) : ControllerBase {
 
     // Nothing rather than a 404 when this book has never had its contents read for that kind: an
     // empty workbench is the ordinary starting state, not a missing resource.
@@ -31,7 +31,13 @@ public class ListingsController(NektoDbContext database, IListingReader reader) 
             .AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.novelId == novelId && candidate.kind == kind, cancellationToken);
 
-        return listing is null ? null : SourceListingView.Of(listing);
+        if (listing is null) {
+            return null;
+        }
+
+        IReadOnlyList<ListingEntryView> entries = await annotator.AnnotateAsync(listing, cancellationToken);
+
+        return SourceListingView.Of(listing, entries);
     }
 
 

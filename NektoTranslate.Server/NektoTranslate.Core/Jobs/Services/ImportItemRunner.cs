@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging;
 using NektoTranslate.Chapters.Contracts;
-using NektoTranslate.Chapters.Entities;
 using NektoTranslate.Chapters.Services;
 using NektoTranslate.Common.Contracts;
 using NektoTranslate.Jobs.Entities;
@@ -43,16 +42,37 @@ public class ImportItemRunner(
             string title = string.IsNullOrWhiteSpace(item.title) ? chapter.title : item.title;
 
             if (job.kind == ImportKind.Originals) {
-                IReadOnlyList<Chapter> created = await originals.ImportAsync(
+                int index = job.startAtChapterIndex + item.position;
+
+                ChapterImportResult result = await originals.ImportAsync(
                     job.novelId,
-                    [new ImportedChapter(title, chapter.html, null, item.sourceUrl)],
+                    [new ImportedChapter(title, chapter.html, index, item.sourceUrl)],
                     cancellationToken
                 );
 
-                item.chapterId = created[0].id;
-                item.chapterIndex = created[0].index;
-                item.state = ImportItemState.Imported;
-                ClearStatus(item);
+                ChapterImportOutcome outcome = result.outcomes[0];
+
+                if (outcome.rejection is null) {
+                    item.chapterId = outcome.chapter!.id;
+                    item.chapterIndex = outcome.chapter.index;
+                    item.state = ImportItemState.Imported;
+                    ClearStatus(item);
+                }
+                else {
+                    // The one rejection that is not a failure: the address is already in the book, so
+                    // the item points at where it actually lives rather than at the slot this run
+                    // aimed for. An occupied index, by contrast, wrote nothing - there is nowhere for
+                    // the item to point.
+                    bool alreadyImported = outcome.rejection.code == Statuses.ChapterAlreadyImported.code;
+
+                    if (alreadyImported) {
+                        item.chapterId = outcome.chapter!.id;
+                        item.chapterIndex = outcome.chapter.index;
+                    }
+
+                    item.state = alreadyImported ? ImportItemState.Skipped : ImportItemState.Failed;
+                    Record(item, outcome.rejection);
+                }
             }
             else {
                 int chapterIndex = job.startAtChapterIndex + item.position;

@@ -22,8 +22,8 @@ namespace NektoTranslate.Tests.Jobs;
 // only decides an outcome and writes it onto the item it was handed.
 public class ImportItemRunnerTests {
 
-    private static ImportJob OriginalsJob() {
-        return new ImportJob { novelId = 1, kind = ImportKind.Originals };
+    private static ImportJob OriginalsJob(int startAt = 0) {
+        return new ImportJob { novelId = 1, kind = ImportKind.Originals, startAtChapterIndex = startAt };
     }
 
 
@@ -54,7 +54,8 @@ public class ImportItemRunnerTests {
     [Fact]
     public async Task AnOriginalsItemLandsAsANewChapter() {
         FakeSiteParser parser = new FakeSiteParser { chapter = new ParsedChapter("Fetched title", "<p>Text</p>", "https://example.test/1") };
-        FakeChapterImportService originals = new FakeChapterImportService { created = [new Chapter { id = 42, index = 7, title = "x", sourceMarkdown = "x", sourcePlainText = "x" }] };
+        Chapter created = new Chapter { id = 42, index = 7, title = "x", sourceMarkdown = "x", sourcePlainText = "x" };
+        FakeChapterImportService originals = new FakeChapterImportService { result = new ChapterImportResult([new ChapterImportOutcome(0, created, null)]) };
 
         ImportJobItem item = Item(title: "Chosen title");
         await Runner(parser, originals).RunAsync(OriginalsJob(), item);
@@ -75,11 +76,68 @@ public class ImportItemRunnerTests {
     [Fact]
     public async Task AnEmptyChosenTitleFallsBackToTheParsersTitle() {
         FakeSiteParser parser = new FakeSiteParser { chapter = new ParsedChapter("Parsed title", "<p>Text</p>", "https://example.test/1") };
-        FakeChapterImportService originals = new FakeChapterImportService { created = [new Chapter { id = 1, index = 0, title = "x", sourceMarkdown = "x", sourcePlainText = "x" }] };
+        Chapter created = new Chapter { id = 1, index = 0, title = "x", sourceMarkdown = "x", sourcePlainText = "x" };
+        FakeChapterImportService originals = new FakeChapterImportService { result = new ChapterImportResult([new ChapterImportOutcome(0, created, null)]) };
 
         await Runner(parser, originals).RunAsync(OriginalsJob(), Item(title: "  "));
 
         Assert.Equal("Parsed title", originals.lastChapters![0].title);
+    }
+
+
+    // The Originals branch now takes the same explicit-index path a translation import always has,
+    // for the same reason: a contents page can open with something that is not chapter one.
+    [Fact]
+    public async Task AnOriginalsItemPassesStartIndexPlusPositionAsTheExplicitIndex() {
+        FakeSiteParser parser = new FakeSiteParser { chapter = new ParsedChapter("t", "<p>Text</p>", "https://example.test/1") };
+        Chapter created = new Chapter { id = 5, index = 13, title = "x", sourceMarkdown = "x", sourcePlainText = "x" };
+        FakeChapterImportService originals = new FakeChapterImportService { result = new ChapterImportResult([new ChapterImportOutcome(0, created, null)]) };
+
+        ImportJobItem item = Item(position: 3);
+        await Runner(parser, originals).RunAsync(OriginalsJob(startAt: 10), item);
+
+        Assert.Equal(13, originals.lastChapters![0].index);
+    }
+
+
+    // Not a failure: the address is already in the book, so the item has to point at where the
+    // chapter actually lives rather than at the slot this run aimed for.
+    [Fact]
+    public async Task AnOriginalAlreadyImportedBySourceUrlIsSkippedAndPointsAtTheExistingChapter() {
+        FakeSiteParser parser = new FakeSiteParser { chapter = new ParsedChapter("t", "<p>Text</p>", "https://example.test/1") };
+        Chapter existing = new Chapter { id = 4, index = 2, title = "x", sourceMarkdown = "x", sourcePlainText = "x" };
+
+        FakeChapterImportService originals = new FakeChapterImportService {
+            result = new ChapterImportResult([new ChapterImportOutcome(0, existing, Statuses.ChapterAlreadyImported.With(("index", 2)))])
+        };
+
+        ImportJobItem item = Item();
+        await Runner(parser, originals).RunAsync(OriginalsJob(), item);
+
+        Assert.Equal(ImportItemState.Skipped, item.state);
+        Assert.Equal("CHAPTER_ALREADY_IMPORTED", item.statusCode);
+        Assert.Equal(4, item.chapterId);
+        Assert.Equal(2, item.chapterIndex);
+    }
+
+
+    // The requested index belongs to a chapter that came from a different page. Nothing was written,
+    // so there is nothing for the item to point at either.
+    [Fact]
+    public async Task AnOriginalWhoseIndexIsOccupiedByADifferentPageFails() {
+        FakeSiteParser parser = new FakeSiteParser { chapter = new ParsedChapter("t", "<p>Text</p>", "https://example.test/1") };
+
+        FakeChapterImportService originals = new FakeChapterImportService {
+            result = new ChapterImportResult([new ChapterImportOutcome(0, null, Statuses.ChapterIndexOccupied.With(("index", 0)))])
+        };
+
+        ImportJobItem item = Item();
+        await Runner(parser, originals).RunAsync(OriginalsJob(), item);
+
+        Assert.Equal(ImportItemState.Failed, item.state);
+        Assert.Equal("CHAPTER_INDEX_OCCUPIED", item.statusCode);
+        Assert.Null(item.chapterId);
+        Assert.Null(item.chapterIndex);
     }
 
 
@@ -217,7 +275,8 @@ public class ImportItemRunnerTests {
     [Fact]
     public async Task ASuccessfulRetryClearsAStatusLeftByAnEarlierFailure() {
         FakeSiteParser parser = new FakeSiteParser { chapter = new ParsedChapter("t", "<p>Text</p>", "https://example.test/1") };
-        FakeChapterImportService originals = new FakeChapterImportService { created = [new Chapter { id = 9, index = 0, title = "x", sourceMarkdown = "x", sourcePlainText = "x" }] };
+        Chapter created = new Chapter { id = 9, index = 0, title = "x", sourceMarkdown = "x", sourcePlainText = "x" };
+        FakeChapterImportService originals = new FakeChapterImportService { result = new ChapterImportResult([new ChapterImportOutcome(0, created, null)]) };
 
         ImportJobItem item = Item();
         item.state = ImportItemState.Failed;
@@ -273,19 +332,19 @@ public class ImportItemRunnerTests {
 
     private sealed class FakeChapterImportService : IChapterImportService {
 
-        public IReadOnlyList<Chapter> created = [];
+        public ChapterImportResult result = new ChapterImportResult([]);
 
         public IReadOnlyList<ImportedChapter>? lastChapters;
 
 
-        public Task<IReadOnlyList<Chapter>> ImportAsync(
+        public Task<ChapterImportResult> ImportAsync(
             long novelId,
             IReadOnlyList<ImportedChapter> chapters,
             CancellationToken cancellationToken = default
         ) {
             lastChapters = chapters;
 
-            return Task.FromResult(created);
+            return Task.FromResult(result);
         }
     }
 

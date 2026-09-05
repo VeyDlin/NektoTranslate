@@ -117,6 +117,7 @@ public class TranslationImportService(
                 // is what the glossary reads to recover how a name was rendered.
                 plainText = TranslationBlocks.PlainTextOf(blocks),
                 origin = TranslationOrigin.Imported,
+                sourceUrl = entry.sourceUrl,
                 model = null,
                 costUsd = null
             });

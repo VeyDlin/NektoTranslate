@@ -31,6 +31,13 @@ public class ChapterTranslation {
 
     public TranslationOrigin origin { get; set; }
 
+    // The address it was matched from, so a re-import of the same page can recognise a translation
+    // that is already here instead of relying on its position among the others. Null for anything
+    // the application wrote itself or that a person pasted in by hand - those have no address to
+    // remember.
+    [MaxLength(2000)]
+    public string? sourceUrl { get; set; }
+
     [MaxLength(64)]
     public string? model { get; set; }
 

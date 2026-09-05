@@ -46,6 +46,13 @@ public class SourceListing {
 
     public int entryCount { get; set; }
 
+    // The addresses that this read found and the read before it did not, as a JSON array. This is
+    // what lets a screen say "3 new since the last read" instead of making someone diff two contents
+    // pages by eye. Empty on the first read of an address and on the read just after the address
+    // changed, in both cases because "new" would otherwise mean the whole page, which tells nobody
+    // anything.
+    public string? newEntriesJson { get; set; }
+
     // Why the read failed, in the three columns a Status is stored as everywhere else. Null unless
     // the state is Failed.
     [MaxLength(64)]

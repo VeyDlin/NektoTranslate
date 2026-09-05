@@ -15,6 +15,8 @@ public sealed record StartImportJobRequest(
     IReadOnlyList<ParsedChapterLink> chapters,
     // Translation imports only.
     string? language = null,
+    // Which chapter the first entry lands on, for either kind: an original is now matched by
+    // address and takes an explicit index the same way a translation always has.
     int startAtChapterIndex = 0,
     // Translation imports only: make a chapter with no original for any entry that has nowhere to
     // land. This is what lets a book exist as somebody else's translation and nothing more.

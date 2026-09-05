@@ -112,6 +112,9 @@ public static class ServiceCollectionExtensions {
         // exactly the thing a second press has to find, and a scoped registry would give every
         // request its own empty one.
         services.AddSingleton<IListingReader, ListingReader>();
+        // Scoped, following the database it reads: a listing's entries are annotated fresh against
+        // whatever the book currently holds, on every read of it rather than once at write time.
+        services.AddScoped<IListingAnnotator, ListingAnnotator>();
 
         // The agent chat. Reaches the same tool registry the rest of the application uses, so a
         // correction made in conversation lands in the glossary rather than only in the transcript.
