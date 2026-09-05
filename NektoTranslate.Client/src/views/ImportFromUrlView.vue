@@ -34,19 +34,21 @@
                 @keydown.enter="read"
             />
 
-            <UButton size="sm" :loading="readStarting" :disabled="!canRead" @click="read">
-                {{ hasEntries ? "Read again" : "Read the contents" }}
-            </UButton>
-
+            <!-- One button that changes what it does, not a second one that appears beside it. A
+                 control that shows up only while something runs is a control that moves everything
+                 around it the moment the run starts, and the button that began the read is where a
+                 hand already is when it wants to stop it. The width is fixed so that the label
+                 changing does not move the field either. -->
             <UButton
-                v-if="reading"
                 size="sm"
-                color="neutral"
-                variant="ghost"
-                :loading="cancellingRead"
-                @click="cancelRead"
+                class="read"
+                :color="reading ? 'neutral' : 'primary'"
+                :variant="reading ? 'subtle' : 'solid'"
+                :loading="readStarting || cancellingRead"
+                :disabled="!canPressRead"
+                @click="reading ? cancelRead() : read()"
             >
-                Stop reading
+                {{ readLabel }}
             </UButton>
         </div>
 
@@ -288,6 +290,17 @@
 
     const canRead = computed(() => url.value.trim() !== "" && !addressLocked.value && !readStarting.value);
 
+    // Pressable while reading too, because that is when it stops the read.
+    const canPressRead = computed(() => (reading.value ? !cancellingRead.value : canRead.value));
+
+    const readLabel = computed(() => {
+        if (reading.value) {
+            return "Stop reading";
+        }
+
+        return hasEntries.value ? "Read again" : "Read the contents";
+    });
+
     // One sentence for whichever state this screen is in. Every branch returns something, so the line
     // is never empty and the rows below it never move.
     const statusText = computed(() => {
@@ -296,8 +309,12 @@
                 + "and it keeps going if you leave this page.";
         }
 
+        // The entries below survive a failed re-read of the same address, so the line has to account
+        // for them: a list on screen under a bare error message reads as though the error produced it.
         if (listing.value?.state === "Failed" && listing.value.error !== null) {
-            return describe(listing.value.error);
+            const kept = hasEntries.value ? " The list below is from the last read that worked." : "";
+
+            return `${describe(listing.value.error)}${kept}`;
         }
 
         if (listing.value?.state === "Ready") {
@@ -512,6 +529,13 @@
                 min-width: 0;
             }
 
+            // Wide enough for the longest label it ever carries, so swapping between reading and
+            // stopping does not resize the button and shove the field beside it.
+            .read {
+                flex: none;
+                min-width: 11rem;
+                justify-content: center;
+            }
         }
 
         // Fixed height on purpose. This line changes what it says, never whether it is there, so

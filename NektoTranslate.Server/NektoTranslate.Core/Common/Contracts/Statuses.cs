@@ -61,6 +61,16 @@ public static class Statuses {
         "This book's contents are already being read. Wait for that read to finish, or cancel it."
     );
 
+
+    // Distinct from the address being unreadable: a parser claimed the site and came back with
+    // nothing. Usually the address is a chapter rather than the contents page, or the page had not
+    // finished loading its list. Both are worth saying, because both are things the user can act on.
+    public static readonly Status ListingFoundNoEntries = new(
+        "LISTING_FOUND_NO_ENTRIES",
+        "Nothing on that page looked like a list of chapters. Check the address points at the book's "
+        + "contents page rather than one chapter, then read it again."
+    );
+
     // --- retrying one item of a settled import ---------------------------------------------------
 
     public static readonly Status ImportJobStillActive = new(

@@ -69,12 +69,19 @@ public class ListingReader(
             SourceListing listing = await FindAsync(database, novelId, kind, cancellationToken)
                 ?? Add(database, novelId, kind);
 
+            // Entries survive a re-read of the same address, and only that. A read that comes back
+            // with nothing - a slow page, a site that changed - would otherwise destroy a list that
+            // was fine a minute ago, and the user would have no way back to it. A different address
+            // is a different book's contents, so those entries do go.
+            if (!string.Equals(listing.url, url, StringComparison.Ordinal)) {
+                listing.entriesJson = null;
+                listing.entryCount = 0;
+                listing.readAt = null;
+            }
+
             listing.url = url;
             listing.state = ListingState.Reading;
-            listing.entriesJson = null;
-            listing.entryCount = 0;
             listing.startedAt = DateTimeOffset.UtcNow;
-            listing.readAt = null;
             ClearStatus(listing);
 
             await database.SaveChangesAsync(cancellationToken);
@@ -125,11 +132,21 @@ public class ListingReader(
         try {
             IReadOnlyList<ParsedChapterLink> entries = await parser.GetChapterListAsync(url, cancellationToken);
 
-            listing.entriesJson = JsonSerializer.Serialize(entries);
-            listing.entryCount = entries.Count;
-            listing.state = ListingState.Ready;
-            listing.readAt = DateTimeOffset.UtcNow;
-            ClearStatus(listing);
+            // A parser that claimed the site and found nothing on it is a failure, however calmly it
+            // returned. Recording it as a successful read of zero chapters produces the one thing
+            // this whole screen exists to avoid: a state that reports completion and leaves the user
+            // with nothing to do and no reason given.
+            if (entries.Count == 0) {
+                listing.state = ListingState.Failed;
+                Record(listing, Statuses.ListingFoundNoEntries.With(("url", url)));
+            }
+            else {
+                listing.entriesJson = JsonSerializer.Serialize(entries);
+                listing.entryCount = entries.Count;
+                listing.state = ListingState.Ready;
+                listing.readAt = DateTimeOffset.UtcNow;
+                ClearStatus(listing);
+            }
         }
         catch (OperationCanceledException) {
             listing.state = ListingState.Failed;
