@@ -27,9 +27,10 @@
                 variant="ghost"
                 size="sm"
                 :disabled="alignmentDisabledReason !== null"
-                :aria-label="alignmentDisabledReason ?? 'Chapter alignment'"
                 :title="alignmentDisabledReason ?? undefined"
-            />
+            >
+                Alignment
+            </UButton>
 
             <UButton
                 :to="{ name: 'novel-settings', params: { novelId: id } }"
@@ -206,6 +207,7 @@
                 :rows="visibleRows"
                 :novel-id="id"
                 :script-lang="scriptLang"
+                :show-gaps="showGaps"
             />
         </template>
 
@@ -352,6 +354,11 @@
 
         return newestFirst.value ? [...matched].reverse() : matched;
     });
+
+    // A gap only means something when the rows in front of the table are the whole book. A search
+    // narrows which chapters are shown, and every chapter it filtered out would read as a false gap.
+    // Newest-first only reverses the order, and the table reads the order for itself.
+    const showGaps = computed(() => chapterQuery.value.trim() === "");
 
     // A translation in progress grows from the end, so the chapter worth returning to is rarely the
     // one at the top of the list.

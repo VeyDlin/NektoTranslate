@@ -129,40 +129,46 @@
 
             <!-- Click to select, shift-click for a range, ctrl or cmd to add one. The row is the
                  control: a column of checkboxes would double the clicks for the common case, which
-                 is picking a long run of chapters. -->
-            <div
-                v-for="row in rows"
-                :key="row.chapterId"
-                class="row"
-                :class="{
-                    picked: selection.has(row.index),
-                    bare: row.translation === null,
-                    orphan: row.source === null,
-                }"
-                @click="onRowClick(row.index, $event)"
-            >
-                <span class="cell num">{{ chapterNumber(row.index) }}</span>
+                 is picking a long run of chapters. A gap row takes neither click nor selection - it
+                 is not a chapter, so there is nothing here for it to mean. -->
+            <template v-for="row in tableRows" :key="isGapRow(row) ? row.id : row.chapterId">
+                <div v-if="isGapRow(row)" class="gap">
+                    {{ gapSentence(row) }}
+                </div>
 
-                <span class="cell">
-                    <span class="title">{{ row.title }}</span>
-                    <span v-if="row.source !== null" class="preview">{{ row.source }}</span>
-                    <span v-else class="preview none">no original</span>
-                </span>
+                <div
+                    v-else
+                    class="row"
+                    :class="{
+                        picked: selection.has(row.index),
+                        bare: row.translation === null,
+                        orphan: row.source === null,
+                    }"
+                    @click="onRowClick(row.index, $event)"
+                >
+                    <span class="cell num">{{ chapterNumber(row.index) }}</span>
 
-                <span class="cell">
-                    <template v-if="row.translation">
-                        <span class="title">
-                            {{ row.translation.origin }}
-                            <span v-if="row.versions > 1" class="versions">
-                                · {{ row.versions }} versions
+                    <span class="cell">
+                        <span class="title">{{ row.title }}</span>
+                        <span v-if="row.source !== null" class="preview">{{ row.source }}</span>
+                        <span v-else class="preview none">no original</span>
+                    </span>
+
+                    <span class="cell">
+                        <template v-if="row.translation">
+                            <span class="title">
+                                {{ row.translation.origin }}
+                                <span v-if="row.versions > 1" class="versions">
+                                    · {{ row.versions }} versions
+                                </span>
                             </span>
-                        </span>
-                        <span class="preview">{{ row.translation.text }}</span>
-                    </template>
+                            <span class="preview">{{ row.translation.text }}</span>
+                        </template>
 
-                    <span v-else class="preview none">no translation</span>
-                </span>
-            </div>
+                        <span v-else class="preview none">no translation</span>
+                    </span>
+                </div>
+            </template>
         </div>
     </div>
 </template>
@@ -177,10 +183,28 @@
     import { describe } from "@/utils/status";
 
 
+    // A gap stands for one or more chapter numbers the book has never had. It is drawn between the
+    // real rows around it rather than stored anywhere, and carries only what the sentence needs.
+    interface AlignmentGapRow {
+        gap: true;
+        id: string;
+        fromIndex: number;
+        toIndex: number;
+    }
+
+    type AlignmentTableRow = AlignmentRow | AlignmentGapRow;
+
+
     // Correcting an imported translation that does not line up with the original — the usual cause
     // being a translator's note as the site's first entry, which puts every later chapter one place
     // out.
     const props = defineProps<{ novelId: string }>();
+
+
+    function isGapRow(row: AlignmentTableRow): row is AlignmentGapRow {
+        return "gap" in row;
+    }
+
 
     const id = computed(() => Number(props.novelId));
 
@@ -192,6 +216,53 @@
     const { mutateAsync: deleteRange, isPending: isDeleting } = useDeleteTranslations(id.value);
 
     const rows = computed<AlignmentRow[]>(() => data.value ?? []);
+
+    // Gaps are a rendering of this table and nothing else — `rows` reaches `span` and
+    // `deletableCount` exactly as the server sent it. The endpoint always answers with the whole
+    // book in index order, so unlike ChapterTable there is no filtered or reversed order to guard
+    // against.
+    const tableRows = computed<AlignmentTableRow[]>(() => withGaps(rows.value));
+
+    // Walks the rows in the order the endpoint returned them and turns every jump in the index
+    // sequence into one synthetic row. The walk starts as though chapter zero had already been seen,
+    // so a leading gap counts too: a book whose first chapter is numbered 4 opens with a gap for
+    // 1–3. There is no check after the last chapter, so nothing here claims to know where the book
+    // ends.
+    function withGaps(chapters: AlignmentRow[]): AlignmentTableRow[] {
+        const result: AlignmentTableRow[] = [];
+        let previousIndex: number | null = null;
+
+        for (const chapter of chapters) {
+            const fromIndex = previousIndex === null ? 0 : previousIndex + 1;
+
+            if (chapter.index > fromIndex) {
+                result.push(gapRow(fromIndex, chapter.index - 1));
+            }
+
+            result.push(chapter);
+            previousIndex = chapter.index;
+        }
+
+        return result;
+    }
+
+
+    function gapRow(fromIndex: number, toIndex: number): AlignmentGapRow {
+        return { gap: true, id: `gap:${fromIndex}`, fromIndex, toIndex };
+    }
+
+
+    // The same one-based numbering the rest of the screen shows, because the missing chapters are
+    // numbered exactly as they would have been had they arrived.
+    function gapSentence(row: AlignmentGapRow): string {
+        const from = chapterNumber(row.fromIndex);
+        const to = chapterNumber(row.toIndex);
+
+        return from === to
+            ? `Chapter ${from} is not in the book`
+            : `Chapters ${from}–${to} are not in the book`;
+    }
+
 
     const selection = ref<Set<number>>(new Set());
     const anchor = ref<number | null>(null);
@@ -469,6 +540,16 @@
                 &.orphan .cell:nth-child(2) {
                     opacity: 0.5;
                 }
+            }
+
+            // A full-width sentence rather than a row of cells - it names a stretch of the book
+            // that does not exist, so there is nothing to put in the Original or Translation
+            // columns. Styled like the muted text elsewhere on this screen: `.chosen`, `.planned`.
+            .gap {
+                padding: 0.625rem 1rem;
+                border-bottom: 1px solid var(--ui-border);
+                font-size: var(--nt-text-sm);
+                color: var(--ui-text-muted);
             }
 
             .cell {
