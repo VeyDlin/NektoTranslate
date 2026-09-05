@@ -26,9 +26,13 @@ public class MarkdownConversion(IChapterHtmlSanitizer sanitizer) : IMarkdownConv
             // Tags with no Markdown equivalent are kept as inline HTML rather than discarded. That
             // is what carries furigana through: Markdown has no syntax for it, but it permits the
             // HTML, and dropping it at import would be irreversible.
-            UnknownTags = ReverseMarkdown.Config.UnknownTagsOption.PassThrough,
+            Tags = {
+                Unknown = ReverseMarkdown.Config.UnknownTagsOption.PassThrough
+            },
             GithubFlavored = false,
-            SmartHrefHandling = true
+            Links = {
+                SmartHref = true
+            }
         }
     );
 

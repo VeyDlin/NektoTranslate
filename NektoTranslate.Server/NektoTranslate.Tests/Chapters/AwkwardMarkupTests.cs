@@ -21,7 +21,9 @@ public class AwkwardMarkupTests(ITestOutputHelper output) {
 
     private readonly ReverseMarkdown.Converter converter = new ReverseMarkdown.Converter(
         new ReverseMarkdown.Config {
-            UnknownTags = ReverseMarkdown.Config.UnknownTagsOption.PassThrough
+            Tags = {
+                Unknown = ReverseMarkdown.Config.UnknownTagsOption.PassThrough
+            }
         }
     );
 

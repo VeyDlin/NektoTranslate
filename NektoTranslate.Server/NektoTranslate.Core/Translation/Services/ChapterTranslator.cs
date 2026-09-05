@@ -74,11 +74,17 @@ public class ChapterTranslator(
 
         SegmentedChapter segmented = segmenter.Segment(chapter.sourceMarkdown);
 
+        // Stored beside the Markdown at import, so it is only ever absent for a chapter whose
+        // Markdown is absent too - and that case was refused above. Derived again rather than
+        // asserted, so a chapter that somehow has the one without the other is still translated
+        // from what it has.
+        string sourcePlainText = chapter.sourcePlainText ?? segmented.PlainText();
+
         // A chapter with text that yields no segments is a markup shape the pipeline failed to
         // understand, not an empty chapter. Marking it translated would hand the reader a blank page
         // with a tick beside it, and the loss would only surface once the source was long gone.
         if (segmented.segments.Count == 0) {
-            if (chapter.sourcePlainText?.Trim().Length > 0) {
+            if (sourcePlainText.Trim().Length > 0) {
                 throw new InvalidOperationException(
                     $"Chapter {chapterId} has text but produced no translatable segments; "
                     + "its markup was not recognised."
@@ -121,7 +127,7 @@ public class ChapterTranslator(
         IReadOnlyList<GlossaryTerm> terms = await glossary.SelectForChapterAsync(
             novel.id,
             language,
-            chapter.sourcePlainText,
+            sourcePlainText,
             cancellationToken
         );
 

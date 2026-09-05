@@ -1,4 +1,3 @@
-using Mediator;
 using Microsoft.AspNetCore.Mvc;
 using NektoTranslate.Parsing.Contracts;
 using NektoTranslate.Parsing.Services;
@@ -9,7 +8,7 @@ namespace NektoTranslate.Parsing.Controllers;
 
 [ApiController]
 [Route("api/parsing")]
-public class ParsingController(IMediator mediator, ISiteParser parser) : ControllerBase {
+public class ParsingController(ISiteParser parser) : ControllerBase {
 
     // Answered without visiting the site: which parser claims a URL depends only on its host name,
     // so the user can be told whether a link is readable before anything is downloaded.
