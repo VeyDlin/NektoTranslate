@@ -113,9 +113,14 @@ export function useTranslationStream(novelId: MaybeRefOrGetter<number | null>): 
 
             // Imported chapters land as the job runs, not in one batch at the end, so the chapter
             // list is only worth refetching once there is nothing left to add — settling is that
-            // signal, and it fires once per job rather than once per chapter.
+            // signal, and it fires once per job rather than once per chapter. The listing's "In the
+            // book" column is a join against those same chapters, so it goes stale at the same
+            // moment and is refreshed by the same signal.
             if (state === "Completed" || state === "Failed" || state === "Cancelled") {
                 void queryClient.invalidateQueries({ queryKey: chaptersKey(novel) });
+                void queryClient.invalidateQueries({
+                    queryKey: listingKey(novel, decodeImportKind(payload.kind)),
+                });
             }
         });
 
