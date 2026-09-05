@@ -160,11 +160,21 @@
                     </template>
                 </p>
 
-                <!-- The case this screen could not hold until now: a translation of chapters the book has no
-                     original for. Refusing them is right when the offset is simply wrong, and wrong when the
-                     original does not exist anywhere — only the user knows which, so they are told the count
-                     and asked. -->
-                <div v-if="missingCount > 0" class="orphans">
+                <!-- A book with no chapters at all is somebody else's translation and nothing more, and
+                     there is nothing in it an offset could be wrong against - so its chapters are made
+                     without asking. The switch below is for a book that has some chapters, where an entry
+                     landing outside them is as likely a wrong offset as a missing original, and only the
+                     user knows which. -->
+                <div v-if="bookIsEmpty && selectedLinks.length > 0" class="orphans">
+                    <span class="text">
+                        The book has no chapters yet, so
+                        {{ selectedLinks.length === 1 ? "the entry" : "every entry" }}
+                        will be created as a chapter with no original — readable and editable, but nothing
+                        to translate from.
+                    </span>
+                </div>
+
+                <div v-else-if="missingCount > 0" class="orphans">
                     <USwitch v-model="createMissing" />
 
                     <span class="text">
@@ -479,6 +489,14 @@
         .filter((_, position) => !existingIndices.value.has(startAtNumber.value - 1 + position))
         .length);
 
+    // Known to be empty, not merely not loaded yet: until the chapter list has arrived the screen
+    // behaves as though the book had chapters, which only costs a moment of the switch being shown.
+    const bookIsEmpty = computed(() => chapterData.value !== undefined && chapterData.value.length === 0);
+
+    // What the import is actually told. The switch is the user's answer for a book with chapters;
+    // an empty book has already answered.
+    const willCreateMissing = computed(() => createMissing.value || bookIsEmpty.value);
+
     function getRowId(link: ListingEntry): string {
         return link.sourceUrl;
     }
@@ -576,7 +594,7 @@
             chapters: selectedLinks.value.map(entry => ({ sourceUrl: entry.sourceUrl, title: entry.title })),
             language: language.value,
             startAtChapterIndex: startAtNumber.value - 1,
-            createMissingChapters: createMissing.value,
+            createMissingChapters: willCreateMissing.value,
             replaceExisting: replaceExisting.value,
         });
 
