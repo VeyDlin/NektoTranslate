@@ -5,6 +5,12 @@ import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vite";
 
 
+// Where the dev server sends /api and /hubs. The default is the application's own port; the
+// override exists so a second server - a scratch build on another port, against a scratch
+// library - can be driven from a second dev server without editing this file under the first.
+const apiTarget: string = process.env.NEKTO_API ?? "http://127.0.0.1:5080";
+
+
 export default defineConfig({
     plugins: [
         vue(),
@@ -90,11 +96,11 @@ export default defineConfig({
         // as production rather than on a looser one.
         proxy: {
             "/api": {
-                target: "http://127.0.0.1:5080",
+                target: apiTarget,
                 changeOrigin: true,
             },
             "/hubs": {
-                target: "http://127.0.0.1:5080",
+                target: apiTarget,
                 changeOrigin: true,
                 ws: true,
             },

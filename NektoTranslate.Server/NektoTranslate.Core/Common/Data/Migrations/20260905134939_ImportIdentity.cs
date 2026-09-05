@@ -29,14 +29,19 @@ namespace NektoTranslate.Common.Data.Migrations
             // those rows already implied.
             migrationBuilder.Sql(
                 """
+                -- Joined through the chapter's index, not the item's chapterId: the translation
+                -- branch of the import runner only ever recorded the index it landed on, and every
+                -- translation item in the history has chapterId NULL. A join on it matched nothing.
                 UPDATE chapter_translations
                 SET sourceUrl = (
                     SELECT i.sourceUrl
                     FROM import_job_items i
                     JOIN import_jobs j ON j.id = i.jobId
+                    JOIN chapters c ON c.id = chapter_translations.chapterId
                     WHERE j.kind = 1            -- ImportKind.Translation
                       AND i.state = 1           -- ImportItemState.Imported
-                      AND i.chapterId = chapter_translations.chapterId
+                      AND j.novelId = c.novelId
+                      AND i.chapterIndex = c.chapter_index
                       AND j.language = chapter_translations.language
                     ORDER BY i.finishedAt DESC
                     LIMIT 1
