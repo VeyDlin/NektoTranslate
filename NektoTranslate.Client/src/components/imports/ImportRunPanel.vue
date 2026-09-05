@@ -188,13 +188,17 @@
 </script>
 
 <style scoped lang="scss">
+    // Lives in the top pane of the import screens' split, and shrinks to whatever height the pane
+    // allows rather than holding its own: the head, the bar and the summary keep their room, and the
+    // report below them takes what is left. The pane's boundary is the separator, so there is no
+    // border of its own to double it.
     .run {
-        flex: none;
+        flex: 0 1 auto;
+        min-height: 0;
         display: flex;
         flex-direction: column;
         gap: 0.625rem;
         padding: 0.75rem 1.5rem;
-        border-bottom: 1px solid var(--ui-border);
 
         .run-head {
             display: flex;
@@ -264,10 +268,12 @@
             }
         }
 
-        // Capped and scrolled rather than allowed to grow: a four-hundred-chapter import would
-        // otherwise push the picker below it off the screen entirely.
+        // Scrolled rather than capped at a height of its own: how much of the screen a
+        // four-hundred-chapter report gets is the split's boundary to decide, and the list fills
+        // that and scrolls the rest.
         .items {
-            max-height: 22rem;
+            flex: 0 1 auto;
+            min-height: 0;
             overflow-y: auto;
             margin: 0;
             padding: 0;

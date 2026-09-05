@@ -58,167 +58,177 @@
              behind a one-tab-per-site queue look like nothing had happened. -->
         <p class="status" :class="statusTone">{{ statusText }}</p>
 
-        <ImportRunPanel :novel-id="id" kind="Translation" />
-
-        <Transition name="pick">
-            <div v-if="links.length > 0" class="picked">
-                <span>{{ formatCount(selectedLinks.length) }} of {{ formatCount(links.length) }} chosen</span>
-
-                <!-- The translation usually covers a run of chapters, not the whole book: entries one
-                     to twenty when only those were translated by a human. -->
-                <UInput
-                    v-model="rangeSpec"
-                    size="xs"
-                    class="range"
-                    placeholder="1-20"
-                    aria-label="Entries to pick, written as 1-20"
-                    :disabled="jobActive"
-                    @keydown.enter="selectRange"
-                />
-
-                <UButton
-                    size="xs"
-                    color="neutral"
-                    variant="ghost"
-                    :disabled="jobActive || rangeSpec.trim() === ''"
-                    @click="selectRange"
-                >
-                    Pick entries
-                </UButton>
-
-                <UButton size="xs" color="neutral" variant="ghost" :disabled="jobActive" @click="selectAll">
-                    Select all
-                </UButton>
-
-                <!-- Always here, whether or not the last read found anything new - a button that
-                     shows up only sometimes is a button whose absence has to be read as an answer. -->
-                <UButton
-                    size="xs"
-                    color="neutral"
-                    variant="ghost"
-                    :disabled="jobActive || newEntryCount === 0"
-                    @click="selectNew"
-                >
-                    Select new
-                </UButton>
-
-                <UButton size="xs" color="neutral" variant="ghost" :disabled="jobActive" @click="rowSelection = {}">
-                    Clear
-                </UButton>
-
-                <USwitch v-model="replaceExisting" :disabled="jobActive" label="Replace what the book already has" />
-
-                <span class="gap" />
-
-                <span class="starts">First chosen entry becomes chapter</span>
-
-                <UInputNumber
-                    v-model="startAtNumber"
-                    :min="1"
-                    :max="100000"
-                    :disabled="jobActive"
-                    size="sm"
-                    class="start"
-                    @update:model-value="touchStartAt"
-                />
-
-                <span class="spacer" />
-
-                <UButton
-                    size="sm"
-                    class="import"
-                    :disabled="selectedLinks.length === 0 || jobActive"
-                    :loading="starting"
-                    @click="runImport"
-                >
-                    {{ importLabel }}
-                </UButton>
-            </div>
-        </Transition>
-
-        <!-- The one thing this screen exists to get right. Translation sites routinely open with a
-             translator's note, so entry one is not chapter one, and every later chapter inherits the
-             mistake. Showing the mapping before the import makes that visible while it is still
-             free to fix. -->
-        <p v-if="selectedLinks.length > 0" class="mapping">
-            <strong>{{ firstTitle }}</strong> → chapter {{ startAtNumber }}
-            <template v-if="selectedLinks.length > 1">
-                &nbsp;·&nbsp;
-                <strong>{{ lastTitle }}</strong> → chapter {{ startAtNumber + selectedLinks.length - 1 }}
+        <!-- The report above and the picker below used to be one fixed stack fighting over a single
+             screen: enough room to read a long per-chapter report crowded the table out, and enough
+             room for the table buried the report behind its own scrollbar. The split lets the reader
+             drag the boundary to whichever side needs it right now. -->
+        <ResizableSplit :top-visible="job !== null" storage-key="import-split:translation">
+            <template #top>
+                <ImportRunPanel :novel-id="id" kind="Translation" />
             </template>
-            <template v-if="alreadyImportedCount > 0">
-                &nbsp;·&nbsp;{{ formatCount(alreadyImportedCount) }} already in the book will be
-                {{ replaceExisting ? "replaced" : "skipped" }}
-            </template>
-        </p>
 
-        <!-- The case this screen could not hold until now: a translation of chapters the book has no
-             original for. Refusing them is right when the offset is simply wrong, and wrong when the
-             original does not exist anywhere — only the user knows which, so they are told the count
-             and asked. -->
-        <div v-if="missingCount > 0" class="orphans">
-            <USwitch v-model="createMissing" />
+            <template #bottom>
+                <Transition name="pick">
+                    <div v-if="links.length > 0" class="picked">
+                        <span>{{ formatCount(selectedLinks.length) }} of {{ formatCount(links.length) }} chosen</span>
 
-            <span class="text">
-                <strong>{{ formatCount(missingCount) }}</strong>
-                {{ missingCount === 1 ? "entry lands on a chapter" : "entries land on chapters" }}
-                the book does not have.
-                <template v-if="createMissing">
-                    {{ missingCount === 1 ? "It" : "They" }} will be created with no original —
-                    readable and editable, but nothing to translate from.
-                </template>
-                <template v-else>
-                    {{ missingCount === 1 ? "It" : "They" }} will be reported and skipped. Turn this
-                    on if the original does not exist anywhere.
-                </template>
-            </span>
-        </div>
+                        <!-- The translation usually covers a run of chapters, not the whole book: entries one
+                             to twenty when only those were translated by a human. -->
+                        <UInput
+                            v-model="rangeSpec"
+                            size="xs"
+                            class="range"
+                            placeholder="1-20"
+                            aria-label="Entries to pick, written as 1-20"
+                            :disabled="jobActive"
+                            @keydown.enter="selectRange"
+                        />
 
-        <UTable
-            v-if="links.length > 0"
-            v-model:row-selection="rowSelection"
-            :row-selection-options="rowSelectionOptions"
-            :data="links"
-            :columns="columns"
-            :get-row-id="getRowId"
-            :virtualize="{ estimateSize: 40, overscan: 14 }"
-            sticky
-            class="flex-1 min-h-0"
-            :ui="{ th: 'py-2 text-xs font-normal text-dimmed', td: 'py-0 h-10' }"
-        >
-            <!-- Fixed width so a row moving from nothing to "Chapter 12" never shifts the column
-                 beside it, and every value here names the row's state on screen rather than leaving a
-                 disabled checkbox to explain itself. -->
-            <template #relationship-cell="{ row }">
-                <span v-if="row.original.state === 'Imported'" class="relationship">
-                    {{ importedLabel(row.original) }}
-                </span>
+                        <UButton
+                            size="xs"
+                            color="neutral"
+                            variant="ghost"
+                            :disabled="jobActive || rangeSpec.trim() === ''"
+                            @click="selectRange"
+                        >
+                            Pick entries
+                        </UButton>
 
-                <span
-                    v-else-if="row.original.state === 'Failed'"
-                    class="relationship failed"
-                    :title="row.original.error === null ? undefined : describe(row.original.error)"
+                        <UButton size="xs" color="neutral" variant="ghost" :disabled="jobActive" @click="selectAll">
+                            Select all
+                        </UButton>
+
+                        <!-- Always here, whether or not the last read found anything new - a button that
+                             shows up only sometimes is a button whose absence has to be read as an answer. -->
+                        <UButton
+                            size="xs"
+                            color="neutral"
+                            variant="ghost"
+                            :disabled="jobActive || newEntryCount === 0"
+                            @click="selectNew"
+                        >
+                            Select new
+                        </UButton>
+
+                        <UButton size="xs" color="neutral" variant="ghost" :disabled="jobActive" @click="rowSelection = {}">
+                            Clear
+                        </UButton>
+
+                        <USwitch v-model="replaceExisting" :disabled="jobActive" label="Replace existing" />
+
+                        <span class="gap" />
+
+                        <span class="starts">First entry becomes chapter</span>
+
+                        <UInputNumber
+                            v-model="startAtNumber"
+                            :min="1"
+                            :max="100000"
+                            :disabled="jobActive"
+                            size="sm"
+                            class="start"
+                            @update:model-value="touchStartAt"
+                        />
+
+                        <span class="spacer" />
+
+                        <UButton
+                            size="sm"
+                            class="import"
+                            :disabled="selectedLinks.length === 0 || jobActive"
+                            :loading="starting"
+                            @click="runImport"
+                        >
+                            {{ importLabel }}
+                        </UButton>
+                    </div>
+                </Transition>
+
+                <!-- The one thing this screen exists to get right. Translation sites routinely open with a
+                     translator's note, so entry one is not chapter one, and every later chapter inherits the
+                     mistake. Showing the mapping before the import makes that visible while it is still
+                     free to fix. -->
+                <p v-if="selectedLinks.length > 0" class="mapping">
+                    <strong>{{ firstTitle }}</strong> → chapter {{ startAtNumber }}
+                    <template v-if="selectedLinks.length > 1">
+                        &nbsp;·&nbsp;
+                        <strong>{{ lastTitle }}</strong> → chapter {{ startAtNumber + selectedLinks.length - 1 }}
+                    </template>
+                    <template v-if="alreadyImportedCount > 0">
+                        &nbsp;·&nbsp;{{ formatCount(alreadyImportedCount) }} already in the book will be
+                        {{ replaceExisting ? "replaced" : "skipped" }}
+                    </template>
+                </p>
+
+                <!-- The case this screen could not hold until now: a translation of chapters the book has no
+                     original for. Refusing them is right when the offset is simply wrong, and wrong when the
+                     original does not exist anywhere — only the user knows which, so they are told the count
+                     and asked. -->
+                <div v-if="missingCount > 0" class="orphans">
+                    <USwitch v-model="createMissing" />
+
+                    <span class="text">
+                        <strong>{{ formatCount(missingCount) }}</strong>
+                        {{ missingCount === 1 ? "entry lands on a chapter" : "entries land on chapters" }}
+                        the book does not have.
+                        <template v-if="createMissing">
+                            {{ missingCount === 1 ? "It" : "They" }} will be created with no original —
+                            readable and editable, but nothing to translate from.
+                        </template>
+                        <template v-else>
+                            {{ missingCount === 1 ? "It" : "They" }} will be reported and skipped. Turn this
+                            on if the original does not exist anywhere.
+                        </template>
+                    </span>
+                </div>
+
+                <UTable
+                    v-if="links.length > 0"
+                    v-model:row-selection="rowSelection"
+                    :row-selection-options="rowSelectionOptions"
+                    :data="links"
+                    :columns="columns"
+                    :get-row-id="getRowId"
+                    :virtualize="{ estimateSize: 40, overscan: 14 }"
+                    sticky
+                    class="flex-1 min-h-0"
+                    :ui="{ th: 'py-2 text-xs font-normal text-dimmed', td: 'py-0 h-10' }"
                 >
-                    Failed
-                </span>
+                    <!-- Fixed width so a row moving from nothing to "Chapter 12" never shifts the column
+                         beside it, and every value here names the row's state on screen rather than leaving a
+                         disabled checkbox to explain itself. -->
+                    <template #relationship-cell="{ row }">
+                        <span v-if="row.original.state === 'Imported'" class="relationship">
+                            {{ importedLabel(row.original) }}
+                        </span>
 
-                <UBadge v-else-if="row.original.isNew" label="New" color="info" variant="subtle" size="sm" />
+                        <span
+                            v-else-if="row.original.state === 'Failed'"
+                            class="relationship failed"
+                            :title="row.original.error === null ? undefined : describe(row.original.error)"
+                        >
+                            Failed
+                        </span>
+
+                        <UBadge v-else-if="row.original.isNew" label="New" color="info" variant="subtle" size="sm" />
+                    </template>
+                </UTable>
+
+                <div v-else-if="job === null" class="blank">
+                    <h1>Continue someone else's translation</h1>
+                    <p>
+                        Paste the contents page of a translation this book already has. It is stored beside
+                        the original exactly as our own output would be, so the glossary can read back what
+                        the previous translator called each character — which is what keeps chapter twenty-one
+                        using the names of chapters one to twenty.
+                    </p>
+                    <p>
+                        Nothing is ever overwritten. A chapter that already has a
+                        {{ language }} translation is reported and skipped.
+                    </p>
+                </div>
             </template>
-        </UTable>
-
-        <div v-else-if="job === null" class="blank">
-            <h1>Continue someone else's translation</h1>
-            <p>
-                Paste the contents page of a translation this book already has. It is stored beside
-                the original exactly as our own output would be, so the glossary can read back what
-                the previous translator called each character — which is what keeps chapter twenty-one
-                using the names of chapters one to twenty.
-            </p>
-            <p>
-                Nothing is ever overwritten. A chapter that already has a
-                {{ language }} translation is reported and skipped.
-            </p>
-        </div>
+        </ResizableSplit>
     </div>
 </template>
 
@@ -227,6 +237,7 @@
     import type { ListingEntry } from "@/types/models/domain";
 
     import { computed, h, ref, resolveComponent, watch } from "vue";
+    import ResizableSplit from "@/components/common/ResizableSplit.vue";
     import ImportRunPanel from "@/components/imports/ImportRunPanel.vue";
     import { useActivity, useStartImport } from "@/composables/useActivity";
     import { useChapters } from "@/composables/useChapters";
@@ -651,6 +662,9 @@
             }
         }
 
+        // One line, always. Labels that wrapped to two lines made the bar twice as tall on the
+        // screens where they did not fit, and a control bar whose height depends on the window is
+        // a control bar that shoves the table under it around.
         .picked {
             flex: none;
             display: flex;
@@ -659,6 +673,7 @@
             padding: 0.5rem 1.5rem;
             border-bottom: 1px solid var(--ui-border);
             background: var(--ui-bg-elevated);
+            white-space: nowrap;
 
             .range {
                 width: 7rem;
