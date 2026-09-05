@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.Json;
 using ClaudeCodeSdk;
 using ClaudeCodeSdk.Types;
 using Microsoft.EntityFrameworkCore;
@@ -7,6 +6,7 @@ using NektoTranslate.Chapters.Entities;
 using NektoTranslate.Chapters.Enums;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Common.Models;
+using NektoTranslate.Glossary.Entities;
 using NektoTranslate.Glossary.Services;
 using NektoTranslate.Novels.Entities;
 using NektoTranslate.Settings.Entities;
@@ -95,11 +95,19 @@ public class ChapterRepairer(
             .Where(term => term.novelId == novel.id && term.language == language)
             .ToListAsync(cancellationToken);
 
+        // Renderings the source-term pipeline settled on for chapters that have their original
+        // beside them - a name learned there belongs in a chapter that has no original at all just
+        // as much as a term VoiceLearner read straight off the translation.
+        List<GlossaryEntry> knownGlossaryEntries = await database.glossaryEntries
+            .AsNoTracking()
+            .Where(entry => entry.novelId == novel.id && entry.language == language)
+            .ToListAsync(cancellationToken);
+
         // Only the terms this chapter's own text actually mentions go into the prompt, the same
         // discipline SelectForChapterAsync applies to the glossary - sending every term the book has
         // ever settled would grow every request with the book instead of with the chapter.
-        IReadOnlyList<TranslationTerm> terms = RepairPrompt.SelectRelevantTerms(
-            knownTerms,
+        IReadOnlyList<RepairTerm> terms = RepairPrompt.SelectRelevantTerms(
+            RepairPrompt.MergeTerms(knownTerms, knownGlossaryEntries),
             current.plainText,
             engine.glossary.maxInflectionLength
         );
@@ -201,7 +209,7 @@ public class ChapterRepairer(
         string language,
         string model,
         VoiceProfile? voice,
-        IReadOnlyList<TranslationTerm> terms,
+        IReadOnlyList<RepairTerm> terms,
         string previousTail,
         string carriedTail,
         IReadOnlyList<string> batch,
@@ -252,7 +260,7 @@ public class ChapterRepairer(
         string language,
         string model,
         VoiceProfile? voice,
-        IReadOnlyList<TranslationTerm> terms,
+        IReadOnlyList<RepairTerm> terms,
         string previousTail,
         string carriedTail,
         IReadOnlyList<string> batch,
@@ -312,6 +320,14 @@ public class ChapterRepairer(
 }
 
 
+// One term offered to a repair, whichever of the two tables it came from. A TranslationTerm is
+// read straight off this book's own translated chapters and carries every inflection actually
+// seen there; a GlossaryEntry only ever carries the single rendering the source-term pipeline
+// settled on. Reducing both to this shape is what lets SelectRelevantTerms and BuildSystemPrompt
+// treat them alike instead of learning two glossaries' worth of quirks.
+public sealed record RepairTerm(string term, IReadOnlyList<string> variants, string? notes);
+
+
 // The parts of a repair that need neither the database nor the model, kept apart and public so they
 // can be tested without either: which of the book's settled terms a chapter's own text actually
 // mentions, how far a continuity tail reaches, and what the repair prompt tells the model. The
@@ -319,8 +335,35 @@ public class ChapterRepairer(
 // not invent back - so it is worth being able to assert on directly rather than only by reading it.
 public static class RepairPrompt {
 
-    public static IReadOnlyList<TranslationTerm> SelectRelevantTerms(
-        IReadOnlyList<TranslationTerm> terms,
+    // Combines both of the book's sources of a settled rendering into one list, keyed by the
+    // rendering itself. A TranslationTerm and a GlossaryEntry can describe the same name - one
+    // read off a chapter with no original, the other settled from a chapter that had one - and
+    // when they do, the TranslationTerm wins: it is read off this book's own prose and carries
+    // the variants actually seen there, where a GlossaryEntry carries none.
+    public static IReadOnlyList<RepairTerm> MergeTerms(
+        IReadOnlyList<TranslationTerm> translationTerms,
+        IReadOnlyList<GlossaryEntry> glossaryEntries
+    ) {
+        Dictionary<string, RepairTerm> merged = new Dictionary<string, RepairTerm>(StringComparer.Ordinal);
+
+        foreach (GlossaryEntry entry in glossaryEntries) {
+            merged[entry.targetTerm] = new RepairTerm(entry.targetTerm, [], entry.notes);
+        }
+
+        foreach (TranslationTerm term in translationTerms) {
+            merged[term.term] = new RepairTerm(
+                term.term,
+                VoicePrompt.DecodeVariants(term.variantsJson).ToList(),
+                term.notes
+            );
+        }
+
+        return merged.Values.ToList();
+    }
+
+
+    public static IReadOnlyList<RepairTerm> SelectRelevantTerms(
+        IReadOnlyList<RepairTerm> terms,
         string plainText,
         int maxInflectionLength
     ) {
@@ -345,7 +388,7 @@ public static class RepairPrompt {
     public static string BuildSystemPrompt(
         string language,
         VoiceProfile? voice,
-        IReadOnlyList<TranslationTerm> terms,
+        IReadOnlyList<RepairTerm> terms,
         string previousChapterTail,
         string carriedTail,
         int segmentCount,
@@ -405,7 +448,7 @@ public static class RepairPrompt {
             prompt.AppendLine();
             prompt.AppendLine("GLOSSARY - these renderings are already established. Use them exactly.");
 
-            foreach (TranslationTerm term in terms) {
+            foreach (RepairTerm term in terms) {
                 prompt.Append("- ").Append(term.term);
 
                 if (!string.IsNullOrWhiteSpace(term.notes)) {
@@ -444,28 +487,17 @@ public static class RepairPrompt {
     }
 
 
-    private static bool Mentions(TranslationTerm term, string plainText, int maxInflectionLength) {
+    private static bool Mentions(RepairTerm term, string plainText, int maxInflectionLength) {
         if (TermMatching.Contains(plainText, term.term, maxInflectionLength)) {
             return true;
         }
 
-        foreach (string variant in DecodeVariants(term.variantsJson)) {
+        foreach (string variant in term.variants) {
             if (TermMatching.Contains(plainText, variant, maxInflectionLength)) {
                 return true;
             }
         }
 
         return false;
-    }
-
-
-    // A term whose variants failed to store as valid JSON is not a reason to fail the whole repair -
-    // it is simply treated as having no variants, and matched on its canonical form alone.
-    private static IReadOnlyList<string> DecodeVariants(string variantsJson) {
-        try {
-            return JsonSerializer.Deserialize<List<string>>(variantsJson) ?? [];
-        } catch (JsonException) {
-            return [];
-        }
     }
 }

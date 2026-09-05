@@ -22,7 +22,12 @@ public sealed record ChapterTranslationRequest(
     // How much source may go into one request. Travels with the request for the same reason the
     // model does - it is derived from settings the user can change, and a translator holding its
     // own copy would keep cutting to a budget that no longer matches the configured model.
-    ChunkBudget? budget = null
+    ChunkBudget? budget = null,
+    // The latest VoiceProfile learned for this novel and language, if one exists. Distinct from
+    // recentContext: that is a short window of nearby chapters shown as source/translation pairs,
+    // while this is the standing summary of how the book's human translator writes, learned once
+    // from every chapter that had a translation to learn from.
+    string? voiceSummary = null
 ) {
 
     public ChunkBudget effectiveBudget => budget ?? ChunkBudget.Default;

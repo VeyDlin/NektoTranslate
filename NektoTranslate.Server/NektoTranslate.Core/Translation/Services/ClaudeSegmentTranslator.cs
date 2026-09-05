@@ -240,7 +240,7 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
     }
 
 
-    private static string BuildSystemPrompt(ChapterTranslationRequest request, int attempt) {
+    public static string BuildSystemPrompt(ChapterTranslationRequest request, int attempt) {
         StringBuilder prompt = new StringBuilder();
 
         // Naming each unwanted reflex separately is what suppresses it. A general "output only the
@@ -314,6 +314,19 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
             }
         }
 
+        // Learned once from the chapters a human actually translated, as opposed to the short
+        // window below sampled from whatever chapters happen to be nearby. Placed first because it
+        // is the standing voice of the book; the recent-context window beneath it is a reminder,
+        // not a second, competing source of the same thing.
+        if (!string.IsNullOrWhiteSpace(request.voiceSummary)) {
+            prompt.AppendLine();
+            prompt.AppendLine(
+                "TRANSLATOR'S VOICE - how this book's human translator writes, learned from their "
+                + "chapters. Match it."
+            );
+            prompt.AppendLine(request.voiceSummary);
+        }
+
         if (request.recentContext.Count > 0) {
             prompt.AppendLine();
             // The window now contains source lines as well as their translations, so the instruction
@@ -321,8 +334,8 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
             // untranslated source in the prompt will helpfully translate it and return the wrong
             // number of segments.
             prompt.AppendLine(
-                "VOICE - already-finished work from earlier chapters, shown as source lines each "
-                + "followed by its translation after \"-> \". It is there so you can match the "
+                "RECENT WORK - already-finished work from earlier chapters, shown as source lines "
+                + "each followed by its translation after \"-> \". It is there so you can match the "
                 + "established voice and the way this translator handles names, register and "
                 + "sentence structure. None of it is work to be done: do not translate it, do not "
                 + "repeat it, and do not include it in your output."

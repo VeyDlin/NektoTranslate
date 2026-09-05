@@ -139,6 +139,15 @@ public class ChapterTranslator(
             cancellationToken
         );
 
+        // Same query ChapterRepairer uses to find the profile it repairs by - a translate run
+        // should match the same learned voice a repair would enforce, so the two must not drift
+        // apart by reading it differently.
+        VoiceProfile? voiceProfile = await database.voiceProfiles
+            .AsNoTracking()
+            .Where(profile => profile.novelId == novel.id && profile.language == language)
+            .OrderByDescending(profile => profile.createdAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
         ChapterTranslationOutcome outcome = await translator.TranslateAsync(
             new ChapterTranslationRequest(
                 novel.sourceLanguage,
@@ -150,7 +159,8 @@ public class ChapterTranslator(
                 novel.styleGuide,
                 novel.normalizeQuotes,
                 novel.model,
-                ChunkBudget.From(applicationSettings, engine.batching)
+                ChunkBudget.From(applicationSettings, engine.batching),
+                voiceProfile?.summary
             ),
             text => notifier.TranslationDeltaAsync(novel.id, chapter.id, text),
             new DatabaseBatchCache(database, chapter.id, language, novel.model),

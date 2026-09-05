@@ -1,3 +1,4 @@
+using NektoTranslate.Glossary.Entities;
 using NektoTranslate.Glossary.Services;
 using NektoTranslate.Translation.Entities;
 using NektoTranslate.Translation.Services;
@@ -16,9 +17,9 @@ public class RepairPromptTests {
 
     [Fact]
     public void ATermIsSelectedWhenItsCanonicalFormAppearsInTheChapter() {
-        List<TranslationTerm> terms = [Term("Иван", "[]")];
+        IReadOnlyList<RepairTerm> terms = RepairPrompt.MergeTerms([Term("Иван", "[]")], []);
 
-        IReadOnlyList<TranslationTerm> selected = RepairPrompt.SelectRelevantTerms(
+        IReadOnlyList<RepairTerm> selected = RepairPrompt.SelectRelevantTerms(
             terms,
             "Иван вошёл в комнату.",
             TermMatching.DefaultMaxInflectionLength
@@ -30,9 +31,9 @@ public class RepairPromptTests {
 
     [Fact]
     public void ATermAbsentFromTheChapterIsNotSelected() {
-        List<TranslationTerm> terms = [Term("Иван", "[]")];
+        IReadOnlyList<RepairTerm> terms = RepairPrompt.MergeTerms([Term("Иван", "[]")], []);
 
-        IReadOnlyList<TranslationTerm> selected = RepairPrompt.SelectRelevantTerms(
+        IReadOnlyList<RepairTerm> selected = RepairPrompt.SelectRelevantTerms(
             terms,
             "Сестра открыла занавеску.",
             TermMatching.DefaultMaxInflectionLength
@@ -49,9 +50,9 @@ public class RepairPromptTests {
     public void AVariantAloneStillSelectsTheTerm() {
         // "Кобаяши" is not a prefix of "Кобаяси", so only the recorded variant can match here - the
         // canonical form alone would not.
-        List<TranslationTerm> terms = [Term("Кобаяши", "[\"Кобаяси\"]")];
+        IReadOnlyList<RepairTerm> terms = RepairPrompt.MergeTerms([Term("Кобаяши", "[\"Кобаяси\"]")], []);
 
-        IReadOnlyList<TranslationTerm> selected = RepairPrompt.SelectRelevantTerms(
+        IReadOnlyList<RepairTerm> selected = RepairPrompt.SelectRelevantTerms(
             terms,
             "Кобаяси вошёл в комнату.",
             TermMatching.DefaultMaxInflectionLength
@@ -65,9 +66,9 @@ public class RepairPromptTests {
     // matched on its canonical form alone instead of throwing.
     [Fact]
     public void MalformedVariantsJsonIsIgnoredRatherThanThrown() {
-        List<TranslationTerm> terms = [Term("Иван", "not json")];
+        IReadOnlyList<RepairTerm> terms = RepairPrompt.MergeTerms([Term("Иван", "not json")], []);
 
-        IReadOnlyList<TranslationTerm> selected = RepairPrompt.SelectRelevantTerms(
+        IReadOnlyList<RepairTerm> selected = RepairPrompt.SelectRelevantTerms(
             terms,
             "Иван вошёл в комнату.",
             TermMatching.DefaultMaxInflectionLength
@@ -79,15 +80,56 @@ public class RepairPromptTests {
 
     [Fact]
     public void SelectedTermsComeBackLongestFirst() {
-        List<TranslationTerm> terms = [Term("Ли", "[]"), Term("Александра", "[]")];
+        IReadOnlyList<RepairTerm> terms = RepairPrompt.MergeTerms([Term("Ли", "[]"), Term("Александра", "[]")], []);
 
-        IReadOnlyList<TranslationTerm> selected = RepairPrompt.SelectRelevantTerms(
+        IReadOnlyList<RepairTerm> selected = RepairPrompt.SelectRelevantTerms(
             terms,
             "Ли и Александра вышли вместе.",
             TermMatching.DefaultMaxInflectionLength
         );
 
         Assert.Equal(["Александра", "Ли"], selected.Select(term => term.term));
+    }
+
+
+    // A term the source-term pipeline settled on from a chapter that has its original is offered to
+    // a repair exactly as a TranslationTerm would be, so a name learned there is enforced in a
+    // chapter that has no original to check it against.
+    [Fact]
+    public void AGlossaryEntryMentionedInTheChapterReachesThePrompt() {
+        IReadOnlyList<RepairTerm> terms = RepairPrompt.MergeTerms(
+            [],
+            [Entry("Ханако", "the younger sister")]
+        );
+
+        IReadOnlyList<RepairTerm> selected = RepairPrompt.SelectRelevantTerms(
+            terms,
+            "Ханако вошла в комнату.",
+            TermMatching.DefaultMaxInflectionLength
+        );
+
+        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, selected, "", "", 1, 1);
+
+        Assert.Contains("Ханако (the younger sister)", prompt);
+    }
+
+
+    // The two tables can settle the same rendering independently - one from a chapter with no
+    // original, the other from the source-term pipeline reading a chapter that has one. The
+    // TranslationTerm must win, because it is read off this book's own prose and carries the
+    // variants actually seen there, which the GlossaryEntry never does.
+    [Fact]
+    public void ATranslationTermWinsTheDedupeOverAGlossaryEntryOfTheSameTerm() {
+        GlossaryEntry entry = Entry("Иван", "from the glossary");
+        TranslationTerm term = Term("Иван", "[\"Ваня\"]");
+        term.notes = "from the translation";
+
+        IReadOnlyList<RepairTerm> merged = RepairPrompt.MergeTerms([term], [entry]);
+
+        RepairTerm result = Assert.Single(merged);
+        Assert.Equal("Иван", result.term);
+        Assert.Equal(["Ваня"], result.variants);
+        Assert.Equal("from the translation", result.notes);
     }
 
 
@@ -153,7 +195,9 @@ public class RepairPromptTests {
         TranslationTerm term = Term("Иван", "[]");
         term.notes = "the older brother";
 
-        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, [term], "", "", 1, 1);
+        IReadOnlyList<RepairTerm> terms = RepairPrompt.MergeTerms([term], []);
+
+        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, terms, "", "", 1, 1);
 
         Assert.Contains("Иван (the older brother)", prompt);
     }
@@ -186,6 +230,17 @@ public class RepairPromptTests {
             language = "Russian",
             term = term,
             variantsJson = variantsJson
+        };
+    }
+
+
+    private static GlossaryEntry Entry(string targetTerm, string? notes) {
+        return new GlossaryEntry {
+            novelId = 1,
+            language = "Russian",
+            sourceTerm = targetTerm,
+            targetTerm = targetTerm,
+            notes = notes
         };
     }
 }
