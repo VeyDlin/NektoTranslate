@@ -25,13 +25,21 @@ public sealed partial record Status(
 
     // Fills {name} placeholders in the English text and keeps the values alongside, so the fallback
     // reads naturally and a translation still gets the raw values.
+    //
+    // A chapter's position is the one value that must not reach a person as it is stored. Chapters
+    // are indexed from zero everywhere in the database and numbered from one everywhere a reader
+    // looks, and every sentence here that names a chapter is read by a reader - so "There is no
+    // chapter 0" was reported, for the chapter the list calls 1. The shift happens here, once, for
+    // the keys that carry a position, rather than at each of the call sites that would otherwise
+    // each have to remember it: pass the index the entity holds, and both the rendered text and the
+    // kept value say the number the reader counts from.
     public Status With(params (string name, object? value)[] values) {
         Dictionary<string, object?> merged = args is null
             ? new Dictionary<string, object?>()
             : new Dictionary<string, object?>(args);
 
         foreach ((string name, object? value) in values) {
-            merged[name] = value;
+            merged[name] = IsChapterPosition(name) && value is int index ? index + 1 : value;
         }
 
         string filled = Placeholder().Replace(text, match => {
@@ -46,4 +54,11 @@ public sealed partial record Status(
 
     [GeneratedRegex(@"\{(\w+)\}")]
     private static partial Regex Placeholder();
+
+
+    // The placeholder names that carry a chapter's position. {index} is the chapter a status is
+    // about; {target} is where a move would have put one.
+    private static bool IsChapterPosition(string name) {
+        return name == "index" || name == "target";
+    }
 }

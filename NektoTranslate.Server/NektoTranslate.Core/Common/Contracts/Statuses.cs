@@ -9,6 +9,10 @@ namespace NektoTranslate.Common.Contracts;
 //
 // Members are grouped by the screen that shows them rather than by the service that raises them,
 // because that is how a person looks them up.
+//
+// {index} and {target} are chapter positions. Callers pass the 0-based index the entity holds;
+// Status.With shifts it to the number the reader counts from, in the text and in the kept value
+// alike, so no call site has to remember the arithmetic and no sentence can say "chapter 0".
 public static class Statuses {
 
     // --- importing an existing translation ---------------------------------------------------
