@@ -141,10 +141,38 @@ public class ImportItemRunnerTests {
     }
 
 
+    // A replace overwrote the chapter rather than creating one, but the outcome ImportAsync hands
+    // back looks exactly like a fresh import - a chapter, no rejection - so it has to read the same
+    // way here too, with no branch of its own for replaced.
+    [Fact]
+    public async Task AReplacedOriginalIsReportedAsImported() {
+        FakeSiteParser parser = new FakeSiteParser { chapter = new ParsedChapter("t", "<p>Text</p>", "https://example.test/1") };
+        Chapter existing = new Chapter { id = 4, index = 2, title = "x", sourceMarkdown = "x", sourcePlainText = "x" };
+
+        FakeChapterImportService originals = new FakeChapterImportService {
+            result = new ChapterImportResult([new ChapterImportOutcome(0, existing, null, replaced: true)])
+        };
+
+        ImportJob job = OriginalsJob();
+        job.replaceExisting = true;
+
+        ImportJobItem item = Item();
+        await Runner(parser, originals).RunAsync(job, item);
+
+        Assert.Equal(ImportItemState.Imported, item.state);
+        Assert.Equal(4, item.chapterId);
+        Assert.Equal(2, item.chapterIndex);
+        Assert.Null(item.statusCode);
+    }
+
+
     [Fact]
     public async Task ATranslationItemLandsOnStartIndexPlusPosition() {
         FakeSiteParser parser = new FakeSiteParser { chapter = new ParsedChapter("t", "<p>Text</p>", "https://example.test/1") };
-        FakeTranslationImportService translations = new FakeTranslationImportService { result = new TranslationImportResult(1, []) };
+
+        FakeTranslationImportService translations = new FakeTranslationImportService {
+            result = new TranslationImportResult(1, [], 0, [new TranslationLanding(13, 1, 1, false)])
+        };
 
         ImportJobItem item = Item(position: 3);
         await Runner(parser, translations: translations).RunAsync(TranslationJob(startAt: 10), item);
@@ -152,6 +180,24 @@ public class ImportItemRunnerTests {
         Assert.Equal(ImportItemState.Imported, item.state);
         Assert.Equal(13, item.chapterIndex);
         Assert.Null(item.statusCode);
+    }
+
+
+    // The gap this fixes: the translation branch used to leave chapterId null on every item it
+    // landed, because nothing before this line ever read one off the result.
+    [Fact]
+    public async Task ATranslationItemRecordsTheChapterIdItLandedOn() {
+        FakeSiteParser parser = new FakeSiteParser { chapter = new ParsedChapter("t", "<p>Text</p>", "https://example.test/1") };
+
+        FakeTranslationImportService translations = new FakeTranslationImportService {
+            result = new TranslationImportResult(1, [], 0, [new TranslationLanding(0, 77, 501, false)])
+        };
+
+        ImportJobItem item = Item();
+        await Runner(parser, translations: translations).RunAsync(TranslationJob(), item);
+
+        Assert.Equal(ImportItemState.Imported, item.state);
+        Assert.Equal(77, item.chapterId);
     }
 
 
@@ -181,7 +227,7 @@ public class ImportItemRunnerTests {
         FakeSiteParser parser = new FakeSiteParser { chapter = new ParsedChapter("t", "<p>Text</p>", "https://example.test/1") };
 
         FakeTranslationImportService translations = new FakeTranslationImportService {
-            result = new TranslationImportResult(0, [new TranslationImportRejection(0, Statuses.TranslationAlreadyExists.With(("index", 0), ("language", "Russian")))])
+            result = new TranslationImportResult(0, [new TranslationImportRejection(0, Statuses.TranslationAlreadyExists.With(("index", 0), ("language", "Russian")))], 0, [])
         };
 
         ImportJobItem item = Item();
@@ -197,7 +243,7 @@ public class ImportItemRunnerTests {
         FakeSiteParser parser = new FakeSiteParser { chapter = new ParsedChapter("t", "<p>Text</p>", "https://example.test/1") };
 
         FakeTranslationImportService translations = new FakeTranslationImportService {
-            result = new TranslationImportResult(0, [new TranslationImportRejection(0, Statuses.NoChapterAtIndex.With(("index", 0)))])
+            result = new TranslationImportResult(0, [new TranslationImportRejection(0, Statuses.NoChapterAtIndex.With(("index", 0)))], 0, [])
         };
 
         ImportJobItem item = Item();
@@ -205,6 +251,31 @@ public class ImportItemRunnerTests {
 
         Assert.Equal(ImportItemState.Failed, item.state);
         Assert.Equal("NO_CHAPTER_AT_INDEX", item.statusCode);
+    }
+
+
+    // The job's own answer, not a per-item choice - it has to reach whichever import a run's kind
+    // calls for, the same way createMissingChapters already does.
+    [Fact]
+    public async Task ReplaceExistingReachesBothServices() {
+        FakeSiteParser parser = new FakeSiteParser { chapter = new ParsedChapter("t", "<p>Text</p>", "https://example.test/1") };
+
+        Chapter created = new Chapter { id = 1, index = 0, title = "x", sourceMarkdown = "x", sourcePlainText = "x" };
+        FakeChapterImportService originals = new FakeChapterImportService { result = new ChapterImportResult([new ChapterImportOutcome(0, created, null)]) };
+
+        ImportJob originalsJob = OriginalsJob();
+        originalsJob.replaceExisting = true;
+        await Runner(parser, originals).RunAsync(originalsJob, Item());
+
+        Assert.True(originals.lastReplaceExisting);
+
+        FakeTranslationImportService translations = new FakeTranslationImportService();
+
+        ImportJob translationJob = TranslationJob();
+        translationJob.replaceExisting = true;
+        await Runner(parser, translations: translations).RunAsync(translationJob, Item());
+
+        Assert.True(translations.lastReplaceExisting);
     }
 
 
@@ -336,13 +407,17 @@ public class ImportItemRunnerTests {
 
         public IReadOnlyList<ImportedChapter>? lastChapters;
 
+        public bool lastReplaceExisting;
+
 
         public Task<ChapterImportResult> ImportAsync(
             long novelId,
             IReadOnlyList<ImportedChapter> chapters,
+            bool replaceExisting = false,
             CancellationToken cancellationToken = default
         ) {
             lastChapters = chapters;
+            lastReplaceExisting = replaceExisting;
 
             return Task.FromResult(result);
         }
@@ -351,11 +426,13 @@ public class ImportItemRunnerTests {
 
     private sealed class FakeTranslationImportService : ITranslationImportService {
 
-        public TranslationImportResult result = new TranslationImportResult(1, []);
+        public TranslationImportResult result = new TranslationImportResult(1, [], 0, [new TranslationLanding(0, 1, 1, false)]);
 
         public IReadOnlyList<ImportedTranslation> lastTranslations = [];
 
         public bool lastCreateMissingChapters;
+
+        public bool lastReplaceExisting;
 
 
         public Task<TranslationImportResult> ImportAsync(
@@ -363,10 +440,12 @@ public class ImportItemRunnerTests {
             string language,
             IReadOnlyList<ImportedTranslation> translations,
             bool createMissingChapters = false,
+            bool replaceExisting = false,
             CancellationToken cancellationToken = default
         ) {
             lastTranslations = translations;
             lastCreateMissingChapters = createMissingChapters;
+            lastReplaceExisting = replaceExisting;
 
             return Task.FromResult(result);
         }

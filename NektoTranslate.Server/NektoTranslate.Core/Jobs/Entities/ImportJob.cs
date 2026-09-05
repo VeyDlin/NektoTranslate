@@ -42,6 +42,13 @@ public class ImportJob {
     // that is paused, resumed or picked up after a restart has to decide the same way throughout.
     public bool createMissingChapters { get; set; }
 
+    // For either kind: whether an entry that matches something the book already holds overwrites it
+    // instead of being skipped or refused - the same address for an original, the same chapter and
+    // language for a translation. Held on the job for the same reason createMissingChapters is: a run
+    // that is paused, resumed, retried or picked up after a restart has to decide the same way
+    // throughout, not ask again on every chapter it reaches.
+    public bool replaceExisting { get; set; }
+
     public JobState state { get; set; } = JobState.Queued;
 
     public int processedCount { get; set; }

@@ -18,6 +18,7 @@ public interface ITranslationImportService {
         string language,
         IReadOnlyList<ImportedTranslation> translations,
         bool createMissingChapters = false,
+        bool replaceExisting = false,
         CancellationToken cancellationToken = default
     );
 }
@@ -31,9 +32,12 @@ public interface ITranslationImportService {
 // to recover a rendering from a translation the book has - it simply had nothing but our own output
 // to read until now.
 //
-// Stored as ChapterTranslation with origin Imported, beside anything else the chapter has. Nothing
-// is overwritten: a chapter that already has a translation in this language is reported and skipped,
-// because replacing one silently is how a user loses work they paid for.
+// Stored as ChapterTranslation with origin Imported, beside anything else the chapter has. A chapter
+// that already has a translation in this language is matched by that identity - the chapter and the
+// language, never the position it arrived at - and by default is reported and skipped, because
+// replacing one silently is how a user loses work they paid for. replaceExisting turns that same
+// match into a version instead of a refusal: the new text is added beside the old rather than in
+// place of it, so nothing already read, edited or paid for disappears because the site changed.
 public class TranslationImportService(
     NektoDbContext database,
     IMarkdownConversion conversion,
@@ -45,12 +49,13 @@ public class TranslationImportService(
         string language,
         IReadOnlyList<ImportedTranslation> translations,
         bool createMissingChapters = false,
+        bool replaceExisting = false,
         CancellationToken cancellationToken = default
     ) {
         List<TranslationImportRejection> rejected = [];
 
         if (translations.Count == 0) {
-            return new TranslationImportResult(0, rejected);
+            return new TranslationImportResult(0, rejected, 0, []);
         }
 
         // Both lookups are done once for the whole batch rather than per entry. A two-thousand
@@ -77,6 +82,11 @@ public class TranslationImportService(
         int imported = 0;
         List<long> touched = [];
 
+        // Rows added this call, kept alongside the chapter and the entry that produced them rather
+        // than only their chapterId, because the one thing a caller needs about where a translation
+        // landed - its own id - does not exist until SaveChangesAsync has run.
+        List<(int chapterIndex, ChapterTranslation translation, bool replaced)> added = [];
+
         foreach (ImportedTranslation entry in translations) {
             if (!chapterIds.TryGetValue(entry.chapterIndex, out long chapterId)) {
                 rejected.Add(new TranslationImportRejection(
@@ -87,7 +97,13 @@ public class TranslationImportService(
                 continue;
             }
 
-            if (!alreadyTranslated.Add(chapterId)) {
+            // Add rather than Contains: this both reads whether the chapter already carried this
+            // language - from the database, or from an earlier entry in this same batch - and marks
+            // it as carrying one now, so a second entry aimed at the same chapter sees it too. Without
+            // replaceExisting that already-carries is still a refusal, unchanged from before.
+            bool alreadyHasTranslation = !alreadyTranslated.Add(chapterId);
+
+            if (alreadyHasTranslation && !replaceExisting) {
                 rejected.Add(new TranslationImportRejection(
                     entry.chapterIndex,
                     Statuses.TranslationAlreadyExists.With(("index", entry.chapterIndex), ("language", language))
@@ -108,7 +124,10 @@ public class TranslationImportService(
                 continue;
             }
 
-            database.chapterTranslations.Add(new ChapterTranslation {
+            // A replace never touches the rows already on this chapter - it only adds one more, the
+            // way a hand edit would. The earlier text stays exactly as translated, reachable the same
+            // way any other past version is.
+            ChapterTranslation translation = new ChapterTranslation {
                 chapterId = chapterId,
                 language = language,
                 markdown = TranslationBlocks.Join(blocks),
@@ -120,7 +139,10 @@ public class TranslationImportService(
                 sourceUrl = entry.sourceUrl,
                 model = null,
                 costUsd = null
-            });
+            };
+
+            database.chapterTranslations.Add(translation);
+            added.Add((entry.chapterIndex, translation, alreadyHasTranslation));
 
             touched.Add(chapterId);
             imported++;
@@ -133,7 +155,12 @@ public class TranslationImportService(
         // which chapters a run pays to translate.
         await stateSync.SyncAsync(novelId, touched, cancellationToken);
 
-        return new TranslationImportResult(imported, rejected, createdChapters);
+        // Read only now: translation.id does not exist until the row behind it has been saved.
+        List<TranslationLanding> landed = added
+            .Select(entry => new TranslationLanding(entry.chapterIndex, entry.translation.chapterId, entry.translation.id, entry.replaced))
+            .ToList();
+
+        return new TranslationImportResult(imported, rejected, createdChapters, landed);
     }
 
 

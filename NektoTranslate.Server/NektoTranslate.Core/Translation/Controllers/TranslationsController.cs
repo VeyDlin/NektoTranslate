@@ -79,11 +79,14 @@ public class TranslationsController(
         [FromBody] ImportTranslationRequest request,
         CancellationToken cancellationToken
     ) {
+        // A pasted batch has no site behind it to have changed since, so - the same as a pasted
+        // original - there is nothing for it to replace.
         return await importer.ImportAsync(
             novelId,
             request.language,
             request.translations,
             request.createMissingChapters,
+            replaceExisting: false,
             cancellationToken
         );
     }
