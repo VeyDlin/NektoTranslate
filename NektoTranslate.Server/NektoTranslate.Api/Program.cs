@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Common.Extensions;
+using NektoTranslate.Common.Http;
 using NektoTranslate.Common.Models;
 using NektoTranslate.Translation.Hubs;
 
@@ -40,6 +41,12 @@ builder.Services
     });
 
 builder.Services.AddSignalR();
+
+// A request that fails answers with a status the interface can show, never with an empty 500. See
+// StatusExceptionHandler for what goes out and why. ProblemDetails stays registered as the fallback
+// the framework insists on, though the handler answers everything itself.
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<StatusExceptionHandler>();
 // Handlers reach for the DbContext, which is scoped. Mediator registers them as singletons unless
 // told otherwise, and a singleton holding a scoped context is both a lifetime violation and a
 // connection that never gets released.
@@ -74,6 +81,7 @@ using (IServiceScope scope = app.Services.CreateScope()) {
     scope.ServiceProvider.GetRequiredService<NektoDbContext>().Database.Migrate();
 }
 
+app.UseExceptionHandler();
 app.UseDefaultFiles();
 app.UseStaticFiles();
 

@@ -154,6 +154,24 @@ public static class Statuses {
         "The established rendering \"{source}\" -> \"{target}\" was not used."
     );
 
+    // --- anything a request could not do, said the same way as a deliberate refusal --------------
+
+    // A service refused: the request was well-formed, but the moment or the data was wrong for it -
+    // "this chapter has no translation to repair", "no translation between chapters 1 and 20 to
+    // learn from". Services write those messages for a reader, so the message is the sentence.
+    public static readonly Status RequestRefused = new(
+        "REQUEST_REFUSED",
+        "{reason}"
+    );
+
+    // Anything else that escaped: a bug, a file that could not be read, a dependency that broke.
+    // The reason is still shown - this is one person's own machine, and a sentence they can search
+    // for beats a number they cannot.
+    public static readonly Status ServerFailed = new(
+        "SERVER_FAILED",
+        "Something went wrong on the server: {reason}"
+    );
+
     // --- models ---------------------------------------------------------------------------------
 
     public static readonly Status LocalModelNotConfigured = new(
