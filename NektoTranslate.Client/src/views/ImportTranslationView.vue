@@ -148,46 +148,65 @@
                      translator's note, so entry one is not chapter one, and every later chapter inherits the
                      mistake. Showing the mapping before the import makes that visible while it is still
                      free to fix. -->
-                <p v-if="selectedLinks.length > 0" class="mapping">
-                    <strong>{{ firstTitle }}</strong> → chapter {{ startAtNumber }}
-                    <template v-if="selectedLinks.length > 1">
-                        &nbsp;·&nbsp;
-                        <strong>{{ lastTitle }}</strong> → chapter {{ startAtNumber + selectedLinks.length - 1 }}
+                <!-- Always on screen once there is a list, at one fixed height: it changes what it says,
+                     never whether it is there, so ticking an entry does not push the list down under
+                     the pointer that just ticked it. -->
+                <p v-if="links.length > 0" class="mapping">
+                    <template v-if="selectedLinks.length > 0">
+                        <strong>{{ firstTitle }}</strong> → chapter {{ startAtNumber }}
+                        <template v-if="selectedLinks.length > 1">
+                            &nbsp;·&nbsp;
+                            <strong>{{ lastTitle }}</strong> → chapter {{ startAtNumber + selectedLinks.length - 1 }}
+                        </template>
+                        <template v-if="alreadyImportedCount > 0">
+                            &nbsp;·&nbsp;{{ formatCount(alreadyImportedCount) }} already in the book will be
+                            {{ replaceExisting ? "replaced" : "skipped" }}
+                        </template>
                     </template>
-                    <template v-if="alreadyImportedCount > 0">
-                        &nbsp;·&nbsp;{{ formatCount(alreadyImportedCount) }} already in the book will be
-                        {{ replaceExisting ? "replaced" : "skipped" }}
+                    <template v-else>
+                        Nothing chosen yet. Once entries are chosen, this line says which chapter each end
+                        of the choice lands on.
                     </template>
                 </p>
 
                 <!-- A book with no chapters at all is somebody else's translation and nothing more, and
                      there is nothing in it an offset could be wrong against - so its chapters are made
-                     without asking. The switch below is for a book that has some chapters, where an entry
-                     landing outside them is as likely a wrong offset as a missing original, and only the
-                     user knows which. -->
-                <div v-if="bookIsEmpty && selectedLinks.length > 0" class="orphans">
-                    <span class="text">
-                        The book has no chapters yet, so
-                        {{ selectedLinks.length === 1 ? "the entry" : "every entry" }}
-                        will be created as a chapter with no original — readable and editable, but nothing
-                        to translate from.
-                    </span>
-                </div>
-
-                <div v-else-if="missingCount > 0" class="orphans">
-                    <USwitch v-model="createMissing" />
+                     without asking, and the switch shows that as on and not the user's to turn off. For a
+                     book that has some chapters, an entry landing outside them is as likely a wrong offset
+                     as a missing original, and only the user knows which. The row is always here, like
+                     the mapping above it, for the same reason. -->
+                <div v-if="links.length > 0" class="orphans">
+                    <USwitch
+                        :model-value="willCreateMissing"
+                        :disabled="bookIsEmpty || jobActive"
+                        aria-label="Create chapters with no original for entries that land where the book has none"
+                        @update:model-value="(value: boolean) => createMissing = value"
+                    />
 
                     <span class="text">
-                        <strong>{{ formatCount(missingCount) }}</strong>
-                        {{ missingCount === 1 ? "entry lands on a chapter" : "entries land on chapters" }}
-                        the book does not have.
-                        <template v-if="createMissing">
-                            {{ missingCount === 1 ? "It" : "They" }} will be created with no original —
-                            readable and editable, but nothing to translate from.
+                        <template v-if="bookIsEmpty">
+                            The book has no chapters yet, so every chosen entry will be created as a chapter
+                            with no original — readable and editable, but nothing to translate from.
+                        </template>
+                        <template v-else-if="selectedLinks.length === 0">
+                            An entry that lands on a chapter the book does not have is reported and skipped —
+                            or, with this on, created as a chapter with no original.
+                        </template>
+                        <template v-else-if="missingCount === 0">
+                            Every chosen entry lands on a chapter the book has.
                         </template>
                         <template v-else>
-                            {{ missingCount === 1 ? "It" : "They" }} will be reported and skipped. Turn this
-                            on if the original does not exist anywhere.
+                            <strong>{{ formatCount(missingCount) }}</strong>
+                            {{ missingCount === 1 ? "entry lands on a chapter" : "entries land on chapters" }}
+                            the book does not have.
+                            <template v-if="createMissing">
+                                {{ missingCount === 1 ? "It" : "They" }} will be created with no original —
+                                readable and editable, but nothing to translate from.
+                            </template>
+                            <template v-else>
+                                {{ missingCount === 1 ? "It" : "They" }} will be reported and skipped. Turn
+                                this on if the original does not exist anywhere.
+                            </template>
                         </template>
                     </span>
                 </div>
@@ -723,12 +742,16 @@
             }
         }
 
+        // Tall enough for its longest sentence on two lines and never shorter, so the row keeps one
+        // height through every state it can be in - the same rule the mapping line above follows.
         .orphans {
             flex: none;
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             gap: 0.75rem;
-            padding: 0.625rem 1.5rem 0.875rem;
+            min-height: 4rem;
+            padding: 0.375rem 1.5rem;
+            border-bottom: 1px solid var(--ui-border);
 
             .text {
                 max-width: 60rem;
@@ -741,13 +764,20 @@
             }
         }
 
+        // One line at a fixed height, whatever it says. A long title is cut with an ellipsis rather
+        // than allowed to wrap, because a second line here would move the whole list below it.
         .mapping {
             flex: none;
+            height: 2.5rem;
             margin: 0;
-            padding: 0.625rem 1.5rem;
+            padding: 0 1.5rem;
             border-bottom: 1px solid var(--ui-border);
             font-size: var(--nt-text-sm);
+            line-height: 2.5rem;
             color: var(--ui-text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
 
             strong {
                 color: var(--ui-text-highlighted);

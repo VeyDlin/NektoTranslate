@@ -148,15 +148,24 @@
                      turned re-importing three chapters deleted by mistake into three chapters appended at the
                      end instead of the three that were actually missing. Showing where the pick lands makes
                      that visible before the import runs, the same as the translation screen's own line. -->
-                <p v-if="selectedLinks.length > 0" class="mapping">
-                    <strong>{{ firstTitle }}</strong> → chapter {{ startAtNumber }}
-                    <template v-if="selectedLinks.length > 1">
-                        &nbsp;·&nbsp;
-                        <strong>{{ lastTitle }}</strong> → chapter {{ startAtNumber + selectedLinks.length - 1 }}
+                <!-- Always on screen once there is a list, at one fixed height: it changes what it says,
+                     never whether it is there, so ticking an entry does not push the list down under
+                     the pointer that just ticked it. -->
+                <p v-if="links.length > 0" class="mapping">
+                    <template v-if="selectedLinks.length > 0">
+                        <strong>{{ firstTitle }}</strong> → chapter {{ startAtNumber }}
+                        <template v-if="selectedLinks.length > 1">
+                            &nbsp;·&nbsp;
+                            <strong>{{ lastTitle }}</strong> → chapter {{ startAtNumber + selectedLinks.length - 1 }}
+                        </template>
+                        <template v-if="alreadyImportedCount > 0">
+                            &nbsp;·&nbsp;{{ formatCount(alreadyImportedCount) }} already in the book will be
+                            {{ replaceExisting ? "replaced" : "skipped" }}
+                        </template>
                     </template>
-                    <template v-if="alreadyImportedCount > 0">
-                        &nbsp;·&nbsp;{{ formatCount(alreadyImportedCount) }} already in the book will be
-                        {{ replaceExisting ? "replaced" : "skipped" }}
+                    <template v-else>
+                        Nothing chosen yet. Once chapters are chosen, this line says which chapter each end
+                        of the choice lands on.
                     </template>
                 </p>
 
@@ -673,13 +682,20 @@
             }
         }
 
+        // One line at a fixed height, whatever it says. A long title is cut with an ellipsis rather
+        // than allowed to wrap, because a second line here would move the whole list below it.
         .mapping {
             flex: none;
+            height: 2.5rem;
             margin: 0;
-            padding: 0.625rem 1.5rem;
+            padding: 0 1.5rem;
             border-bottom: 1px solid var(--ui-border);
             font-size: var(--nt-text-sm);
+            line-height: 2.5rem;
             color: var(--ui-text-muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
 
             strong {
                 color: var(--ui-text-highlighted);
