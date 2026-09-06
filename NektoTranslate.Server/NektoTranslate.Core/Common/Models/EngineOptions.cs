@@ -114,6 +114,13 @@ public sealed record GlossaryOptions {
 
     // A proper noun is short. Anything longer is a model explaining itself instead of listing.
     public int maxTermLength { get; init; } = 80;
+
+    // A misspelled name is the one thing a reader notices first, so a repair offers every Person,
+    // Place and Organization term regardless of whether the chapter's own text mentions it - that is
+    // exactly the case the mention test cannot catch. Uncapped, a book with a large cast would grow
+    // every repair request by its whole roster of names instead of by the chapter; 150 comfortably
+    // covers a normal cast while still bounding the worst case.
+    public int maxNamesPerRepair { get; init; } = 150;
 }
 
 

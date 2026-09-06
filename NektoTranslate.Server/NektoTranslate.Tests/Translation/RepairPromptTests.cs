@@ -1,4 +1,5 @@
 using NektoTranslate.Glossary.Entities;
+using NektoTranslate.Glossary.Enums;
 using NektoTranslate.Glossary.Services;
 using NektoTranslate.Translation.Entities;
 using NektoTranslate.Translation.Services;
@@ -92,6 +93,71 @@ public class RepairPromptTests {
     }
 
 
+    // A misspelled name is precisely the one thing the mention test cannot find - the reader notices
+    // it before anything else - so a Person, Place or Organization must reach the prompt whether or
+    // not this chapter's own text happens to mention it.
+    [Fact]
+    public void AnUnmentionedPersonReachesThePromptAnyway() {
+        TranslationTerm term = Term("Уолтер Тай", "[]");
+        term.category = GlossaryCategory.Person;
+
+        IReadOnlyList<RepairTerm> terms = RepairPrompt.MergeTerms([term], []);
+
+        IReadOnlyList<RepairTerm> selected = RepairPrompt.SelectRelevantTerms(
+            terms,
+            "Вальтер Тей вошёл в комнату.",
+            TermMatching.DefaultMaxInflectionLength
+        );
+
+        Assert.Equal(["Уолтер Тай"], selected.Select(term => term.term));
+    }
+
+
+    // Everything that is not a Person, Place or Organization keeps the mention discipline exactly as
+    // before - sending every item the book has ever settled would grow every request with the book
+    // instead of with the chapter.
+    [Fact]
+    public void AnUnmentionedItemDoesNotReachThePrompt() {
+        TranslationTerm term = Term("Меч Рассвета", "[]");
+        term.category = GlossaryCategory.Item;
+
+        IReadOnlyList<RepairTerm> terms = RepairPrompt.MergeTerms([term], []);
+
+        IReadOnlyList<RepairTerm> selected = RepairPrompt.SelectRelevantTerms(
+            terms,
+            "В этой главе о нём не говорится.",
+            TermMatching.DefaultMaxInflectionLength
+        );
+
+        Assert.Empty(selected);
+    }
+
+
+    // A name the chapter does mention must never be dropped by the cap for one it does not - the cap
+    // exists to bound an unused roster, not to bump a name the chapter is actively getting wrong.
+    [Fact]
+    public void TheCapKeepsAMentionedRareNameOverAnUnmentionedFrequentOne() {
+        TranslationTerm rare = Term("Ханако", "[]");
+        rare.category = GlossaryCategory.Person;
+        rare.occurrences = 1;
+
+        TranslationTerm frequent = Term("Такеши", "[]");
+        frequent.category = GlossaryCategory.Person;
+        frequent.occurrences = 100;
+
+        IReadOnlyList<RepairTerm> terms = RepairPrompt.MergeTerms([rare, frequent], []);
+
+        IReadOnlyList<RepairTerm> selected = RepairPrompt.SelectRelevantTerms(
+            terms,
+            "Ханако вошла в комнату.",
+            TermMatching.DefaultMaxInflectionLength,
+            1
+        );
+
+        Assert.Equal(["Ханако"], selected.Select(term => term.term));
+    }
+
+
     // A term the source-term pipeline settled on from a chapter that has its original is offered to
     // a repair exactly as a TranslationTerm would be, so a name learned there is enforced in a
     // chapter that has no original to check it against.
@@ -108,7 +174,7 @@ public class RepairPromptTests {
             TermMatching.DefaultMaxInflectionLength
         );
 
-        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, selected, "", "", 1, 1);
+        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, selected, "", "", 1, 1, []);
 
         Assert.Contains("Ханако (the younger sister)", prompt);
     }
@@ -156,7 +222,7 @@ public class RepairPromptTests {
     // removed the prompt starts reading as a translation this class never claims to be.
     [Fact]
     public void ThePromptStatesTheModelMayNotRecoverLostMeaning() {
-        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 1, 1);
+        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 1, 1, []);
 
         Assert.Contains("no reliable original", prompt);
         Assert.Contains("must not invent, guess, or restore meaning", prompt, StringComparison.OrdinalIgnoreCase);
@@ -165,7 +231,7 @@ public class RepairPromptTests {
 
     [Fact]
     public void ThePromptCarriesTheSegmentCountAndTheTargetLanguage() {
-        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 3, 1);
+        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 3, 1, []);
 
         Assert.Contains("Russian", prompt);
         Assert.Contains("exactly 3 segments", prompt);
@@ -182,8 +248,8 @@ public class RepairPromptTests {
             toChapterIndex = 18
         };
 
-        string withVoice = RepairPrompt.BuildSystemPrompt("Russian", voice, [], "", "", 1, 1);
-        string withoutVoice = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 1, 1);
+        string withVoice = RepairPrompt.BuildSystemPrompt("Russian", voice, [], "", "", 1, 1, []);
+        string withoutVoice = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 1, 1, []);
 
         Assert.Contains("Short sentences, dry humour.", withVoice);
         Assert.DoesNotContain("VOICE", withoutVoice);
@@ -197,7 +263,7 @@ public class RepairPromptTests {
 
         IReadOnlyList<RepairTerm> terms = RepairPrompt.MergeTerms([term], []);
 
-        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, terms, "", "", 1, 1);
+        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, terms, "", "", 1, 1, []);
 
         Assert.Contains("Иван (the older brother)", prompt);
     }
@@ -205,8 +271,8 @@ public class RepairPromptTests {
 
     [Fact]
     public void ARetryAttemptRepeatsTheFormatWarning() {
-        string firstAttempt = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 1, 1);
-        string secondAttempt = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 1, 2);
+        string firstAttempt = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 1, 1, []);
+        string secondAttempt = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 1, 2, []);
 
         Assert.DoesNotContain("did not follow this format", firstAttempt);
         Assert.Contains("did not follow this format", secondAttempt);
@@ -216,7 +282,7 @@ public class RepairPromptTests {
     [Fact]
     public void ContinuityAndContinuationTailsAreCarriedWhenPresent() {
         string prompt = RepairPrompt.BuildSystemPrompt(
-            "Russian", null, [], "Конец прошлой главы.", "Конец прошлого куска.", 1, 1
+            "Russian", null, [], "Конец прошлой главы.", "Конец прошлого куска.", 1, 1, []
         );
 
         Assert.Contains("Конец прошлой главы.", prompt);

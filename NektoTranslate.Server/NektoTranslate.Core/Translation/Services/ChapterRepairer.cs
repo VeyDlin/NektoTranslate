@@ -1,12 +1,15 @@
 using System.Text;
+using System.Text.Json;
 using ClaudeCodeSdk;
 using ClaudeCodeSdk.Types;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using NektoTranslate.Chapters.Entities;
 using NektoTranslate.Chapters.Enums;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Common.Models;
 using NektoTranslate.Glossary.Entities;
+using NektoTranslate.Glossary.Enums;
 using NektoTranslate.Glossary.Services;
 using NektoTranslate.Novels.Entities;
 using NektoTranslate.Settings.Entities;
@@ -46,7 +49,8 @@ namespace NektoTranslate.Translation.Services;
 public class ChapterRepairer(
     NektoDbContext database,
     ISettingsService settings,
-    EngineOptions engine
+    EngineOptions engine,
+    ILogger<ChapterRepairer> logger
 ) : IChapterRepairer {
 
     private readonly BatchingOptions batching = engine.batching;
@@ -109,8 +113,15 @@ public class ChapterRepairer(
         IReadOnlyList<RepairTerm> terms = RepairPrompt.SelectRelevantTerms(
             RepairPrompt.MergeTerms(knownTerms, knownGlossaryEntries),
             current.plainText,
-            engine.glossary.maxInflectionLength
+            engine.glossary.maxInflectionLength,
+            engine.glossary.maxNamesPerRepair
         );
+
+        // Every Person, Place and Organization SelectRelevantTerms offered - which, unlike the rest
+        // of the glossary, is already the whole book's roster regardless of what this chapter
+        // mentions. That is exactly the set a "who is who" pass needs to compare a chapter's own
+        // spellings against.
+        IReadOnlyList<RepairTerm> names = terms.Where(term => RepairPrompt.IsName(term.category)).ToList();
 
         string previousTail = await PreviousChapterTailAsync(novel.id, language, chapter.index, cancellationToken);
 
@@ -120,9 +131,18 @@ public class ChapterRepairer(
         (List<string> pieces, List<int> owners) = SegmentChunker.Flatten(blocks, budget);
         List<IReadOnlyList<string>> requestBatches = SegmentChunker.Partition(pieces, budget);
 
+        (IReadOnlyList<NameAlignment> alignments, double alignmentCost) = await AlignNamesAsync(
+            chapter.id,
+            language,
+            applicationSettings.glossaryModel,
+            names,
+            requestBatches,
+            cancellationToken
+        );
+
         List<string> repairedPieces = [];
         string carriedTail = string.Empty;
-        double costUsd = 0;
+        double costUsd = alignmentCost;
 
         for (int index = 0; index < requestBatches.Count; index++) {
             IReadOnlyList<string> batch = requestBatches[index];
@@ -132,6 +152,7 @@ public class ChapterRepairer(
                 novel.model,
                 voice,
                 terms,
+                alignments,
                 previousTail,
                 carriedTail,
                 batch,
@@ -165,6 +186,8 @@ public class ChapterRepairer(
         // A repair that lands successfully is a new usable rendering, so it heals that status back
         // rather than leaving a working chapter flagged as broken.
         chapter.translationState = ChapterTranslationState.Translated;
+
+        await RecordAlignmentVariantsAsync(alignments, names, cancellationToken);
 
         await database.SaveChangesAsync(cancellationToken);
 
@@ -210,6 +233,7 @@ public class ChapterRepairer(
         string model,
         VoiceProfile? voice,
         IReadOnlyList<RepairTerm> terms,
+        IReadOnlyList<NameAlignment> alignments,
         string previousTail,
         string carriedTail,
         IReadOnlyList<string> batch,
@@ -221,6 +245,7 @@ public class ChapterRepairer(
                 model,
                 voice,
                 terms,
+                alignments,
                 previousTail,
                 carriedTail,
                 batch,
@@ -234,6 +259,7 @@ public class ChapterRepairer(
                 model,
                 voice,
                 terms,
+                alignments,
                 previousTail,
                 carriedTail,
                 batch.Take(half).ToList(),
@@ -245,6 +271,7 @@ public class ChapterRepairer(
                 model,
                 voice,
                 terms,
+                alignments,
                 previousTail,
                 carriedTail,
                 batch.Skip(half).ToList(),
@@ -261,6 +288,7 @@ public class ChapterRepairer(
         string model,
         VoiceProfile? voice,
         IReadOnlyList<RepairTerm> terms,
+        IReadOnlyList<NameAlignment> alignments,
         string previousTail,
         string carriedTail,
         IReadOnlyList<string> batch,
@@ -280,7 +308,8 @@ public class ChapterRepairer(
                     previousTail,
                     carriedTail,
                     batch.Count,
-                    attempt
+                    attempt,
+                    alignments
                 ),
                 MaxTurns = 1,
                 ExtraArgs = new Dictionary<string, string?> {
@@ -317,6 +346,141 @@ public class ChapterRepairer(
 
         throw lastFailure!;
     }
+
+
+    // Asks the glossary model, once per request batch, which of the book's established names this
+    // chapter's own text spells differently - the "who is who" pass the rewrite loop below needs its
+    // answer from before it can tell the model to fix a name the mention test never found.
+    //
+    // Run over the same requestBatches the repair loop itself will send, not the chapter as a whole,
+    // so the passage this asks about is exactly the passage size the rest of the pipeline already
+    // treats as one request; a name flagged in an earlier batch is unioned in so it still reaches the
+    // system prompt of every later batch, including the ones it was not itself found in.
+    //
+    // A failure here - the model erroring, or a reply ParseNameAlignments cannot use - must not be
+    // able to break a repair that would otherwise have succeeded: it is caught, logged, and the
+    // repair proceeds with no alignments, exactly as it did before this pass existed.
+    private async Task<(IReadOnlyList<NameAlignment> alignments, double costUsd)> AlignNamesAsync(
+        long chapterId,
+        string language,
+        string model,
+        IReadOnlyList<RepairTerm> names,
+        IReadOnlyList<IReadOnlyList<string>> requestBatches,
+        CancellationToken cancellationToken
+    ) {
+        if (names.Count == 0) {
+            return ([], 0);
+        }
+
+        try {
+            string systemPrompt = RepairPrompt.BuildNameAlignmentSystemPrompt(language, names);
+            Dictionary<string, NameAlignment> unioned = new Dictionary<string, NameAlignment>(StringComparer.Ordinal);
+            double costUsd = 0;
+
+            foreach (IReadOnlyList<string> batch in requestBatches) {
+                string passage = string.Join("\n", batch);
+
+                (string reply, double batchCost) = await AskAsync(systemPrompt, passage, model, cancellationToken);
+                costUsd += batchCost;
+
+                foreach (NameAlignment alignment in RepairPrompt.ParseNameAlignments(
+                    reply,
+                    names,
+                    passage,
+                    engine.glossary.maxInflectionLength
+                )) {
+                    unioned[alignment.written] = alignment;
+                }
+            }
+
+            return (unioned.Values.ToList(), costUsd);
+        } catch (OperationCanceledException) {
+            throw;
+        } catch (Exception failure) {
+            logger.LogWarning(failure, "Could not align established names for chapter {ChapterId}", chapterId);
+
+            return ([], 0);
+        }
+    }
+
+
+    // The next chapter that misspells the same name the same way is then caught by the ordinary
+    // mention test without a second model call - a written form the alignment pass confirmed once
+    // becomes part of the term's own recorded variants instead of being rediscovered, chapter after
+    // chapter, at the glossary model's cost. Only an alignment traced back to a TranslationTerm
+    // qualifies: a GlossaryEntry's aliases are source-language spellings, and a target-language
+    // misspelling has no business among them.
+    private async Task RecordAlignmentVariantsAsync(
+        IReadOnlyList<NameAlignment> alignments,
+        IReadOnlyList<RepairTerm> names,
+        CancellationToken cancellationToken
+    ) {
+        if (alignments.Count == 0) {
+            return;
+        }
+
+        Dictionary<string, long> translationTermIdsByTerm = names
+            .Where(name => name.translationTermId is not null)
+            .ToDictionary(name => name.term, name => name.translationTermId!.Value, StringComparer.Ordinal);
+
+        foreach (NameAlignment alignment in alignments) {
+            if (!translationTermIdsByTerm.TryGetValue(alignment.established, out long translationTermId)) {
+                continue;
+            }
+
+            TranslationTerm row = await database.translationTerms.FirstAsync(
+                candidate => candidate.id == translationTermId,
+                cancellationToken
+            );
+
+            HashSet<string> variants = VoicePrompt.DecodeVariants(row.variantsJson);
+            variants.Add(alignment.written);
+            row.variantsJson = JsonSerializer.Serialize(variants);
+        }
+    }
+
+
+    // The same one-shot, tool-less, single-turn call VoiceLearner.AskAsync makes for its own
+    // mechanical reading-comprehension questions - listing names rather than writing prose is not
+    // what the book's translation model is billed for.
+    private static async Task<(string reply, double costUsd)> AskAsync(
+        string systemPrompt,
+        string prompt,
+        string model,
+        CancellationToken cancellationToken
+    ) {
+        ClaudeCodeOptions options = new ClaudeCodeOptions {
+            Model = model,
+            SystemPrompt = systemPrompt,
+            MaxTurns = 1,
+            ExtraArgs = new Dictionary<string, string?> {
+                { "safe-mode", null },
+                { "tools", "" },
+                { "no-session-persistence", null }
+            }
+        };
+
+        StringBuilder reply = new StringBuilder();
+        double costUsd = 0;
+
+        await foreach (IMessage message in ClaudeQuery.QueryAsync(prompt, options, null, cancellationToken)) {
+            if (message is AssistantMessage assistant) {
+                foreach (TextBlock block in assistant.Content.OfType<TextBlock>()) {
+                    reply.Append(block.Text);
+                }
+            }
+
+            if (message is ResultMessage result) {
+                costUsd += result.TotalCostUsd ?? 0;
+
+                if (result.IsError) {
+                    throw new InvalidOperationException($"Claude Code returned an error: {result.Result}");
+                }
+            }
+        }
+
+        return (reply.ToString(), costUsd);
+    }
 }
 
 
@@ -325,7 +489,30 @@ public class ChapterRepairer(
 // seen there; a GlossaryEntry only ever carries the single rendering the source-term pipeline
 // settled on. Reducing both to this shape is what lets SelectRelevantTerms and BuildSystemPrompt
 // treat them alike instead of learning two glossaries' worth of quirks.
-public sealed record RepairTerm(string term, IReadOnlyList<string> variants, string? notes);
+//
+// category and occurrences come from whichever source produced the term - a GlossaryEntry has no
+// occurrence count of its own, so it carries 0, which only ever affects the order names are capped
+// in, never whether a mentioned one is offered. translationTermId is null unless the row came from
+// a TranslationTerm; it is what lets a later alignment write its confirmed spelling back as a
+// variant of the right row, and what stops it from writing one onto a GlossaryEntry's
+// source-language aliases instead.
+public sealed record RepairTerm(
+    string term,
+    IReadOnlyList<string> variants,
+    string? notes,
+    GlossaryCategory category,
+    int occurrences,
+    long? translationTermId
+);
+
+
+// One name the alignment pass found spelled differently in this chapter than the book has already
+// settled on: written is exactly the spelling this chapter's own text uses, established is the
+// RepairTerm.term it was matched to. Both are known to actually mean something by the time this is
+// constructed - ParseNameAlignments has already dropped a pair whose established value is not one
+// of the offered names, whose written value does not occur in the passage, or that is a no-op
+// because the two sides already agree.
+public sealed record NameAlignment(string written, string established);
 
 
 // The parts of a repair that need neither the database nor the model, kept apart and public so they
@@ -347,14 +534,24 @@ public static class RepairPrompt {
         Dictionary<string, RepairTerm> merged = new Dictionary<string, RepairTerm>(StringComparer.Ordinal);
 
         foreach (GlossaryEntry entry in glossaryEntries) {
-            merged[entry.targetTerm] = new RepairTerm(entry.targetTerm, [], entry.notes);
+            merged[entry.targetTerm] = new RepairTerm(
+                entry.targetTerm,
+                [],
+                entry.notes,
+                entry.category,
+                0,
+                null
+            );
         }
 
         foreach (TranslationTerm term in translationTerms) {
             merged[term.term] = new RepairTerm(
                 term.term,
                 VoicePrompt.DecodeVariants(term.variantsJson).ToList(),
-                term.notes
+                term.notes,
+                term.category,
+                term.occurrences,
+                term.id
             );
         }
 
@@ -362,16 +559,63 @@ public static class RepairPrompt {
     }
 
 
+    // A misspelled name is precisely the thing the mention test below cannot find - the whole reason
+    // this pass exists - so a Person, Place or Organization is offered whether or not this chapter's
+    // own text mentions it. Everything else keeps the mention discipline: sending every technique and
+    // item the book has ever settled would grow every request with the book instead of with the
+    // chapter.
+    //
+    // The name roster is still capped, because an unmentioned name is an assumption that the chapter
+    // needs it - true for a chapter that misspells it, wasted context for one that never touches it
+    // at all. A name this chapter does mention must never be dropped for one it does not, so mentioned
+    // names are kept in full and only the remaining budget, if any, goes to the rest by frequency.
     public static IReadOnlyList<RepairTerm> SelectRelevantTerms(
         IReadOnlyList<RepairTerm> terms,
         string plainText,
-        int maxInflectionLength
+        int maxInflectionLength,
+        int maxNamesPerRepair = 150
     ) {
-        return terms
+        List<RepairTerm> names = terms.Where(term => IsName(term.category)).ToList();
+        List<RepairTerm> others = terms.Where(term => !IsName(term.category)).ToList();
+
+        List<RepairTerm> mentionedNames = names
             .Where(term => Mentions(term, plainText, maxInflectionLength))
+            .OrderByDescending(term => term.occurrences)
+            .ThenBy(term => term.term, StringComparer.Ordinal)
+            .ToList();
+
+        HashSet<string> mentionedTerms = mentionedNames
+            .Select(term => term.term)
+            .ToHashSet(StringComparer.Ordinal);
+
+        List<RepairTerm> unmentionedNames = names
+            .Where(term => !mentionedTerms.Contains(term.term))
+            .OrderByDescending(term => term.occurrences)
+            .ThenBy(term => term.term, StringComparer.Ordinal)
+            .ToList();
+
+        int remainingCap = Math.Max(0, maxNamesPerRepair - mentionedNames.Count);
+
+        List<RepairTerm> selectedNames = mentionedNames.Concat(unmentionedNames.Take(remainingCap)).ToList();
+
+        List<RepairTerm> selectedOthers = others
+            .Where(term => Mentions(term, plainText, maxInflectionLength))
+            .ToList();
+
+        return selectedNames
+            .Concat(selectedOthers)
             .OrderByDescending(term => term.term.Length)
             .ThenBy(term => term.term, StringComparer.Ordinal)
             .ToList();
+    }
+
+
+    // Person, Place and Organization are the categories a reader notices at a glance when they are
+    // wrong; Technique, Item and Other are not. Shared between SelectRelevantTerms, which uses it to
+    // decide what bypasses the mention test, and ChapterRepairer, which uses it to build the roster
+    // the name-alignment pass compares a chapter's own spellings against.
+    public static bool IsName(GlossaryCategory category) {
+        return category is GlossaryCategory.Person or GlossaryCategory.Place or GlossaryCategory.Organization;
     }
 
 
@@ -392,7 +636,8 @@ public static class RepairPrompt {
         string previousChapterTail,
         string carriedTail,
         int segmentCount,
-        int attempt
+        int attempt,
+        IReadOnlyList<NameAlignment> alignments
     ) {
         StringBuilder prompt = new StringBuilder();
 
@@ -459,6 +704,19 @@ public static class RepairPrompt {
             }
         }
 
+        if (alignments.Count > 0) {
+            prompt.AppendLine();
+            prompt.AppendLine(
+                "NAMES IN THIS CHAPTER - this translation spells some established names differently. "
+                + "Write each of these with its established rendering, in every form it takes:"
+            );
+
+            foreach (NameAlignment alignment in alignments) {
+                prompt.Append("- \"").Append(alignment.written).Append("\" -> ").Append(alignment.established);
+                prompt.AppendLine();
+            }
+        }
+
         if (previousChapterTail.Length > 0) {
             prompt.AppendLine();
             prompt.AppendLine(
@@ -479,6 +737,85 @@ public static class RepairPrompt {
         }
 
         return prompt.ToString();
+    }
+
+
+    // The "who is who" pass's own system prompt: every established name the book has, so the model
+    // can compare this chapter's spellings against a roster instead of guessing from the passage
+    // alone. The passage itself is the user message, not part of this - the same split ChapterRepairer
+    // already uses for the rewrite prompt above.
+    public static string BuildNameAlignmentSystemPrompt(string language, IReadOnlyList<RepairTerm> names) {
+        StringBuilder prompt = new StringBuilder();
+
+        prompt.AppendLine(
+            $"You are reading one passage of an existing {language} translation of a light novel. "
+            + "Below is the established rendering of every person, place and organisation in this "
+            + "book."
+        );
+        prompt.AppendLine(
+            "Read the passage and list every name in it that refers to one of these established "
+            + "names but is spelled differently, one per line, exactly in this form: written in the "
+            + "passage | established rendering"
+        );
+        prompt.AppendLine(
+            "Skip a name that is already spelled correctly. List a name only when you are confident "
+            + "it is the same person, place or organisation - never guess."
+        );
+        prompt.AppendLine("If no name in the passage needs correcting, answer NONE. Write nothing else.");
+
+        prompt.AppendLine();
+        prompt.AppendLine("ESTABLISHED NAMES");
+
+        foreach (RepairTerm name in names) {
+            prompt.Append("- ").AppendLine(name.term);
+        }
+
+        return prompt.ToString();
+    }
+
+
+    // What ParseNameAlignments trusts a line to mean is deliberately narrow, because this reply feeds
+    // straight into rewriting the chapter: a pair the model half-invented would make the rewrite hunt
+    // for a spelling that is not actually there. A line survives only when it has exactly one "|", both
+    // sides are non-empty once trimmed, established is one of the names this call actually offered,
+    // written is not simply established repeated back, and written can be found in the passage by the
+    // same rule the rest of the pipeline uses to decide a term is present at all.
+    public static IReadOnlyList<NameAlignment> ParseNameAlignments(
+        string reply,
+        IReadOnlyList<RepairTerm> names,
+        string passagePlainText,
+        int maxInflectionLength
+    ) {
+        HashSet<string> established = names.Select(name => name.term).ToHashSet(StringComparer.Ordinal);
+        Dictionary<string, NameAlignment> byWritten = new Dictionary<string, NameAlignment>(StringComparer.Ordinal);
+
+        foreach (string rawLine in reply.ReplaceLineEndings("\n").Split('\n')) {
+            string line = rawLine.Trim();
+
+            if (line.Length == 0 || line.Equals("NONE", StringComparison.OrdinalIgnoreCase)) {
+                continue;
+            }
+
+            string[] fields = line.Split('|');
+
+            if (fields.Length != 2) {
+                continue;
+            }
+
+            string written = fields[0].Trim();
+            string establishedName = fields[1].Trim();
+
+            if (written.Length == 0
+                || written.Equals(establishedName, StringComparison.Ordinal)
+                || !established.Contains(establishedName)
+                || !TermMatching.Contains(passagePlainText, written, maxInflectionLength)) {
+                continue;
+            }
+
+            byWritten[written] = new NameAlignment(written, establishedName);
+        }
+
+        return byWritten.Values.ToList();
     }
 
 
