@@ -28,7 +28,7 @@ public class StartTranslationJobCommandHandler(ITranslationJobService jobs)
             command.request.toIndex,
             command.request.chapterIds ?? [],
             command.request.budgetUsd,
-            command.request.force,
+            command.request.force ?? false,
             cancellationToken
         );
     }
