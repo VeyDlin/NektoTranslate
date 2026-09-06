@@ -38,6 +38,17 @@ body,
 }
 
 
+// Everything the application draws stacks inside its own context. Nuxt UI's modal, slideover and
+// menus are portalled to the end of <body> with no z-index of their own, relying on coming last;
+// without this, any positioned element inside the app that carries a z-index - a sticky table
+// head, the floating selection bar - sits in the root context above them and paints over the
+// dimmed backdrop and the dialog itself. Isolated, the app is one layer that those portals always
+// come after.
+#app {
+    isolation: isolate;
+}
+
+
 body {
     margin: 0;
     font-family: var(--font-sans);
