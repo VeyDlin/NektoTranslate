@@ -1,5 +1,5 @@
 <template>
-    <UModal v-model:open="open" :title="title" :description="description">
+    <UModal v-model:open="open" :title="title" :description="description" :dismissible="!isDeleting">
         <template #body>
             <div class="body">
                 <!-- Named, not counted. The usual reason to be here is that an import went wrong, and

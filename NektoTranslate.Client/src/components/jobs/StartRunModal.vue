@@ -1,18 +1,21 @@
 <template>
-    <UModal v-model:open="open" :title="copy.title" :description="copy.description">
+    <!-- While the request is out, nothing here can be changed or closed: the parameters it was sent
+         with are the ones it will run with, and a dialog that lets them drift mid-flight would show a
+         run that does not match what is on screen. -->
+    <UModal v-model:open="open" :title="copy.title" :description="copy.description" :dismissible="!isPending">
         <template #body>
             <div class="run">
-                <URadioGroup v-model="mode" :items="modeOptions" />
+                <URadioGroup v-model="mode" :items="modeOptions" :disabled="isPending" />
 
-                <URadioGroup v-model="scope" :items="scopeOptions" />
+                <URadioGroup v-model="scope" :items="scopeOptions" :disabled="isPending" />
 
                 <div v-if="scope === 'Range'" class="range">
                     <UFormField label="From chapter">
-                        <UInputNumber v-model="fromNumber" :min="1" :max="lastNumber" />
+                        <UInputNumber v-model="fromNumber" :min="1" :max="lastNumber" :disabled="isPending" />
                     </UFormField>
 
                     <UFormField label="To chapter">
-                        <UInputNumber v-model="toNumber" :min="1" :max="lastNumber" />
+                        <UInputNumber v-model="toNumber" :min="1" :max="lastNumber" :disabled="isPending" />
                     </UFormField>
                 </div>
 
@@ -21,11 +24,17 @@
                     hint="Optional"
                     description="The run pauses when it reaches this. Nothing already paid for is lost."
                 >
-                    <UInputNumber v-model="budget" :min="0" :step="0.5" placeholder="No ceiling" />
+                    <UInputNumber
+                        v-model="budget"
+                        :min="0"
+                        :step="0.5"
+                        placeholder="No ceiling"
+                        :disabled="isPending"
+                    />
                 </UFormField>
 
                 <div v-if="mode === 'Translate'" class="again">
-                    <USwitch v-model="force" label="Re-translate with current settings" />
+                    <USwitch v-model="force" label="Re-translate with current settings" :disabled="isPending" />
 
                     <p class="detail">
                         Includes chapters that are already translated. Translations are cached against
@@ -87,8 +96,14 @@
                     </p>
                 </div>
 
+                <!-- Reserved whether or not there is anything to say, so a refusal landing here does
+                     not move the buttons under the pointer about to press them. The dialog stays open
+                     on a failure precisely so the parameters can be changed, and the reason has to
+                     still be readable while they are - a toast would be gone by then. -->
+                <p class="outcome" role="alert">{{ failure ?? "" }}</p>
+
                 <div class="actions">
-                    <UButton color="neutral" variant="ghost" @click="open = false">
+                    <UButton color="neutral" variant="ghost" :disabled="isPending" @click="open = false">
                         Cancel
                     </UButton>
 
@@ -107,7 +122,9 @@
     import { computed, ref, watch } from "vue";
     import { useStartJob } from "@/composables/useJobs";
     import { useVoiceProfile } from "@/composables/useVoice";
-    import { chapterNumber, formatCost, formatCount } from "@/utils/format";
+    import { describeFailure } from "@/utils/failure";
+    import { chapterNumber, formatCost, formatCount, jobModeProgressLabel } from "@/utils/format";
+    import { notifySuccess } from "@/utils/notify";
 
 
     const props = defineProps<{
@@ -281,18 +298,49 @@
     ));
 
 
+    // The server's reason when a start was refused. Cleared the moment anything about the request
+    // changes, because a sentence about the previous attempt would then be describing parameters
+    // that are no longer on screen.
+    const failure = ref<string | null>(null);
+
+    watch([open, mode, scope, fromNumber, toNumber, budget, force], () => {
+        failure.value = null;
+    });
+
+    // What the toast says once the run is on its way: the mode's own progress word and the scope,
+    // so a reader who looks up from another screen knows which run just started and where to
+    // watch it.
+    const startedTitle = computed(() => {
+        const scopeWords = scope.value === "Range"
+            ? `chapters ${fromNumber.value}–${toNumber.value}`
+            : `${formatCount(targets.value.length)} ${targets.value.length === 1 ? "chapter" : "chapters"}`;
+
+        return `${jobModeProgressLabel(mode.value)}: ${scopeWords}`;
+    });
+
+
     async function start(): Promise<void> {
-        await mutateAsync({
-            mode: mode.value,
-            scopeKind: scope.value,
-            fromIndex: scope.value === "Range" ? fromNumber.value - 1 : null,
-            toIndex: scope.value === "Range" ? toNumber.value - 1 : null,
-            chapterIds: scope.value === "Selection" ? [...props.selectedIds] : null,
-            budgetUsd: budget.value ?? null,
-            force: mode.value === "Translate" ? force.value : null,
-        });
+        failure.value = null;
+
+        try {
+            await mutateAsync({
+                mode: mode.value,
+                scopeKind: scope.value,
+                fromIndex: scope.value === "Range" ? fromNumber.value - 1 : null,
+                toIndex: scope.value === "Range" ? toNumber.value - 1 : null,
+                chapterIds: scope.value === "Selection" ? [...props.selectedIds] : null,
+                budgetUsd: budget.value ?? null,
+                force: mode.value === "Translate" ? force.value : null,
+            });
+        }
+        catch (error) {
+            failure.value = describeFailure(error);
+
+            return;
+        }
 
         open.value = false;
+        notifySuccess(startedTitle.value, "Progress is in the bar at the bottom of the screen; the report is in Runs.");
     }
 </script>
 
@@ -354,6 +402,16 @@
                 font-size: var(--nt-text-sm);
                 color: var(--ui-text-muted);
             }
+        }
+
+        // One line of room kept whether or not a refusal is showing, for the reason the comment in
+        // the template gives: the buttons under it must not move.
+        .outcome {
+            min-height: 1.5rem;
+            margin: 0;
+            font-size: var(--nt-text-sm);
+            line-height: 1.5;
+            color: var(--ui-error);
         }
 
         .actions {

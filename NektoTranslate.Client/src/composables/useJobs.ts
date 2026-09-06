@@ -21,12 +21,15 @@ export function useJobs(novelId: MaybeRefOrGetter<number | null>) {
 }
 
 
+// Quiet on failure: the run dialog keeps a line for the reason and stays open with it, so the user
+// changes a parameter and tries again without hunting for a toast that has already gone.
 export function useStartJob(novelId: MaybeRefOrGetter<number>) {
     const queryClient = useQueryClient();
     const run = useRunStore();
 
     return useMutation({
         mutationFn: (request: StartTranslationJobRequest) => jobsApi.start(toValue(novelId), request),
+        meta: { quiet: true },
         onSuccess: (job) => {
             run.adopt(job);
             void queryClient.invalidateQueries({ queryKey: jobsKey(toValue(novelId)) });

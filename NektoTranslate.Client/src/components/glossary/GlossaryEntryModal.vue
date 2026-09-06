@@ -1,6 +1,7 @@
 <template>
     <UModal
         v-model:open="open"
+        :dismissible="!isPending"
         :title="entry ? 'Edit term' : 'Add a term'"
         :description="entry
             ? 'Saving marks the rendering as set by hand, which outranks anything the model chose.'

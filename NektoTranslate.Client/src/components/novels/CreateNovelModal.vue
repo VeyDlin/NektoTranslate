@@ -1,6 +1,7 @@
 <template>
     <UModal
         v-model:open="open"
+        :dismissible="!isPending"
         title="Add a novel"
         description="Name the book and the languages. You can paste chapters once it exists."
     >
