@@ -73,9 +73,9 @@ export const useRunStore = defineStore("run", () => {
         budgetUsd.value = job.budgetUsd;
         currentChapterId.value = null;
         messages.value = [];
-        currentStep.value = job.currentStep;
-        stepIndex.value = job.stepIndex;
-        stepCount.value = job.stepCount;
+        currentStep.value = job.currentStep ?? null;
+        stepIndex.value = job.stepIndex ?? null;
+        stepCount.value = job.stepCount ?? null;
     }
 
 
@@ -94,9 +94,11 @@ export const useRunStore = defineStore("run", () => {
         processed.value = payload.processed;
         total.value = payload.total;
         costUsd.value = payload.costUsd;
-        currentStep.value = payload.currentStep;
-        stepIndex.value = payload.stepIndex;
-        stepCount.value = payload.stepCount;
+        // `?? null` on purpose: a server built before steps existed sends events without these
+        // fields, and an undefined here reached the strip as the word "undefined" after the dash.
+        currentStep.value = payload.currentStep ?? null;
+        stepIndex.value = payload.stepIndex ?? null;
+        stepCount.value = payload.stepCount ?? null;
     }
 
 

@@ -234,11 +234,21 @@
         return options;
     });
 
-    // Reloaded whenever the dialog opens on Learn from the translation, and again the moment it is
-    // switched to from inside an already-open one — both are "starting fresh", and the chapters
-    // that already carry a translation are the only sensible default range to read a voice from.
+    // Reloaded whenever the dialog opens, and again the moment the mode is switched inside an
+    // already-open one — both are "starting fresh". Opened with chapters ticked, the run is about
+    // those chapters: the whole book as the default there sent a 42-chapter repair for what was meant
+    // to be one, with nothing but a line of small print to say so. Learn from the translation reads a
+    // range instead, and the chapters that already carry a translation are the only sensible one.
     watch([open, mode], ([isOpen, current]) => {
-        if (!isOpen || current !== "LearnVoice") {
+        if (!isOpen) {
+            return;
+        }
+
+        if (current !== "LearnVoice") {
+            if (props.selectedIds.length > 0) {
+                scope.value = "Selection";
+            }
+
             return;
         }
 

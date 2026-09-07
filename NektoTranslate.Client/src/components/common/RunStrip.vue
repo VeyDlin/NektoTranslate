@@ -224,7 +224,7 @@
                 return run.lastMessage ?? "Run finished.";
             }
 
-            return run.currentStep === null
+            return run.currentStep === null || run.currentStep.length === 0
                 ? jobModeProgressLabel(run.mode)
                 : `${jobModeProgressLabel(run.mode)} — ${run.currentStep}`;
         }
