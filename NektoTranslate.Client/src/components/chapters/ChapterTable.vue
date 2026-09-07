@@ -56,10 +56,11 @@
     import type { TableColumn } from "@nuxt/ui";
     import type { ChapterSummary } from "@/types/models/domain";
 
-    import { computed, h, resolveComponent } from "vue";
+    import { computed, h, ref, resolveComponent } from "vue";
     import { RouterLink } from "vue-router";
     import { chapterNumber } from "@/utils/format";
     import { scriptLangIf } from "@/utils/language";
+    import { chapterSpan } from "./chapterSpan";
     import ChapterStateDot from "./ChapterStateDot.vue";
 
 
@@ -105,6 +106,51 @@
         enableRowSelection: (row: { original: ChapterRow }) => !isGapRow(row.original),
     };
 
+    // The row a checkbox was last clicked on - the anchor a Shift+click measures its span from. A
+    // Shift+click moves it too, the same as a plain click, so a chain of Shift+clicks always measures
+    // from wherever the pointer landed last rather than staying pinned to the very first one.
+    const lastClickedId = ref<string | null>(null);
+
+    // Whether the click being handled right now is holding Shift, caught on the way in: the checkbox
+    // itself only ever reports the state it is taking, never how it was clicked, so this is read from
+    // the DOM event's capture phase, just ahead of the checkbox's own listener turning it into an
+    // `update:modelValue`.
+    let shiftHeld = false;
+
+    function onCheckboxClickCapture(event: MouseEvent): void {
+        shiftHeld = event.shiftKey;
+    }
+
+    // A plain click toggles the one row clicked, as it always has. Shift+click instead sweeps every
+    // selectable row between the anchor and this one - in the table's current order, gap rows skipped
+    // - to the state this checkbox is taking. An anchor that no longer has a span to it (deleted since
+    // it was clicked, or this being the very first click) falls back to the plain toggle.
+    function toggleChapterRow(rowId: string, checked: boolean, toggleSelected: (value: boolean) => void): void {
+        if (shiftHeld && lastClickedId.value !== null) {
+            const span = chapterSpan(
+                tableRows.value.map(candidate => ({ id: getRowId(candidate), selectable: !isGapRow(candidate) })),
+                lastClickedId.value,
+                rowId,
+            );
+
+            if (span.length > 0) {
+                const next = { ...selection.value };
+
+                for (const id of span) {
+                    next[id] = checked;
+                }
+
+                selection.value = next;
+                lastClickedId.value = rowId;
+
+                return;
+            }
+        }
+
+        toggleSelected(checked);
+        lastClickedId.value = rowId;
+    }
+
     const columns: TableColumn<ChapterRow>[] = [
         {
             id: "select",
@@ -115,11 +161,21 @@
             }),
             cell: ({ row }) => (isGapRow(row.original)
                 ? null
-                : h(UCheckbox, {
-                    "modelValue": row.getIsSelected(),
-                    "onUpdate:modelValue": (value: boolean | "indeterminate") => row.toggleSelected(!!value),
-                    "aria-label": `Select chapter ${chapterNumber(row.original.index)}`,
-                })),
+                : h(
+                    "span",
+                    { onClickCapture: onCheckboxClickCapture },
+                    [
+                        h(UCheckbox, {
+                            "modelValue": row.getIsSelected(),
+                            "onUpdate:modelValue": (value: boolean | "indeterminate") => toggleChapterRow(
+                                getRowId(row.original),
+                                !!value,
+                                checked => row.toggleSelected(checked),
+                            ),
+                            "aria-label": `Select chapter ${chapterNumber(row.original.index)}`,
+                        }),
+                    ],
+                )),
             enableSorting: false,
             meta: { class: { th: "w-8", td: "w-8" } },
         },
