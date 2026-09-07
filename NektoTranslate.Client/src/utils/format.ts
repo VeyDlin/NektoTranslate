@@ -145,6 +145,20 @@ export function jobModeProgressLabel(mode: TranslationJobMode): string {
 }
 
 
+// What processedCount/totalCount count for each mode. Translate and Repair move once per chapter;
+// LearnVoice has no chapter to move by - it counts the sample batches and the learning passes over
+// them instead, so its unit is the step rather than the chapter.
+const JOB_PROGRESS_UNITS: Record<TranslationJobMode, "chapters" | "steps"> = {
+    Translate: "chapters",
+    LearnVoice: "steps",
+    Repair: "chapters",
+};
+
+export function jobProgressUnit(mode: TranslationJobMode): "chapters" | "steps" {
+    return JOB_PROGRESS_UNITS[mode];
+}
+
+
 const IMPORT_ITEM_STATE_LABELS: Record<ImportItemState, string> = {
     Pending: "Pending",
     Imported: "Imported",

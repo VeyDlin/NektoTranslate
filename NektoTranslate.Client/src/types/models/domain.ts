@@ -379,6 +379,16 @@ export interface TranslationJob {
     startedAt: string | null;
     finishedAt: string | null;
     error: string | null;
+
+    // What the run is doing right now, in words a reader understands - "Translating batch 3 of 7",
+    // "Aligning names", "Writing the voice profile". Null when nothing is running.
+    currentStep: string | null;
+
+    // Position inside the current unit of work - the batch inside the chapter being translated or
+    // repaired - so the bar can move between chapters. Null when the unit has no inner steps, or
+    // for a LearnVoice run, where processedCount/totalCount already move on every step.
+    stepIndex: number | null;
+    stepCount: number | null;
 }
 
 

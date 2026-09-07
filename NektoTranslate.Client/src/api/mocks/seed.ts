@@ -549,6 +549,9 @@ export function createSeed(): Seed {
             startedAt: daysAgo(6),
             finishedAt: daysAgo(6),
             error: null,
+            currentStep: null,
+            stepIndex: null,
+            stepCount: null,
         },
         {
             id: 2,
@@ -567,6 +570,9 @@ export function createSeed(): Seed {
             startedAt: daysAgo(7),
             finishedAt: null,
             error: null,
+            currentStep: null,
+            stepIndex: null,
+            stepCount: null,
         },
     ];
 

@@ -12,6 +12,9 @@ export interface JobStateChangedEvent {
     processed: number;
     total: number;
     costUsd: number;
+    currentStep: string | null;
+    stepIndex: number | null;
+    stepCount: number | null;
 }
 
 

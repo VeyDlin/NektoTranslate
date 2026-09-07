@@ -69,6 +69,9 @@ export function useTranslationStream(novelId: MaybeRefOrGetter<number | null>): 
                 processed: payload.processed,
                 total: payload.total,
                 costUsd: payload.costUsd,
+                currentStep: payload.currentStep,
+                stepIndex: payload.stepIndex,
+                stepCount: payload.stepCount,
             });
 
             void queryClient.invalidateQueries({ queryKey: jobsKey(novel) });

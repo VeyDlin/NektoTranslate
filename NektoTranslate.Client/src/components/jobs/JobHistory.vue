@@ -31,7 +31,15 @@
     import type { TableColumn } from "@nuxt/ui";
     import type { TranslationJob } from "@/types/models/domain";
 
-    import { chapterNumber, formatCost, formatCount, formatWhen, jobModeProgressLabel, jobStateLabel } from "@/utils/format";
+    import {
+        chapterNumber,
+        formatCost,
+        formatCount,
+        formatWhen,
+        jobModeProgressLabel,
+        jobProgressUnit,
+        jobStateLabel,
+    } from "@/utils/format";
 
 
     defineProps<{ jobs: TranslationJob[] }>();
@@ -49,9 +57,10 @@
         },
         {
             id: "progress",
-            header: "Chapters",
+            header: "Progress",
             meta: { class: { th: "text-right", td: "text-right align-top text-muted" } },
-            cell: ({ row }) => `${formatCount(row.original.processedCount)} of ${formatCount(row.original.totalCount)}`,
+            cell: ({ row }) =>
+                `${formatCount(row.original.processedCount)} of ${formatCount(row.original.totalCount)} ${jobProgressUnit(row.original.mode)}`,
         },
         {
             id: "cost",

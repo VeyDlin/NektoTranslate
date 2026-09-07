@@ -115,7 +115,7 @@
     import ChapterStateDot from "@/components/chapters/ChapterStateDot.vue";
     import { useActivityStore } from "@/stores/activity.store";
     import { useRunStore } from "@/stores/run.store";
-    import { formatCost, formatCount, jobModeProgressLabel } from "@/utils/format";
+    import { formatCost, formatCount, jobModeProgressLabel, jobProgressUnit } from "@/utils/format";
 
 
     // The screen each import kind has to itself, where Pause/Resume/Cancel already live in its own
@@ -224,7 +224,9 @@
                 return run.lastMessage ?? "Run finished.";
             }
 
-            return run.currentChapterId === null ? "Preparing the run" : jobModeProgressLabel(run.mode);
+            return run.currentStep === null
+                ? jobModeProgressLabel(run.mode)
+                : `${jobModeProgressLabel(run.mode)} — ${run.currentStep}`;
         }
 
         if (activeImport.value === null) {
@@ -240,11 +242,14 @@
         return activeImport.value.currentTitle === null ? verb : `${verb} — ${activeImport.value.currentTitle}`;
     });
 
-    // Read out as chapters rather than as a percentage: "84 of 226 chapters" is what the user is
-    // actually tracking, whichever kind of run is filling the bar.
+    // Read out as chapters or steps rather than as a percentage: "84 of 226 chapters" is what the
+    // user is actually tracking for Translate and Repair; LearnVoice has no chapter of its own to
+    // move by, so its count is the steps - sample batches, then the learning passes over them.
     const counts = computed(() => {
         if (run.state !== null) {
-            return run.total > 0 ? `${formatCount(run.processed)} of ${formatCount(run.total)} chapters` : null;
+            return run.total > 0
+                ? `${formatCount(run.processed)} of ${formatCount(run.total)} ${jobProgressUnit(run.mode)}`
+                : null;
         }
 
         if (activeImport.value !== null && activeImport.value.totalCount > 0) {
@@ -254,9 +259,11 @@
         return null;
     });
 
+    // A translation run's own bar moves by the store's progress fraction rather than by whole
+    // chapters, so a long chapter's batches move it too, not just the chapter finishing.
     const progressValue = computed(() => {
         if (run.state !== null) {
-            return run.total > 0 ? run.processed : null;
+            return run.total > 0 ? run.progress : null;
         }
 
         return activeImport.value !== null && activeImport.value.totalCount > 0 ? activeImport.value.processedCount : null;
@@ -264,7 +271,7 @@
 
     const progressMax = computed(() => {
         if (run.state !== null) {
-            return run.total > 0 ? run.total : 100;
+            return run.total > 0 ? 1 : 100;
         }
 
         return activeImport.value !== null && activeImport.value.totalCount > 0 ? activeImport.value.totalCount : 100;
@@ -272,9 +279,15 @@
 
 
     function progressLabel(value: number | null | undefined, max: number): string {
-        return value === null || value === undefined
-            ? "Preparing the run"
-            : `${formatCount(value)} of ${formatCount(max)} chapters ${activeImport.value === null ? "translated" : "imported"}`;
+        if (value === null || value === undefined) {
+            return "Preparing the run";
+        }
+
+        if (run.state !== null) {
+            return `${formatCount(run.processed)} of ${formatCount(run.total)} ${jobProgressUnit(run.mode)} translated`;
+        }
+
+        return `${formatCount(value)} of ${formatCount(max)} chapters imported`;
     }
 
 

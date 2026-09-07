@@ -736,6 +736,9 @@ export class MockBackend {
             startedAt: null,
             finishedAt: null,
             error: null,
+            currentStep: null,
+            stepIndex: null,
+            stepCount: null,
         };
 
         this.seed.jobs.push(job);
@@ -779,6 +782,9 @@ export class MockBackend {
             processed: job.processedCount,
             total: job.totalCount,
             costUsd: job.costUsd,
+            currentStep: job.currentStep,
+            stepIndex: job.stepIndex,
+            stepCount: job.stepCount,
         });
     }
 
