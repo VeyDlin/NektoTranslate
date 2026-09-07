@@ -27,49 +27,40 @@ public interface ITranslationVersions {
 
 
 // The one writer of ChapterTranslation.isCurrent, and the one reader of "the current version" - so
-// that "current" means the same row everywhere it is asked for, and the unique filtered index never
-// sees two rows of the same (chapterId, language) claim it at once.
+// that "current" means the same row everywhere it is asked for, and no two rows of the same
+// (chapterId, language) ever claim it at once. There is no database constraint behind that: the
+// invariant lives here and in this class's tests, for the reason NektoDbContext gives beside the
+// index.
 public class TranslationVersions(NektoDbContext database) : ITranslationVersions {
 
     // Clears every other current row of translation's own (chapterId, language) and sets it on
     // translation itself, which may not be saved yet - a caller building a new row passes it here
-    // before its own SaveChangesAsync, never after.
+    // before its own SaveChangesAsync, never after. Nothing is saved here: the flip and the caller's
+    // own write land in the caller's one SaveChangesAsync, so there is never a moment on disk with
+    // no current version, and an import of many rows stays the all-or-nothing it was.
     //
     // Siblings are loaded through this same DbContext rather than with ExecuteUpdateAsync, so a
     // sibling a caller already holds tracked - a repair's own "current", about to become the
     // previous version - is the very same instance EF's identity map already knows, and this only
-    // flips a field on it rather than racing a second, untracked copy of the same row to disk.
-    //
-    // The clear is saved here, ahead of setting translation.isCurrent below, rather than left for the
-    // caller's own SaveChangesAsync to batch together with it. SQLite checks the unique filtered
-    // index per statement, not once at commit, and a single SaveChangesAsync covering both changes
-    // is not guaranteed to write the clear before the set - EF is as free to insert the new current
-    // row first as the other way round, and the index refuses the instant that happens. Saving the
-    // clear alone first is what guarantees the old row is already gone before anything claiming the
-    // flag next is ever written.
+    // flips a field on it rather than racing a second, untracked copy of the same row to disk. The
+    // query pulls the saved siblings into the tracker; the walk is then over Local, which also
+    // holds a row added but not yet saved - a second row of the same chapter in one import batch -
+    // that no query could return.
     public async Task MakeCurrentAsync(ChapterTranslation translation, CancellationToken cancellationToken = default) {
-        List<ChapterTranslation> previouslyCurrent = await database.chapterTranslations
+        await database.chapterTranslations
             .Where(candidate => candidate.chapterId == translation.chapterId
                 && candidate.language == translation.language
                 && candidate.isCurrent)
-            .ToListAsync(cancellationToken);
+            .LoadAsync(cancellationToken);
 
-        bool clearedAnotherRow = false;
-
-        foreach (ChapterTranslation sibling in previouslyCurrent) {
-            // translation itself can already be the current row - a caller re-confirming a pick
-            // that was already in effect - and clearing it here would only be undone by the line
-            // below, at the cost of a save this method has no reason to make.
-            if (ReferenceEquals(sibling, translation)) {
+        foreach (ChapterTranslation sibling in database.chapterTranslations.Local) {
+            if (ReferenceEquals(sibling, translation)
+                || sibling.chapterId != translation.chapterId
+                || sibling.language != translation.language) {
                 continue;
             }
 
             sibling.isCurrent = false;
-            clearedAnotherRow = true;
-        }
-
-        if (clearedAnotherRow) {
-            await database.SaveChangesAsync(cancellationToken);
         }
 
         translation.isCurrent = true;

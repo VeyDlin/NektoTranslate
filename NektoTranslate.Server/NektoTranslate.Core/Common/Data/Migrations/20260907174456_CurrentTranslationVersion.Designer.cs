@@ -10,7 +10,7 @@ using NektoTranslate.Common.Data;
 namespace NektoTranslate.Common.Data.Migrations
 {
     [DbContext(typeof(NektoDbContext))]
-    [Migration("20260907170928_CurrentTranslationVersion")]
+    [Migration("20260907174456_CurrentTranslationVersion")]
     partial class CurrentTranslationVersion
     {
         /// <inheritdoc />
@@ -640,11 +640,7 @@ namespace NektoTranslate.Common.Data.Migrations
 
                     b.HasKey("id");
 
-                    b.HasIndex(new[] { "chapterId", "language" }, "IX_chapter_translations_chapterId_language");
-
-                    b.HasIndex(new[] { "chapterId", "language" }, "IX_chapter_translations_chapterId_language_current")
-                        .IsUnique()
-                        .HasFilter("isCurrent = 1");
+                    b.HasIndex("chapterId", "language");
 
                     b.ToTable("chapter_translations");
                 });

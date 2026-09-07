@@ -13,9 +13,7 @@ namespace NektoTranslate.Common.Data.Migrations
         // application used to mean "newest by createdAt, ties by id" - ChaptersController.Get,
         // ChapterRepairer, VoiceLearner and the rest all ordered translations the same way - so an
         // upgraded database has to mark that exact row current, per (chapterId, language), or a book
-        // mid-translation would read as though every chapter had just lost its translation. The
-        // filtered index is created after this runs, not before: it would refuse to exist over rows
-        // that do not have their one current row picked out yet.
+        // mid-translation would read as though every chapter had just lost its translation.
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
@@ -45,22 +43,11 @@ namespace NektoTranslate.Common.Data.Migrations
                     LIMIT 1
                 );
                 """);
-
-            migrationBuilder.CreateIndex(
-                name: "IX_chapter_translations_chapterId_language_current",
-                table: "chapter_translations",
-                columns: new[] { "chapterId", "language" },
-                unique: true,
-                filter: "isCurrent = 1");
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "IX_chapter_translations_chapterId_language_current",
-                table: "chapter_translations");
-
             migrationBuilder.DropColumn(
                 name: "sourceVersion",
                 table: "translation_jobs");

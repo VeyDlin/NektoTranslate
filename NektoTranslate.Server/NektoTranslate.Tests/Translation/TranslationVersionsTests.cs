@@ -157,6 +157,61 @@ public class TranslationVersionsTests {
     }
 
 
+    // Two rows of the same chapter added in one unit of work - an import batch can do that - and
+    // neither saved yet when the second is made current. No query can return the first, so this is
+    // the case that needs the walk over the tracker's own Local rather than over a query result.
+    [Fact]
+    public async Task MakeCurrentClearsAnUnsavedSiblingToo() {
+        await using NektoDbContext database = await InMemoryDatabaseAsync();
+
+        Chapter chapter = await SeedChapterWithTranslationsAsync(database, (Days(1), true));
+
+        ChapterTranslation first = UnsavedTranslation(chapter.id, "first");
+        ChapterTranslation second = UnsavedTranslation(chapter.id, "second");
+
+        database.chapterTranslations.Add(first);
+        database.chapterTranslations.Add(second);
+
+        ITranslationVersions versions = new TranslationVersions(database);
+        await versions.MakeCurrentAsync(first);
+        await versions.MakeCurrentAsync(second);
+        await database.SaveChangesAsync();
+
+        List<ChapterTranslation> all = await database.chapterTranslations
+            .Where(translation => translation.chapterId == chapter.id)
+            .ToListAsync();
+
+        Assert.Equal(3, all.Count);
+        ChapterTranslation onlyCurrent = Assert.Single(all, translation => translation.isCurrent);
+        Assert.Equal(second.id, onlyCurrent.id);
+    }
+
+
+    // The flip stays in the caller's unit of work: until the caller saves, the database still has
+    // the old row current, so there is never a moment on disk with no current version and a failed
+    // repair or a half-done import leaves nothing behind.
+    [Fact]
+    public async Task MakeCurrentWritesNothingOnItsOwn() {
+        await using NektoDbContext database = await InMemoryDatabaseAsync();
+
+        Chapter chapter = await SeedChapterWithTranslationsAsync(database, (Days(1), true));
+
+        ChapterTranslation unsaved = UnsavedTranslation(chapter.id, "new");
+        database.chapterTranslations.Add(unsaved);
+
+        ITranslationVersions versions = new TranslationVersions(database);
+        await versions.MakeCurrentAsync(unsaved);
+
+        List<ChapterTranslation> onDisk = await database.chapterTranslations
+            .AsNoTracking()
+            .Where(translation => translation.chapterId == chapter.id)
+            .ToListAsync();
+
+        ChapterTranslation stillCurrent = Assert.Single(onDisk);
+        Assert.True(stillCurrent.isCurrent);
+    }
+
+
     // RepairAsync itself calls the real Claude Code CLI and cannot run in a test, but this is exactly
     // the composition it performs once it has read a chapter's versions: pick the one sourceVersion
     // asks for, then always make the new row current, whatever was read.
@@ -314,5 +369,16 @@ public class TranslationVersionsTests {
         await database.SaveChangesAsync();
 
         return chapter;
+    }
+
+
+    private static ChapterTranslation UnsavedTranslation(long chapterId, string text) {
+        return new ChapterTranslation {
+            chapterId = chapterId,
+            language = "Russian",
+            markdown = text,
+            plainText = text,
+            origin = TranslationOrigin.Repaired
+        };
     }
 }

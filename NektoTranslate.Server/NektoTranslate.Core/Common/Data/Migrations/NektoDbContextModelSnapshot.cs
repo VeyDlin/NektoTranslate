@@ -637,11 +637,7 @@ namespace NektoTranslate.Common.Data.Migrations
 
                     b.HasKey("id");
 
-                    b.HasIndex(new[] { "chapterId", "language" }, "IX_chapter_translations_chapterId_language");
-
-                    b.HasIndex(new[] { "chapterId", "language" }, "IX_chapter_translations_chapterId_language_current")
-                        .IsUnique()
-                        .HasFilter("isCurrent = 1");
+                    b.HasIndex("chapterId", "language");
 
                     b.ToTable("chapter_translations");
                 });
