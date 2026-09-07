@@ -56,15 +56,17 @@
                                 {{ formatCount(term.occurrences) }} {{ term.occurrences === 1 ? "occurrence" : "occurrences" }}
                             </span>
 
-                            <UButton
-                                size="xs"
-                                color="neutral"
-                                variant="ghost"
+                            <!-- A plain button rather than a UButton: there are hundreds of these rows,
+                                 and a component instance per row was a visible part of the pause
+                                 when the tab opened. -->
+                            <button
+                                type="button"
                                 class="delete"
-                                icon="i-material-symbols:delete-outline-rounded"
                                 :aria-label="`Delete ${term.term}`"
                                 @click="doomed = term"
-                            />
+                            >
+                                <UIcon name="i-material-symbols:delete-outline-rounded" />
+                            </button>
                         </div>
 
                         <p class="category">{{ glossaryCategoryLabel(term.category) }}</p>
@@ -162,14 +164,14 @@
 <style scoped lang="scss">
     @use "@/assets/scss/variables" as *;
 
-    // Takes the height the book screen leaves below its tabs, the way the chat panel does; without
-    // it the panel was as tall as its content, the screen clipped the overflow, and the list of
-    // terms had nowhere to scroll.
+    // The panel scrolls as one page. A learned profile can run to a couple of screens on its own,
+    // and a list that scrolled inside a fixed-height panel was left with no height at all under a
+    // profile that tall - the terms were there and could not be reached. Now the profile, the
+    // search and the terms flow one after another and the whole thing scrolls.
     .voice {
         flex: 1;
-        display: flex;
-        flex-direction: column;
         min-height: 0;
+        overflow-y: auto;
 
         .blank {
             max-width: $reading-measure-comfortable;
@@ -195,13 +197,18 @@
             }
         }
 
+        // Stays at the top while the terms scroll under it, so the search is always at hand
+        // without the panel keeping a separate scroll region for the list.
         .controls {
-            flex: none;
+            position: sticky;
+            top: 0;
+            z-index: 1;
             display: flex;
             align-items: center;
             gap: 0.75rem;
             padding: 0.75rem 1.5rem;
             border-bottom: 1px solid var(--ui-border);
+            background: var(--ui-bg);
 
             .search {
                 flex: 1;
@@ -214,13 +221,7 @@
             }
         }
 
-        // Scrolls on its own so the profile card and the search bar above it stay in place — the
-        // same split GlossaryList draws between its controls and its own list of entries.
         .list {
-            flex: 1;
-            min-height: 0;
-            overflow-y: auto;
-
             .empty {
                 max-width: 34rem;
                 margin: 3rem 1.5rem;
@@ -233,9 +234,14 @@
                 list-style: none;
             }
 
+            // Rows below the fold are neither laid out nor painted until they scroll into view. A
+            // book learns a few hundred terms, and laying out every one of them at once is what
+            // made opening this tab pause; the reserved height keeps the scrollbar honest meanwhile.
             .term {
                 padding: 1rem 1.5rem;
                 border-bottom: 1px solid var(--ui-border);
+                content-visibility: auto;
+                contain-intrinsic-size: auto 5.5rem;
 
                 .heading {
                     display: flex;
@@ -253,11 +259,39 @@
                     }
 
                     // Held out of the reading rhythm until wanted, the same restraint the glossary
-                    // list uses for its own row actions.
+                    // list uses for its own row actions. Drawn to the size and shape of the ghost
+                    // buttons elsewhere, so it does not read as a different kind of control.
                     .delete {
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        width: 1.75rem;
+                        height: 1.75rem;
                         margin-left: auto;
+                        padding: 0;
+                        border: 0;
+                        border-radius: 0.375rem;
+                        background: none;
+                        color: var(--ui-text-muted);
+                        cursor: pointer;
                         opacity: 0;
                         transition: opacity 0.15s ease-out;
+
+                        &:hover {
+                            background: var(--ui-bg-elevated);
+                            color: var(--ui-text-highlighted);
+                        }
+
+                        &:focus-visible {
+                            outline: 2px solid var(--ui-primary);
+                            outline-offset: 1px;
+                            opacity: 1;
+                        }
+
+                        span {
+                            width: 1rem;
+                            height: 1rem;
+                        }
                     }
                 }
 
