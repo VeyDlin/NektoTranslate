@@ -13,20 +13,37 @@ export type ReaderAlign = "left" | "center" | "right";
 // Width, alignment and offset apply to the single-column modes only. With the original and the
 // translation side by side the page is already divided in half, and a second width control on top of
 // that would be two ways of saying the same thing.
+// The defaults a fresh reader opens with: a column a little over half the page, pinned to the left
+// with a tenth of the page as a margin, in a large face with a tight leading - a book page rather
+// than a web page. Kept in one place because `reset` and the first run must agree.
+const DefaultWidthPercent = 55;
+const DefaultAlign: ReaderAlign = "left";
+const DefaultOffsetPercent = 10;
+const DefaultFontSize = 25;
+const DefaultLineHeight = 1.4;
+
+// Bumped whenever the defaults above change on purpose. A reader who never touched the settings is
+// carrying the old defaults in storage, not a preference, and gets the new ones once; a version that
+// matches is left alone even when the values happen to equal the old defaults.
+const CurrentDefaultsVersion = 2;
+
+
 export const useReaderStore = defineStore("reader", () => {
     const mode = ref<ReaderMode>("bilingual");
     const showRuby = ref(true);
 
-    const widthPercent = ref(55);
-    const align = ref<ReaderAlign>("center");
+    const widthPercent = ref(DefaultWidthPercent);
+    const align = ref<ReaderAlign>(DefaultAlign);
 
     // Distance from the edge the column is pinned to. Meaningless when centred, because a centred
     // column has no edge to be pushed away from.
-    const offsetPercent = ref(0);
+    const offsetPercent = ref(DefaultOffsetPercent);
 
-    const fontSize = ref(14);
-    const lineHeight = ref(1.5);
+    const fontSize = ref(DefaultFontSize);
+    const lineHeight = ref(DefaultLineHeight);
     const bold = ref(false);
+
+    const defaultsVersion = ref(0);
 
 
     function setMode(next: ReaderMode): void {
@@ -66,36 +83,40 @@ export const useReaderStore = defineStore("reader", () => {
 
 
     function setWidthPercent(value: unknown): void {
-        widthPercent.value = toNumber(value, 55, 20, 100);
+        widthPercent.value = toNumber(value, DefaultWidthPercent, 20, 100);
         offsetPercent.value = Math.min(offsetPercent.value, 100 - widthPercent.value);
     }
 
 
     function setOffsetPercent(value: unknown): void {
-        offsetPercent.value = toNumber(value, 0, 0, 100 - widthPercent.value);
+        offsetPercent.value = toNumber(value, DefaultOffsetPercent, 0, 100 - widthPercent.value);
     }
 
 
     function setFontSize(value: unknown): void {
-        fontSize.value = toNumber(value, 14, 12, 26);
+        fontSize.value = toNumber(value, DefaultFontSize, 12, 26);
     }
 
 
     function setLineHeight(value: unknown): void {
-        lineHeight.value = toNumber(value, 1.5, 1.2, 2.4, 1);
+        lineHeight.value = toNumber(value, DefaultLineHeight, 1.2, 2.4, 1);
     }
 
 
     // Storage written by an older build — or by a slider that handed back an array before this was
     // guarded — is repaired on the way in rather than left to throw at the first render.
     function normalize(): void {
+        if (defaultsVersion.value !== CurrentDefaultsVersion) {
+            reset();
+        }
+
         setWidthPercent(widthPercent.value);
         setOffsetPercent(offsetPercent.value);
         setFontSize(fontSize.value);
         setLineHeight(lineHeight.value);
 
         if (!["left", "center", "right"].includes(align.value)) {
-            align.value = "center";
+            align.value = DefaultAlign;
         }
 
         bold.value = bold.value === true;
@@ -104,12 +125,13 @@ export const useReaderStore = defineStore("reader", () => {
 
 
     function reset(): void {
-        widthPercent.value = 55;
-        align.value = "center";
-        offsetPercent.value = 0;
-        fontSize.value = 14;
-        lineHeight.value = 1.5;
+        widthPercent.value = DefaultWidthPercent;
+        align.value = DefaultAlign;
+        offsetPercent.value = DefaultOffsetPercent;
+        fontSize.value = DefaultFontSize;
+        lineHeight.value = DefaultLineHeight;
         bold.value = false;
+        defaultsVersion.value = CurrentDefaultsVersion;
     }
 
 
@@ -122,6 +144,7 @@ export const useReaderStore = defineStore("reader", () => {
         fontSize,
         lineHeight,
         bold,
+        defaultsVersion,
         setMode,
         setAlign,
         setWidthPercent,
