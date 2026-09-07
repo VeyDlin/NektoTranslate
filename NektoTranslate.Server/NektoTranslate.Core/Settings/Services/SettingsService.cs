@@ -58,6 +58,12 @@ public class SettingsService(NektoDbContext database) : ISettingsService {
             settings.localModelEndpoint = Blank(request.localModelEndpoint);
         }
 
+        // Null means "leave alone" as usual; an empty string is the deliberate choice of "the
+        // book's own model" rather than a pinned one.
+        if (request.repairModel is not null) {
+            settings.repairModel = Blank(request.repairModel);
+        }
+
         settings.defaultModel = Text(request.defaultModel, settings.defaultModel);
         settings.glossaryModel = Text(request.glossaryModel, settings.glossaryModel);
         settings.localModelName = Text(request.localModelName, settings.localModelName);
@@ -70,6 +76,13 @@ public class SettingsService(NektoDbContext database) : ISettingsService {
         settings.expansionFactor = Clamp(request.expansionFactor, settings.expansionFactor, 0.5, 6.0);
         settings.voiceWindowChapters = Clamp(request.voiceWindowChapters, settings.voiceWindowChapters, 0, 10);
         settings.voiceWindowParagraphs = Clamp(request.voiceWindowParagraphs, settings.voiceWindowParagraphs, 0, 20);
+        settings.passSegments = Clamp(request.passSegments, settings.passSegments, 1, 50);
+        settings.passContextBefore = Clamp(request.passContextBefore, settings.passContextBefore, 0, 20);
+        settings.passContextAfter = Clamp(request.passContextAfter, settings.passContextAfter, 0, 20);
+        // 0 is a real, meaningful floor here - it is what turns thinking off - so the clamp must not
+        // raise it the way every other minimum in this method does.
+        settings.thinkingTokens = Clamp(request.thinkingTokens, settings.thinkingTokens, 0, 32_000);
+        settings.proofread = request.proofread ?? settings.proofread;
         settings.pageLoadTimeoutMs = Clamp(request.pageLoadTimeoutMs, settings.pageLoadTimeoutMs, 5_000, 300_000);
         settings.chatMaxRounds = Clamp(request.chatMaxRounds, settings.chatMaxRounds, 1, 20);
 

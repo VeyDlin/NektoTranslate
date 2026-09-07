@@ -18,6 +18,12 @@ public sealed record UpdateSettingsRequest(
     double? expansionFactor = null,
     int? voiceWindowChapters = null,
     int? voiceWindowParagraphs = null,
+    int? passSegments = null,
+    int? passContextBefore = null,
+    int? passContextAfter = null,
+    int? thinkingTokens = null,
+    bool? proofread = null,
+    string? repairModel = null,
     int? pageLoadTimeoutMs = null,
     int? chatMaxRounds = null
 );

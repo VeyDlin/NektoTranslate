@@ -77,6 +77,37 @@ public class ApplicationSettings {
 
     public int voiceWindowParagraphs { get; set; } = 4;
 
+    // --- careful passes --------------------------------------------------------------------------
+
+    // How a translate or repair run reads a chapter: paragraph by paragraph rather than in one
+    // batch sized to the model's output ceiling, the way a human editor actually works. These four
+    // fields shape that pass; maxOutputTokens/expansionFactor above still bound the mechanical
+    // calls (term extraction, rendering lookup, voice learning) and still split a single paragraph
+    // too large for one request.
+
+    // Paragraphs handed to the model per call, both modes. Small on purpose - the model reads a
+    // handful of paragraphs closely instead of skimming a whole chapter.
+    public int passSegments { get; set; } = 5;
+
+    // Paragraphs shown before the batch as context, never output.
+    public int passContextBefore { get; set; } = 2;
+
+    // Paragraphs shown after the batch as context, never output.
+    public int passContextAfter { get; set; } = 1;
+
+    // Thinking budget for every translate, repair and proofread call. 0 turns thinking off. Not
+    // applied to the glossary model's mechanical calls, which need reading comprehension rather
+    // than judgement.
+    public int thinkingTokens { get; set; } = 6000;
+
+    // Whether a chapter is read back once as a whole after it is produced, and the paragraphs the
+    // proofreader flags redone once more with its critique attached.
+    public bool proofread { get; set; } = true;
+
+    // Model for repair runs. Null means the book's own model - the same one it was translated with.
+    [MaxLength(64)]
+    public string? repairModel { get; set; }
+
     // --- limits --------------------------------------------------------------------------------
 
     // How long to wait for a site to load before giving up.
