@@ -1,6 +1,6 @@
 <template>
     <div class="reader">
-        <header class="bar">
+        <header ref="barRef" class="bar" :class="{ away: barAway }">
             <UButton
                 :to="{ name: 'novel', params: { novelId } }"
                 icon="i-material-symbols:arrow-back-rounded"
@@ -65,7 +65,7 @@
              rendering this is, the turn to the neighbouring chapters - so the reader's width and
              alignment settings move all of it together. The turn comes after the last paragraph,
              where a reader who has just finished is looking, and only in the pane being read. -->
-        <div v-else class="panes" :class="paneClasses" :style="paneStyle">
+        <div v-else ref="panesRef" class="panes" :class="paneClasses" :style="paneStyle">
             <article v-if="effectiveMode !== 'translation'" class="pane source-pane">
                 <div
                     class="prose column source"
@@ -138,7 +138,7 @@
 
 <script setup lang="ts">
     import type { ReaderMode } from "@/stores/reader.store";
-    import { onKeyStroke } from "@vueuse/core";
+    import { onKeyStroke, useEventListener } from "@vueuse/core";
     import { computed, ref, watch } from "vue";
 
     import { useRouter } from "vue-router";
@@ -182,6 +182,51 @@
     const position = computed(() => rows.value.findIndex(row => row.id === chapterKey.value));
     const previous = computed(() => (position.value > 0 ? rows.value[position.value - 1] : undefined));
     const next = computed(() => (position.value >= 0 ? rows.value[position.value + 1] : undefined));
+
+    // The bar leaves while the reader scrolls down and comes back the moment they scroll up, the way
+    // a phone browser's toolbar does: reading wants the whole height, reaching for a control wants
+    // the bar, and the direction of the scroll says which of the two is happening. One capturing
+    // listener on the panes hears both columns of the bilingual view - scroll does not bubble, so
+    // capture is the only way a parent hears it at all. Within the first bar's height of the top the
+    // bar always stays: a bar hidden over the opening lines would read as a page with no way back.
+    const panesRef = ref<HTMLElement | null>(null);
+    const barRef = ref<HTMLElement | null>(null);
+    const barAway = ref(false);
+    const lastScrollTop = new WeakMap<Element, number>();
+
+    // A few pixels of downward travel before the bar goes, so a touchpad's settling jitter does not
+    // flick it in and out.
+    const HideAfterPx = 8;
+
+    useEventListener(panesRef, "scroll", (event: Event) => {
+        const pane = event.target;
+
+        if (!(pane instanceof HTMLElement)) {
+            return;
+        }
+
+        const previous = lastScrollTop.get(pane) ?? 0;
+        const current = pane.scrollTop;
+
+        lastScrollTop.set(pane, current);
+
+        if (current <= (barRef.value?.offsetHeight ?? 0)) {
+            barAway.value = false;
+
+            return;
+        }
+
+        if (current - previous > HideAfterPx) {
+            barAway.value = true;
+        }
+        else if (current < previous) {
+            barAway.value = false;
+        }
+    }, { capture: true, passive: true });
+
+    watch(chapterKey, () => {
+        barAway.value = false;
+    });
 
     // Both sides arrive as Markdown and are rendered here rather than in the template, so the parse
     // happens once per chapter instead of on every unrelated re-render.
@@ -350,14 +395,22 @@
     @use "@/assets/scss/variables" as *;
 
     .reader {
+        position: relative;
         display: flex;
         flex-direction: column;
         height: 100%;
         overflow: hidden;
         background: var(--ui-bg-elevated);
 
+        // Laid over the text rather than stacked above it, so sliding it away does not move the
+        // page - the text simply continues where the bar was. The panes leave its height free at the
+        // top of their scroll, which is where it sits while shown.
         .bar {
-            flex: none;
+            position: absolute;
+            top: 0;
+            right: 0;
+            left: 0;
+            z-index: 2;
             display: flex;
             align-items: center;
             gap: 0.5rem;
@@ -365,6 +418,11 @@
             padding: 0 1rem 0 0.5rem;
             border-bottom: 1px solid var(--ui-border);
             background: var(--ui-bg);
+            transition: transform 0.2s ease-out;
+
+            &.away {
+                transform: translateY(-100%);
+            }
 
             .book {
                 color: var(--ui-text-muted);
@@ -395,7 +453,7 @@
         .missing {
             flex: 1;
             min-height: 0;
-            padding: 3rem 2rem;
+            padding: calc(#{$chrome-height} + 3rem) 2rem 3rem;
         }
 
         .loading {
@@ -438,7 +496,7 @@
                 grid-template-columns: 1fr 1fr;
 
                 .pane {
-                    padding: 3rem 2.5rem 5rem;
+                    padding: calc(#{$chrome-height} + 3rem) 2.5rem 5rem;
                 }
 
                 .source-pane {
@@ -454,7 +512,7 @@
                 grid-template-columns: 1fr;
 
                 .pane {
-                    padding: 3rem 0 5rem;
+                    padding: calc(#{$chrome-height} + 3rem) 0 5rem;
                 }
 
                 .column {
