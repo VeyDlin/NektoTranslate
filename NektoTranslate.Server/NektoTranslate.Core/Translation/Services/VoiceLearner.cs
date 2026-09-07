@@ -418,17 +418,23 @@ public static class VoicePrompt {
     }
 
 
+    // A style sheet, not an essay. Asked for "a single cohesive paragraph", a model given twenty
+    // chapters' worth of notes answered with one paragraph of eight thousand characters and no line
+    // break in it - unreadable on the Voice tab, and two thousand tokens pasted into every translate
+    // and repair request that matches it. Short paragraphs under fixed headings, with a length
+    // ceiling, keep it something a person can read and a model can follow.
     public static string BuildSynthesisSystemPrompt(string language) {
         return
             $"You are given several separate sets of notes about how one human translator renders "
             + $"{language} prose, each written from a different passage of the same book. Merge them "
-            + "into a single cohesive paragraph, in English, describing this translator's voice: "
-            + "register, how dialogue is punctuated, how honorifics and names are handled, sentence "
-            + "length and rhythm, recurring vocabulary habits, and the formatting conventions - how "
-            + "skills, system messages, thoughts and sound effects are marked, with the example each "
-            + "note quoted, kept. Write it as an instruction for a writer who must reproduce this "
-            + "voice, not as a report about it, and do not mention that it was assembled from "
-            + "separate notes. Answer with the paragraph alone.";
+            + "into one compact style sheet, in English, under 300 words, written as instructions "
+            + "for a writer who must reproduce this voice - not as a report about it. Use exactly "
+            + "these headings, each followed by one short paragraph of two to four sentences: "
+            + "Register; Dialogue and punctuation; Names and honorifics; Rhythm and sentence shape; "
+            + "Vocabulary and turns of phrase; Formatting conventions. Under Formatting conventions "
+            + "say how skills, system messages, thoughts and sound effects are marked, keeping one "
+            + "quoted example of each. Put a blank line between sections. Do not mention that the "
+            + "sheet was assembled from separate notes. Answer with the sheet alone.";
     }
 
 

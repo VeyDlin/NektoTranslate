@@ -237,6 +237,19 @@ public class VoicePromptTests {
     [Fact]
     public void BothPromptsAskForTheFormattingConventions() {
         Assert.Contains("formatting conventions", VoicePrompt.BuildChunkSystemPrompt("Russian"));
-        Assert.Contains("formatting conventions", VoicePrompt.BuildSynthesisSystemPrompt("Russian"));
+        Assert.Contains("Formatting conventions", VoicePrompt.BuildSynthesisSystemPrompt("Russian"));
+    }
+
+
+    // The profile is read on a screen and pasted into every request that matches it. Asked for one
+    // paragraph, a model once answered with eight thousand characters and no line break; the prompt
+    // has to pin both the shape - headings, blank lines between sections - and the length.
+    [Fact]
+    public void TheSynthesisPromptAsksForAShortSheetUnderHeadings() {
+        string prompt = VoicePrompt.BuildSynthesisSystemPrompt("Russian");
+
+        Assert.Contains("under 300 words", prompt);
+        Assert.Contains("Register;", prompt);
+        Assert.Contains("blank line between sections", prompt);
     }
 }
