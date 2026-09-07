@@ -114,7 +114,10 @@
             Press Move to apply it.
         </p>
 
-        <div class="table">
+        <!-- Not `table`: that is a Tailwind display utility, and a class of that name on this box set
+             `display: table`, which cancelled both its flex sizing and its scroll - the list grew to
+             its content and the page clipped it. -->
+        <div class="rows">
             <div class="head">
                 <span class="cell num">#</span>
                 <span class="cell">Original</span>
@@ -493,7 +496,7 @@
             color: var(--ui-text-muted);
         }
 
-        .table {
+        .rows {
             flex: 1;
             min-height: 0;
             overflow-y: auto;
