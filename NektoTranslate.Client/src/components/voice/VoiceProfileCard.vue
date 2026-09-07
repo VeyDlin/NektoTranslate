@@ -57,10 +57,14 @@
             }
         }
 
+        // The profile is the model's own text, and a model that was asked for one paragraph still
+        // breaks its answer into several when it has several things to say. Those breaks are kept;
+        // runs of spaces are not, so the text still wraps like prose.
         .summary {
             max-width: $reading-measure-wide;
             margin: 0.75rem 0 0;
             line-height: 1.6;
+            white-space: pre-line;
             color: var(--ui-text-highlighted);
         }
 
