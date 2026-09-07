@@ -7,17 +7,32 @@
             <div class="run">
                 <URadioGroup v-model="mode" :items="modeOptions" :disabled="isPending" />
 
-                <!-- A choice is only shown when there is one: with nothing ticked in the list the
-                     range is the sole scope, and a radio group of one option is a question with
-                     one answer. -->
-                <URadioGroup
-                    v-if="scopeOptions.length > 1"
-                    v-model="scope"
-                    :items="scopeOptions"
-                    :disabled="isPending"
-                />
+                <URadioGroup v-model="scope" :items="scopeOptions" :disabled="isPending" />
 
-                <div v-if="scope === 'Range'" class="range">
+                <!-- One chapter and a range share one row of the same height, so switching between
+                     them moves nothing below. -->
+                <div v-if="scope === 'Single'" class="range">
+                    <UFormField label="Chapter" class="whole">
+                        <USelectMenu
+                            v-model.nullable="fromChapterId"
+                            :items="chapterOptions"
+                            value-key="id"
+                            label-key="label"
+                            :virtualize="true"
+                            :disabled="isPending"
+                            class="w-full"
+                        >
+                            <template #item-label="{ item }">
+                                <span class="chapter-option">
+                                    <span class="position">{{ item.position }} ·</span>
+                                    <span class="title">{{ item.title }}</span>
+                                </span>
+                            </template>
+                        </USelectMenu>
+                    </UFormField>
+                </div>
+
+                <div v-else-if="scope === 'Range'" class="range">
                     <UFormField label="From chapter">
                         <USelectMenu
                             v-model.nullable="fromChapterId"
@@ -257,6 +272,12 @@
     // sends.
     const rangeBounds = computed(() => {
         const from = chapterById(fromChapterId.value);
+
+        // One chapter is a range of one: the same pick, read as both ends.
+        if (scope.value === "Single") {
+            return from === null ? null : { from, to: from };
+        }
+
         const to = chapterById(toChapterId.value);
 
         if (from === null || to === null) {
@@ -321,6 +342,7 @@
     // describe, so the selection is not offered for it.
     const scopeOptions = computed(() => {
         const options = [
+            { value: "Single", label: "One chapter" },
             { value: "Range", label: "A range of chapters" },
         ];
 
@@ -351,8 +373,6 @@
                 return;
             }
 
-            scope.value = "Range";
-
             if (current === "Translate") {
                 // A translate run's natural extent is the whole book: it skips what is already
                 // translated, so "everything" costs only the chapters still to do. Both ends are
@@ -360,12 +380,16 @@
                 const first = props.rows.at(0) ?? null;
                 const last = props.rows.at(-1) ?? null;
 
+                scope.value = "Range";
+
                 if (first !== null && last !== null) {
                     fromChapterId.value = first.id;
                     toChapterId.value = last.id;
                 }
             }
             else {
+                scope.value = "Single";
+
                 // A repair of the whole book is the expensive choice and rarely the intended one.
                 // It stays available, but the dialog opens on one chapter - the last that has a
                 // rendering - for the reader to widen, rather than on forty-two to be narrowed.
@@ -402,6 +426,7 @@
         mode.value !== "Translate" || row.hasOriginal
     )).filter((row) => {
         switch (scope.value) {
+            case "Single":
             case "Range":
                 return rangeBounds.value !== null
                     && row.index >= rangeBounds.value.from.index
@@ -453,9 +478,11 @@
     // so a reader who looks up from another screen knows which run just started and where to
     // watch it.
     const startedTitle = computed(() => {
-        const scopeWords = scope.value === "Range" && rangeBounds.value !== null
-            ? `chapters ${chapterNumber(rangeBounds.value.from.index)}–${chapterNumber(rangeBounds.value.to.index)}`
-            : `${formatCount(targets.value.length)} ${targets.value.length === 1 ? "chapter" : "chapters"}`;
+        const scopeWords = rangeBounds.value !== null && scope.value === "Single"
+            ? `chapter ${chapterNumber(rangeBounds.value.from.index)}`
+            : rangeBounds.value !== null && scope.value === "Range"
+                ? `chapters ${chapterNumber(rangeBounds.value.from.index)}–${chapterNumber(rangeBounds.value.to.index)}`
+                : `${formatCount(targets.value.length)} ${targets.value.length === 1 ? "chapter" : "chapters"}`;
 
         return `${jobModeProgressLabel(mode.value)}: ${scopeWords}`;
     });
@@ -485,7 +512,11 @@
                 scopeKind: scope.value,
                 fromIndex: scope.value === "Range" ? rangeBounds.value?.from.index ?? null : null,
                 toIndex: scope.value === "Range" ? rangeBounds.value?.to.index ?? null : null,
-                chapterIds: scope.value === "Selection" ? [...props.selectedIds] : null,
+                chapterIds: scope.value === "Selection"
+                    ? [...props.selectedIds]
+                    : scope.value === "Single" && rangeBounds.value !== null
+                        ? [rangeBounds.value.from.id]
+                        : null,
                 budgetUsd: budget.value ?? null,
                 force: mode.value === "Translate" ? force.value : null,
             });
@@ -514,6 +545,10 @@
             display: grid;
             grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
             gap: 1rem;
+
+            .whole {
+                grid-column: 1 / -1;
+            }
         }
 
         .again {
