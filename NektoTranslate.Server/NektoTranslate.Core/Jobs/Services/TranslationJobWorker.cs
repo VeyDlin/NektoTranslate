@@ -72,12 +72,18 @@ public class TranslationJobWorker(
 
             NektoDbContext database = scope.ServiceProvider.GetRequiredService<NektoDbContext>();
 
+            // To what is on file, the same way a finished run releases them: a process that died
+            // mid-repair must not leave a translated chapter looking untranslated.
             int released = await database.chapters
-                .Where(chapter => chapter.translationState == ChapterTranslationState.Running)
+                .Where(chapter => chapter.translationState == ChapterTranslationState.Running
+                    || chapter.translationState == ChapterTranslationState.Queued)
                 .ExecuteUpdateAsync(
                     update => update.SetProperty(
                         chapter => chapter.translationState,
-                        ChapterTranslationState.None
+                        chapter => database.chapterTranslations.Any(translation =>
+                            translation.chapterId == chapter.id && translation.language == chapter.novel!.targetLanguage)
+                            ? ChapterTranslationState.Translated
+                            : ChapterTranslationState.None
                     ),
                     stoppingToken
                 );
@@ -136,6 +142,7 @@ public class TranslationJobWorker(
         job.totalCount = chapterIds.Count;
         await database.SaveChangesAsync(stoppingToken);
         await Publish(notifier, job);
+        await MarkQueuedAsync(database, notifier, job, chapterIds);
 
         try {
             foreach (long chapterId in chapterIds) {
@@ -260,6 +267,19 @@ public class TranslationJobWorker(
         long chapterId,
         CancellationToken cancellationToken
     ) {
+        // Written, not only announced: ChapterTranslator marks its own chapter Running, but the
+        // repairer leaves the state to whoever calls it, and a page opened mid-repair reads the
+        // database, not the events it missed.
+        await database.chapters
+            .Where(chapter => chapter.id == chapterId)
+            .ExecuteUpdateAsync(
+                update => update.SetProperty(
+                    chapter => chapter.translationState,
+                    ChapterTranslationState.Running
+                ),
+                cancellationToken
+            );
+
         await notifier.ChapterStateChangedAsync(job.novelId, chapterId, ChapterTranslationState.Running);
 
         int chapterNumber = await ChapterNumberAsync(database, chapterId, cancellationToken);
@@ -498,43 +518,90 @@ public class TranslationJobWorker(
         job.stepCount = null;
 
         await database.SaveChangesAsync(cancellationToken);
-        await ReleaseRunningChaptersAsync(database, notifier, job);
+        await ReleaseUnfinishedChaptersAsync(database, notifier, job);
         await Publish(notifier, job);
     }
 
 
-    // A run that ends while a chapter is in flight leaves that chapter marked Running, and nothing
-    // will ever move it: the run is over. The interface would show it as in progress forever, and
-    // the user would have no way to tell a working chapter from an abandoned one.
+    // Every chapter the run is about to visit is marked Queued the moment the run starts, so the
+    // list shows what is coming as well as what is happening. A chapter the run never reaches is
+    // released again by ReleaseUnfinishedChaptersAsync when the run stops.
+    private static async Task MarkQueuedAsync(
+        NektoDbContext database,
+        ITranslationNotifier notifier,
+        TranslationJob job,
+        IReadOnlyList<long> chapterIds
+    ) {
+        if (chapterIds.Count == 0) {
+            return;
+        }
+
+        await database.chapters
+            .Where(chapter => chapterIds.Contains(chapter.id))
+            .ExecuteUpdateAsync(
+                update => update.SetProperty(
+                    chapter => chapter.translationState,
+                    ChapterTranslationState.Queued
+                ),
+                CancellationToken.None
+            );
+
+        foreach (long chapterId in chapterIds) {
+            await notifier.ChapterStateChangedAsync(job.novelId, chapterId, ChapterTranslationState.Queued);
+        }
+    }
+
+
+    // A run that ends leaves the chapter in flight marked Running and every chapter it never reached
+    // marked Queued, and nothing will ever move them: the run is over. The interface would show
+    // them as busy forever, and the user would have no way to tell a working chapter from an
+    // abandoned one.
     //
-    // Releasing it back to None also makes it eligible for the next run, which is what the user
-    // means when they restart after cancelling.
-    private static async Task ReleaseRunningChaptersAsync(
+    // Released to what is actually on file - Translated where a rendering exists, None where not -
+    // rather than blindly to None: a repair or a forced re-translation queues chapters that already
+    // have a translation, and a cancelled run must not make the book look untranslated.
+    private static async Task ReleaseUnfinishedChaptersAsync(
         NektoDbContext database,
         ITranslationNotifier notifier,
         TranslationJob job
     ) {
-        List<long> stranded = await database.chapters
+        var stranded = await database.chapters
             .Where(chapter => chapter.novelId == job.novelId
-                && chapter.translationState == ChapterTranslationState.Running)
-            .Select(chapter => chapter.id)
+                && (chapter.translationState == ChapterTranslationState.Running
+                    || chapter.translationState == ChapterTranslationState.Queued))
+            .Select(chapter => new {
+                chapter.id,
+                hasTranslation = database.chapterTranslations.Any(translation =>
+                    translation.chapterId == chapter.id && translation.language == chapter.novel!.targetLanguage)
+            })
             .ToListAsync(CancellationToken.None);
 
         if (stranded.Count == 0) {
             return;
         }
 
+        List<long> translated = stranded.Where(chapter => chapter.hasTranslation).Select(chapter => chapter.id).ToList();
+        List<long> untranslated = stranded.Where(chapter => !chapter.hasTranslation).Select(chapter => chapter.id).ToList();
+
         await database.chapters
-            .Where(chapter => stranded.Contains(chapter.id))
+            .Where(chapter => translated.Contains(chapter.id))
             .ExecuteUpdateAsync(
-                update => update.SetProperty(
-                    chapter => chapter.translationState,
-                    ChapterTranslationState.None
-                ),
+                update => update.SetProperty(chapter => chapter.translationState, ChapterTranslationState.Translated),
                 CancellationToken.None
             );
 
-        foreach (long chapterId in stranded) {
+        await database.chapters
+            .Where(chapter => untranslated.Contains(chapter.id))
+            .ExecuteUpdateAsync(
+                update => update.SetProperty(chapter => chapter.translationState, ChapterTranslationState.None),
+                CancellationToken.None
+            );
+
+        foreach (long chapterId in translated) {
+            await notifier.ChapterStateChangedAsync(job.novelId, chapterId, ChapterTranslationState.Translated);
+        }
+
+        foreach (long chapterId in untranslated) {
             await notifier.ChapterStateChangedAsync(job.novelId, chapterId, ChapterTranslationState.None);
         }
     }
