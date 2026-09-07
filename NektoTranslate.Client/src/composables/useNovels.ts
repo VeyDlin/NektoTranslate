@@ -41,8 +41,13 @@ export function useDeleteNovel() {
 
     return useMutation({
         mutationFn: (novelId: number) => novelsApi.remove(novelId),
-        onSuccess: () => {
-            void queryClient.invalidateQueries({ queryKey: ["novels"] });
+        onSuccess: (_result, novelId) => {
+            // Exactly the list, not the prefix: the prefix covers the deleted book's own queries,
+            // which are still mounted on the settings screen for the instant before it navigates
+            // away, and refetching them would be a round of 404s for a book that is meant to be
+            // gone. Its cache is dropped instead, so nothing ever asks after it again.
+            queryClient.removeQueries({ queryKey: ["novels", novelId] });
+            void queryClient.invalidateQueries({ queryKey: ["novels"], exact: true });
         },
     });
 }
