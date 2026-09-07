@@ -179,6 +179,16 @@ export interface AppSettings {
     voiceWindowChapters: number;
     voiceWindowParagraphs: number;
 
+    // How a translate or repair run reads a chapter: paragraph by paragraph, with a memo before and
+    // a proofread after, the way a careful editor works rather than skimming a whole chapter in one
+    // batch sized to maxOutputTokens.
+    passSegments: number;
+    passContextBefore: number;
+    passContextAfter: number;
+    thinkingTokens: number;
+    proofread: boolean;
+    repairModel: string | null;
+
     pageLoadTimeoutMs: number;
     chatMaxRounds: number;
 

@@ -86,6 +86,13 @@ export interface UpdateSettingsRequest {
     voiceWindowChapters?: number | null;
     voiceWindowParagraphs?: number | null;
 
+    passSegments?: number | null;
+    passContextBefore?: number | null;
+    passContextAfter?: number | null;
+    thinkingTokens?: number | null;
+    proofread?: boolean | null;
+    repairModel?: string | null;
+
     pageLoadTimeoutMs?: number | null;
     chatMaxRounds?: number | null;
 }

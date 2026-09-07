@@ -181,6 +181,61 @@
             </section>
 
             <section class="group">
+                <span class="title">Editing passes</span>
+
+                <div class="pair">
+                    <UFormField
+                        label="Paragraphs per pass"
+                        description="How many paragraphs are handed to the model at once, both translating and repairing."
+                    >
+                        <UInputNumber v-model="form.passSegments" :min="1" :max="50" />
+                    </UFormField>
+
+                    <UFormField
+                        label="Thinking budget, tokens"
+                        description="How much the model may think before answering each pass and each proofread. Zero turns thinking off."
+                    >
+                        <UInputNumber v-model="form.thinkingTokens" :min="0" :max="32000" :step="500" />
+                    </UFormField>
+                </div>
+
+                <div class="pair">
+                    <UFormField
+                        label="Context before"
+                        description="Paragraphs shown before the batch for the model to read — never translated, repaired or output."
+                    >
+                        <UInputNumber v-model="form.passContextBefore" :min="0" :max="20" />
+                    </UFormField>
+
+                    <UFormField
+                        label="Context after"
+                        description="Paragraphs shown after the batch, the same way."
+                    >
+                        <UInputNumber v-model="form.passContextAfter" :min="0" :max="20" />
+                    </UFormField>
+                </div>
+
+                <USwitch
+                    v-model="form.proofread"
+                    label="Proofread each chapter"
+                    description="Read the finished chapter back once more and redo whatever still reads wrong."
+                />
+
+                <NullableModelField
+                    v-model="form.repairModel"
+                    label="Repair model"
+                    default-label="Book's own model"
+                    description="Overrides the book's own model for repair runs only. Translate runs are unaffected."
+                />
+
+                <p class="note">
+                    Small batches read closely instead of skimming a whole chapter — a paragraph at a
+                    time, with a memo before and a proofread after, the way a careful editor works
+                    rather than a machine that translates once and moves on.
+                </p>
+            </section>
+
+            <section class="group">
                 <span class="title">Limits</span>
 
                 <div class="pair">
@@ -221,6 +276,7 @@
 <script setup lang="ts">
     import { computed, reactive, ref, watch } from "vue";
     import ModelField from "@/components/settings/ModelField.vue";
+    import NullableModelField from "@/components/settings/NullableModelField.vue";
     import { useLocalModels, useSettings, useUpdateSettings } from "@/composables/useSettings";
     import { describe } from "@/utils/status";
 
@@ -246,6 +302,12 @@
         expansionFactor: 2,
         voiceWindowChapters: 2,
         voiceWindowParagraphs: 4,
+        passSegments: 5,
+        passContextBefore: 2,
+        passContextAfter: 1,
+        thinkingTokens: 6000,
+        proofread: true,
+        repairModel: null as string | null,
         pageLoadTimeoutMs: 45000,
         chatMaxRounds: 5,
     });
@@ -270,6 +332,12 @@
         form.expansionFactor = loaded.expansionFactor;
         form.voiceWindowChapters = loaded.voiceWindowChapters;
         form.voiceWindowParagraphs = loaded.voiceWindowParagraphs;
+        form.passSegments = loaded.passSegments;
+        form.passContextBefore = loaded.passContextBefore;
+        form.passContextAfter = loaded.passContextAfter;
+        form.thinkingTokens = loaded.thinkingTokens;
+        form.proofread = loaded.proofread;
+        form.repairModel = loaded.repairModel;
         form.pageLoadTimeoutMs = loaded.pageLoadTimeoutMs;
         form.chatMaxRounds = loaded.chatMaxRounds;
     }, { immediate: true });
@@ -299,6 +367,12 @@
             expansionFactor: form.expansionFactor,
             voiceWindowChapters: form.voiceWindowChapters,
             voiceWindowParagraphs: form.voiceWindowParagraphs,
+            passSegments: form.passSegments,
+            passContextBefore: form.passContextBefore,
+            passContextAfter: form.passContextAfter,
+            thinkingTokens: form.thinkingTokens,
+            proofread: form.proofread,
+            repairModel: form.repairModel ?? "",
             pageLoadTimeoutMs: form.pageLoadTimeoutMs,
             chatMaxRounds: form.chatMaxRounds,
         });

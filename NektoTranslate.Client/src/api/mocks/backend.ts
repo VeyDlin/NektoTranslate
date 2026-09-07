@@ -111,12 +111,19 @@ export class MockBackend {
                 const request = body as Record<string, unknown> | undefined;
 
                 // null means "leave alone" and an empty string clears — the same distinction the
-                // server draws, so the screens are exercised against the real semantics. Only the
-                // style guide is nullable, which is why it is handled apart from the two models.
+                // server draws, so the screens are exercised against the real semantics. The style
+                // guide and the repair model are the nullable fields, which is why each is handled
+                // apart from the two models that are never unset.
                 if (typeof request?.globalStyleGuide === "string") {
                     this.seed.settings.globalStyleGuide = request.globalStyleGuide === ""
                         ? null
                         : request.globalStyleGuide;
+                }
+
+                if (typeof request?.repairModel === "string") {
+                    this.seed.settings.repairModel = request.repairModel === ""
+                        ? null
+                        : request.repairModel;
                 }
 
                 for (const field of ["defaultModel", "glossaryModel"] as const) {
@@ -125,6 +132,18 @@ export class MockBackend {
                     if (typeof value === "string" && value !== "") {
                         this.seed.settings[field] = value;
                     }
+                }
+
+                for (const field of ["passSegments", "passContextBefore", "passContextAfter", "thinkingTokens"] as const) {
+                    const value = request?.[field];
+
+                    if (typeof value === "number") {
+                        this.seed.settings[field] = value;
+                    }
+                }
+
+                if (typeof request?.proofread === "boolean") {
+                    this.seed.settings.proofread = request.proofread;
                 }
 
                 this.seed.settings.updatedAt = new Date().toISOString();
