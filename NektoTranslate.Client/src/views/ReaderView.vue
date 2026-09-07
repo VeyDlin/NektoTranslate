@@ -55,22 +55,58 @@
             <USkeleton v-for="index in 6" :key="index" class="skeleton" />
         </div>
 
-        <div v-else-if="chapter" class="panes" :class="paneClasses" :style="paneStyle">
+        <!-- Loaded and found nothing: the chapter was deleted, or the address is stale. Says so where
+             the text would have been, at the text's height, so the footer stays put. -->
+        <div v-else-if="!chapter" class="missing">
+            <p>This chapter is not in the book.</p>
+        </div>
+
+        <!-- Everything in a pane shares the text's own column - the prose, the line about which
+             rendering this is, the turn to the neighbouring chapters - so the reader's width and
+             alignment settings move all of it together. The turn comes after the last paragraph,
+             where a reader who has just finished is looking, and only in the pane being read. -->
+        <div v-else class="panes" :class="paneClasses" :style="paneStyle">
             <article v-if="effectiveMode !== 'translation'" class="pane source-pane">
                 <div
-                    class="prose source"
+                    class="prose column source"
                     :class="{ 'no-ruby': !reader.showRuby }"
                     :lang="scriptLangIf(sourceHtml, scriptLang)"
                     v-html="sourceHtml"
                 />
+
+                <ChapterTurn
+                    v-if="effectiveMode === 'source'"
+                    class="column"
+                    :novel-id="novelId"
+                    :previous="previous"
+                    :next="next"
+                    :script-lang="scriptLang"
+                />
             </article>
 
             <article v-if="effectiveMode !== 'source'" class="pane translation-pane">
-                <div v-if="shown" class="prose" v-html="shownHtml" />
+                <!-- Which rendering is on the page, and what it cost, before the text rather than
+                     under a footer: it is a fact about the text that follows. One fixed line whether
+                     it holds a choice of versions or a single label. -->
+                <div v-if="shown" class="meta column">
+                    <USelect
+                        v-if="chapter.translations.length > 1"
+                        v-model="shownId"
+                        :items="translationOptions"
+                        size="xs"
+                        variant="ghost"
+                        class="versions"
+                    />
+                    <span v-else class="origin">{{ translationOriginLabel(shown.origin) }}</span>
+
+                    <span v-if="shown.costUsd !== null" class="cost">{{ formatCost(shown.costUsd) }}</span>
+                </div>
+
+                <div v-if="shown" class="prose column" v-html="shownHtml" />
 
                 <!-- Prose as it is written. Shown only while no stored translation exists, so a
                      half-finished draft can never sit beside the finished text it belongs to. -->
-                <div v-else-if="streaming" class="prose streaming">
+                <div v-else-if="streaming" class="prose column streaming">
                     <span v-html="streamingHtml" />
                     <span class="cursor" aria-hidden="true" />
                 </div>
@@ -87,47 +123,16 @@
                         Translate this chapter
                     </UButton>
                 </div>
+
+                <ChapterTurn
+                    class="column"
+                    :novel-id="novelId"
+                    :previous="previous"
+                    :next="next"
+                    :script-lang="scriptLang"
+                />
             </article>
         </div>
-
-        <footer class="foot">
-            <UButton
-                v-if="previous"
-                :to="{ name: 'reader', params: { novelId, chapterId: previous.id } }"
-                icon="i-material-symbols:chevron-left-rounded"
-                color="neutral"
-                variant="ghost"
-                size="sm"
-                class="step"
-            >
-                <span class="step-index">{{ chapterNumber(previous.index) }}</span>
-                <span class="step-title" :lang="scriptLangIf(previous.title, scriptLang)">{{ previous.title }}</span>
-            </UButton>
-            <span v-else class="step" />
-
-            <div class="middle">
-                <USelect
-                    v-if="chapter && chapter.translations.length > 1"
-                    v-model="shownId"
-                    :items="translationOptions"
-                    size="sm"
-                />
-                <span v-else-if="shown" class="origin">{{ translationOriginLabel(shown.origin) }}</span>
-
-                <span v-if="shown && shown.costUsd !== null" class="cost">{{ formatCost(shown.costUsd) }}</span>
-            </div>
-
-            <RouterLink
-                v-if="next"
-                class="step next"
-                :to="{ name: 'reader', params: { novelId, chapterId: next.id } }"
-            >
-                <span class="step-title" :lang="scriptLangIf(next.title, scriptLang)">{{ next.title }}</span>
-                <ChapterStateDot :state="next.translationState" />
-                <UIcon name="i-material-symbols:chevron-right-rounded" class="chev" />
-            </RouterLink>
-            <span v-else class="step" />
-        </footer>
     </div>
 </template>
 
@@ -136,8 +141,8 @@
     import { onKeyStroke } from "@vueuse/core";
     import { computed, ref, watch } from "vue";
 
-    import { RouterLink, useRouter } from "vue-router";
-    import ChapterStateDot from "@/components/chapters/ChapterStateDot.vue";
+    import { useRouter } from "vue-router";
+    import ChapterTurn from "@/components/reader/ChapterTurn.vue";
     import ReaderSettings from "@/components/reader/ReaderSettings.vue";
     import { useChapter, useChapters } from "@/composables/useChapters";
     import { useStartJob } from "@/composables/useJobs";
@@ -383,19 +388,37 @@
             }
         }
 
-        .loading {
+        // Both stand in for the panes and take their height, so the footer sits at the bottom of
+        // the screen before the text arrives exactly as it does after - it used to hang mid-screen
+        // under the skeleton and jump down the moment the chapter loaded.
+        .loading,
+        .missing {
+            flex: 1;
+            min-height: 0;
             padding: 3rem 2rem;
+        }
 
+        .loading {
+            // The reader's own background is the elevated tone the skeleton is drawn in by default,
+            // which left the placeholder lines invisible on it - a blank screen rather than a
+            // loading one.
             .skeleton {
                 height: 1.25rem;
                 max-width: $reading-measure-comfortable;
                 margin: 0 auto 1rem;
+                background: var(--ui-bg-accented);
             }
 
             .skeleton.wide {
                 height: 2rem;
                 margin-bottom: 2.5rem;
             }
+        }
+
+        .missing p {
+            max-width: $reading-measure-comfortable;
+            margin: 0 auto;
+            color: var(--ui-text-muted);
         }
 
         .panes {
@@ -434,25 +457,43 @@
                     padding: 3rem 0 5rem;
                 }
 
-                .prose {
+                .column {
                     width: var(--prose-width);
                 }
             }
 
             // The offset is measured from the edge the column is pinned to — it pushes the text away
             // from that edge. A centred column has no edge to be pushed from, so it has no offset.
-            &.align-center .prose {
+            // `.column` is every block that shares the text's geometry: the prose itself, the line
+            // about the rendering above it, the turn to the next chapter below it.
+            &.align-center .column {
                 margin-inline: auto;
             }
 
-            &.align-left .prose {
+            &.align-left .column {
                 margin-left: var(--prose-offset);
                 margin-right: auto;
             }
 
-            &.align-right .prose {
+            &.align-right .column {
                 margin-left: auto;
                 margin-right: var(--prose-offset);
+            }
+
+            // One line of fixed height whether it holds a choice of versions or a single label, so
+            // the text below starts at the same place on every chapter.
+            .meta {
+                display: flex;
+                align-items: center;
+                gap: 1rem;
+                height: 2rem;
+                margin-bottom: 1.25rem;
+                font-size: var(--nt-text-sm);
+                color: var(--ui-text-muted);
+
+                .versions {
+                    margin-left: -0.5rem;
+                }
             }
 
             // The one caret in the application. It marks the single place where text is arriving on
@@ -481,60 +522,6 @@
             }
         }
 
-        // Full-screen reading costs the running chapter list its permanent place, so the footer
-        // carries what the list would have shown: which chapter is next and whether it is readable
-        // yet. The dot beside the next title turns green on its own the moment the chapter lands.
-        .foot {
-            flex: none;
-            display: grid;
-            grid-template-columns: 1fr auto 1fr;
-            align-items: center;
-            gap: 1rem;
-            height: $chrome-height;
-            padding: 0 1rem;
-            border-top: 1px solid var(--ui-border);
-            background: var(--ui-bg);
-
-            .step {
-                display: flex;
-                align-items: center;
-                gap: 0.5rem;
-                min-width: 0;
-                text-decoration: none;
-                color: var(--ui-text-muted);
-
-                &.next {
-                    justify-content: flex-end;
-                }
-
-                &:hover {
-                    color: var(--ui-primary);
-                }
-
-                .step-index {
-                    flex: none;
-                }
-
-                .step-title {
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
-                }
-
-                .chev {
-                    flex: none;
-                    width: 1.125rem;
-                    height: 1.125rem;
-                }
-            }
-
-            .middle {
-                display: flex;
-                align-items: center;
-                gap: 1rem;
-                color: var(--ui-text-muted);
-            }
-        }
     }
 
     @keyframes caret {
