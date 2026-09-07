@@ -11,11 +11,23 @@
 
                 <div v-if="scope === 'Range'" class="range">
                     <UFormField label="From chapter">
-                        <UInputNumber v-model="fromNumber" :min="1" :max="lastNumber" :disabled="isPending" />
+                        <UInputNumber
+                            v-model="fromNumber"
+                            :min="1"
+                            :max="lastNumber"
+                            :disabled="isPending"
+                            class="w-full"
+                        />
                     </UFormField>
 
                     <UFormField label="To chapter">
-                        <UInputNumber v-model="toNumber" :min="1" :max="lastNumber" :disabled="isPending" />
+                        <UInputNumber
+                            v-model="toNumber"
+                            :min="1"
+                            :max="lastNumber"
+                            :disabled="isPending"
+                            class="w-full"
+                        />
                     </UFormField>
                 </div>
 
@@ -30,6 +42,7 @@
                         :step="0.5"
                         placeholder="No ceiling"
                         :disabled="isPending"
+                        class="w-full"
                     />
                 </UFormField>
 
@@ -250,6 +263,20 @@
         if (current !== "LearnVoice") {
             if (props.selectedIds.length > 0) {
                 scope.value = "Selection";
+            }
+            else if (current === "Repair" && scope.value === "WholeBook") {
+                // A repair of the whole book is the expensive choice and rarely the intended one.
+                // It stays available, but the dialog opens on one chapter - the last that has a
+                // rendering - for the reader to widen, rather than on forty-two to be narrowed.
+                const numbered = props.rows
+                    .filter(row => row.hasTranslation)
+                    .map(row => chapterNumber(row.index));
+
+                if (numbered.length > 0) {
+                    scope.value = "Range";
+                    fromNumber.value = Math.max(...numbered);
+                    toNumber.value = Math.max(...numbered);
+                }
             }
 
             return;
