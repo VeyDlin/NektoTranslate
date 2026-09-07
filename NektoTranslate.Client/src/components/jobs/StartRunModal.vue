@@ -490,9 +490,12 @@
         flex-direction: column;
         gap: 1.25rem;
 
+        // `minmax(0, 1fr)` rather than `1fr`: a bare `1fr` column will not shrink below its content,
+        // and the chapter pickers' content is a whole title - the second column was pushed clean
+        // out of the dialog by the first. Zero as the floor lets the pickers truncate instead.
         .range {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
             gap: 1rem;
         }
 
