@@ -82,7 +82,10 @@ public static class SegmentProtocol {
     }
 
 
-    private static string Marker(int index) {
+    // Public so a careful pass's memo and proofread prompts - which mark a paragraph the same way a
+    // batch itself does, but outside this class - can quote the exact form rather than another copy
+    // of the same three characters.
+    public static string Marker(int index) {
         return $"{Placeholders.Open}#{index}{Placeholders.Close}";
     }
 

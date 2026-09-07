@@ -61,6 +61,62 @@ public static class SegmentChunker {
     }
 
 
+    // One paragraph-by-paragraph pass's worth of work: the body a careful pass must read closely,
+    // and the neighbouring pieces shown only so it reads that body in context.
+    public sealed record ContextBatch(
+        IReadOnlyList<string> contextBefore,
+        IReadOnlyList<string> body,
+        IReadOnlyList<string> contextAfter
+    );
+
+
+    // Cuts already-flattened pieces into small, contiguous, non-overlapping bodies of at most
+    // passSegments each, with the neighbouring pieces attached as context - the window a careful
+    // pass reads one paragraph inside of, the way a human editor keeps the page before and after in
+    // view without editing it.
+    //
+    // Operates on pieces Flatten has already produced, not on raw segments: a paragraph too large
+    // for one request has already been cut on sentence or character boundaries by the time this
+    // runs, so a body here is never a piece Flatten itself would have split further. Contexts
+    // overlap by construction - the piece after one body is the same piece the next body's own
+    // contextBefore starts counting back from - while bodies themselves never do, so every piece is
+    // translated or repaired exactly once.
+    public static List<ContextBatch> WithContext(
+        IReadOnlyList<string> segments,
+        int passSegments,
+        int before,
+        int after
+    ) {
+        List<ContextBatch> batches = [];
+        int step = Math.Max(1, passSegments);
+
+        for (int start = 0; start < segments.Count; start += step) {
+            int count = Math.Min(step, segments.Count - start);
+            int beforeStart = Math.Max(0, start - before);
+            int afterEnd = Math.Min(segments.Count, start + count + after);
+
+            batches.Add(new ContextBatch(
+                Slice(segments, beforeStart, start),
+                Slice(segments, start, start + count),
+                Slice(segments, start + count, afterEnd)
+            ));
+        }
+
+        return batches;
+    }
+
+
+    private static List<string> Slice(IReadOnlyList<string> segments, int start, int end) {
+        List<string> slice = [];
+
+        for (int index = start; index < end; index++) {
+            slice.Add(segments[index]);
+        }
+
+        return slice;
+    }
+
+
     public static List<IReadOnlyList<string>> Partition(IReadOnlyList<string> pieces, ChunkBudget budget) {
         List<IReadOnlyList<string>> batches = [];
         List<string> current = [];
