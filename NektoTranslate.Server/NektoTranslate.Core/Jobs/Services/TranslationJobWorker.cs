@@ -73,20 +73,37 @@ public class TranslationJobWorker(
             NektoDbContext database = scope.ServiceProvider.GetRequiredService<NektoDbContext>();
 
             // To what is on file, the same way a finished run releases them: a process that died
-            // mid-repair must not leave a translated chapter looking untranslated.
-            int released = await database.chapters
+            // mid-repair must not leave a translated chapter looking untranslated. Two plain updates
+            // rather than one with a conditional: EF cannot translate a set-to-subquery that joins
+            // the novel, and a startup step that throws is one that never releases anything.
+            var stranded = await database.chapters
                 .Where(chapter => chapter.translationState == ChapterTranslationState.Running
                     || chapter.translationState == ChapterTranslationState.Queued)
+                .Select(chapter => new {
+                    chapter.id,
+                    hasTranslation = database.chapterTranslations.Any(translation =>
+                        translation.chapterId == chapter.id && translation.language == chapter.novel!.targetLanguage)
+                })
+                .ToListAsync(stoppingToken);
+
+            List<long> translated = stranded.Where(chapter => chapter.hasTranslation).Select(chapter => chapter.id).ToList();
+            List<long> untranslated = stranded.Where(chapter => !chapter.hasTranslation).Select(chapter => chapter.id).ToList();
+
+            await database.chapters
+                .Where(chapter => translated.Contains(chapter.id))
                 .ExecuteUpdateAsync(
-                    update => update.SetProperty(
-                        chapter => chapter.translationState,
-                        chapter => database.chapterTranslations.Any(translation =>
-                            translation.chapterId == chapter.id && translation.language == chapter.novel!.targetLanguage)
-                            ? ChapterTranslationState.Translated
-                            : ChapterTranslationState.None
-                    ),
+                    update => update.SetProperty(chapter => chapter.translationState, ChapterTranslationState.Translated),
                     stoppingToken
                 );
+
+            await database.chapters
+                .Where(chapter => untranslated.Contains(chapter.id))
+                .ExecuteUpdateAsync(
+                    update => update.SetProperty(chapter => chapter.translationState, ChapterTranslationState.None),
+                    stoppingToken
+                );
+
+            int released = stranded.Count;
 
             if (released > 0) {
                 logger.LogInformation(
