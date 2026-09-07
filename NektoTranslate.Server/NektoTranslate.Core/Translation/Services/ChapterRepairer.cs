@@ -341,11 +341,15 @@ public class ChapterRepairer(
             return [];
         }
 
+        // Never a repaired rendering: once that chapter has itself been through a repair, its newest
+        // translation is this machinery's own output, and an example of the human's voice has to be
+        // the human's.
         string? plainText = await database.chapterTranslations
             .AsNoTracking()
             .Where(translation => translation.language == language
                 && translation.chapter!.novelId == novelId
-                && translation.chapter.index == voice.toChapterIndex)
+                && translation.chapter.index == voice.toChapterIndex
+                && translation.origin != TranslationOrigin.Repaired)
             .OrderByDescending(translation => translation.createdAt)
             .ThenByDescending(translation => translation.id)
             .Select(translation => translation.plainText)

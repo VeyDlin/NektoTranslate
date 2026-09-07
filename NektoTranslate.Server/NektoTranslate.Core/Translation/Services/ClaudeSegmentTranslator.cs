@@ -292,6 +292,9 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
         }
 
         costUsd += repassCostUsd;
+        // The re-pass is a step the chapter did not know it would need until the proofread had
+        // answered, so the count grows with it rather than the index running past the count.
+        stepCount++;
         stepIndex++;
 
         progress?.Report(new RunStep(
