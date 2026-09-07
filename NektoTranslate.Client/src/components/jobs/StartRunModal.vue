@@ -11,23 +11,41 @@
 
                 <div v-if="scope === 'Range'" class="range">
                     <UFormField label="From chapter">
-                        <UInputNumber
-                            v-model="fromNumber"
-                            :min="1"
-                            :max="lastNumber"
+                        <USelectMenu
+                            v-model.nullable="fromChapterId"
+                            :items="chapterOptions"
+                            value-key="id"
+                            label-key="label"
+                            :virtualize="true"
                             :disabled="isPending"
                             class="w-full"
-                        />
+                        >
+                            <template #item-label="{ item }">
+                                <span class="chapter-option">
+                                    <span class="position">{{ item.position }} ·</span>
+                                    <span class="title">{{ item.title }}</span>
+                                </span>
+                            </template>
+                        </USelectMenu>
                     </UFormField>
 
                     <UFormField label="To chapter">
-                        <UInputNumber
-                            v-model="toNumber"
-                            :min="1"
-                            :max="lastNumber"
+                        <USelectMenu
+                            v-model.nullable="toChapterId"
+                            :items="chapterOptions"
+                            value-key="id"
+                            label-key="label"
+                            :virtualize="true"
                             :disabled="isPending"
                             class="w-full"
-                        />
+                        >
+                            <template #item-label="{ item }">
+                                <span class="chapter-option">
+                                    <span class="position">{{ item.position }} ·</span>
+                                    <span class="title">{{ item.title }}</span>
+                                </span>
+                            </template>
+                        </USelectMenu>
                     </UFormField>
                 </div>
 
@@ -174,16 +192,67 @@
     const budget = ref<number | undefined>(undefined);
     const force = ref(false);
 
-    // Both ends are held as the numbers the reader sees, which start at one, and converted back to
-    // the server's zero-based index only when the job is sent. Held the other way round, a minimum
-    // of one would put the first chapter of the book permanently out of reach of a range.
-    const fromNumber = ref(1);
-    const toNumber = ref(1);
+    // The range is picked by which chapters, not by typing a position a reader has to work out for
+    // themselves first — a book split across a site's own renumbering has no position that matches
+    // what the book calls itself. Held as the chapter's id; the index the server wants is derived
+    // from it below, so there is exactly one source of truth for which chapter each end names.
+    const fromChapterId = ref<number | null>(null);
+    const toChapterId = ref<number | null>(null);
 
-    const lastNumber = computed(() => props.rows.reduce(
-        (highest, row) => Math.max(highest, chapterNumber(row.index)),
-        1,
-    ));
+    // One item per chapter of the book, in the order `rows` gives them. `label` carries both the
+    // position and the title so the menu's own search - which matches against `labelKey` - finds a
+    // chapter by either, with no separate filter to keep in step with what is actually shown.
+    interface ChapterOption {
+        id: number;
+        position: number;
+        title: string;
+        label: string;
+    }
+
+    const chapterOptions = computed<ChapterOption[]>(() => props.rows.map(row => ({
+        id: row.id,
+        position: chapterNumber(row.index),
+        title: row.title,
+        label: `${chapterNumber(row.index)} · ${row.title}`,
+    })));
+
+    function chapterById(id: number | null): ChapterSummary | null {
+        if (id === null) {
+            return null;
+        }
+
+        return props.rows.find(row => row.id === id) ?? null;
+    }
+
+    // The row nearest either end of the book that has a translation - by its own index, not by
+    // position in `rows`, so this holds even if the rows ever arrive in some other order.
+    function extremeTranslatedChapter(direction: "earliest" | "latest"): ChapterSummary | null {
+        return props.rows.filter(row => row.hasTranslation).reduce<ChapterSummary | null>((best, row) => {
+            if (best === null) {
+                return row;
+            }
+
+            const better = direction === "earliest" ? row.index < best.index : row.index > best.index;
+
+            return better ? row : best;
+        }, null);
+    }
+
+    // Whichever order the two ends were picked in, the run covers the span between them low to high
+    // rather than refusing a "from" picked after a "to" - the reader's intent to cover that span is
+    // clear either way. Every place that reads the range (the estimate, the button's count, the
+    // request) goes through this, so the count on screen never disagrees with what Start actually
+    // sends.
+    const rangeBounds = computed(() => {
+        const from = chapterById(fromChapterId.value);
+        const to = chapterById(toChapterId.value);
+
+        if (from === null || to === null) {
+            return null;
+        }
+
+        return from.index <= to.index ? { from, to } : { from: to, to: from };
+    });
 
     // What each kind of run is called, what it does, and how the estimate below reads for it. Kept
     // as one map rather than three separate switches, so a new mode only has one place to add copy
@@ -260,6 +329,18 @@
             return;
         }
 
+        // Seeded once, the same way the numeric fields used to open on "1": a starting pair of ends
+        // for whichever branch below does not set one of its own, so a reader who switches scope to
+        // Range by hand always finds two real chapters already picked rather than two empty menus.
+        if (fromChapterId.value === null || toChapterId.value === null) {
+            const first = props.rows.at(0) ?? null;
+
+            if (first !== null) {
+                fromChapterId.value = first.id;
+                toChapterId.value = first.id;
+            }
+        }
+
         if (current !== "LearnVoice") {
             if (props.selectedIds.length > 0) {
                 scope.value = "Selection";
@@ -271,14 +352,12 @@
                 // Whatever the scope was before counts for nothing here: switching over from
                 // learning left its whole-book range in place, which is forty-two again by another
                 // door.
-                const numbered = props.rows
-                    .filter(row => row.hasTranslation)
-                    .map(row => chapterNumber(row.index));
+                const latest = extremeTranslatedChapter("latest");
 
-                if (numbered.length > 0) {
+                if (latest !== null) {
                     scope.value = "Range";
-                    fromNumber.value = Math.max(...numbered);
-                    toNumber.value = Math.max(...numbered);
+                    fromChapterId.value = latest.id;
+                    toChapterId.value = latest.id;
                 }
             }
 
@@ -289,13 +368,12 @@
             scope.value = "Range";
         }
 
-        const translated = props.rows
-            .filter(row => row.hasTranslation)
-            .map(row => chapterNumber(row.index));
+        const earliest = extremeTranslatedChapter("earliest");
+        const latest = extremeTranslatedChapter("latest");
 
-        if (translated.length > 0) {
-            fromNumber.value = Math.min(...translated);
-            toNumber.value = Math.max(...translated);
+        if (earliest !== null && latest !== null) {
+            fromChapterId.value = earliest.id;
+            toChapterId.value = latest.id;
         }
     });
 
@@ -308,8 +386,9 @@
     )).filter((row) => {
         switch (scope.value) {
             case "Range":
-                return chapterNumber(row.index) >= fromNumber.value
-                    && chapterNumber(row.index) <= toNumber.value;
+                return rangeBounds.value !== null
+                    && row.index >= rangeBounds.value.from.index
+                    && row.index <= rangeBounds.value.to.index;
             case "Selection":
                 return props.selectedIds.includes(row.id);
             default:
@@ -349,7 +428,7 @@
     // that are no longer on screen.
     const failure = ref<string | null>(null);
 
-    watch([open, mode, scope, fromNumber, toNumber, budget, force], () => {
+    watch([open, mode, scope, fromChapterId, toChapterId, budget, force], () => {
         failure.value = null;
     });
 
@@ -357,8 +436,8 @@
     // so a reader who looks up from another screen knows which run just started and where to
     // watch it.
     const startedTitle = computed(() => {
-        const scopeWords = scope.value === "Range"
-            ? `chapters ${fromNumber.value}–${toNumber.value}`
+        const scopeWords = scope.value === "Range" && rangeBounds.value !== null
+            ? `chapters ${chapterNumber(rangeBounds.value.from.index)}–${chapterNumber(rangeBounds.value.to.index)}`
             : `${formatCount(targets.value.length)} ${targets.value.length === 1 ? "chapter" : "chapters"}`;
 
         return `${jobModeProgressLabel(mode.value)}: ${scopeWords}`;
@@ -387,8 +466,8 @@
             await mutateAsync({
                 mode: mode.value,
                 scopeKind: scope.value,
-                fromIndex: scope.value === "Range" ? fromNumber.value - 1 : null,
-                toIndex: scope.value === "Range" ? toNumber.value - 1 : null,
+                fromIndex: scope.value === "Range" ? rangeBounds.value?.from.index ?? null : null,
+                toIndex: scope.value === "Range" ? rangeBounds.value?.to.index ?? null : null,
                 chapterIds: scope.value === "Selection" ? [...props.selectedIds] : null,
                 budgetUsd: budget.value ?? null,
                 force: mode.value === "Translate" ? force.value : null,
@@ -479,6 +558,27 @@
             display: flex;
             justify-content: flex-end;
             gap: 0.5rem;
+        }
+    }
+
+    // Not nested under `.run`: the select menu's own list is teleported to a portal outside it, where
+    // a descendant selector would never match.
+    .chapter-option {
+        display: flex;
+        gap: 0.375rem;
+        min-width: 0;
+
+        .position {
+            flex: none;
+            color: var(--ui-text-muted);
+        }
+
+        .title {
+            flex: 1 1 auto;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
     }
 </style>
