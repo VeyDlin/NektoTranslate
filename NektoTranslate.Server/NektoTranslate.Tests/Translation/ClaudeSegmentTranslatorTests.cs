@@ -59,9 +59,40 @@ public class ClaudeSegmentTranslatorTests {
     }
 
 
+    // ---- the careful pass's own additions ----
+
+    [Fact]
+    public void HowToReadEachParagraphIsAlwaysPresent() {
+        string prompt = ClaudeSegmentTranslator.BuildSystemPrompt(Request(), 1);
+
+        Assert.Contains("HOW TO READ EACH PARAGRAPH", prompt);
+        Assert.Contains("is rebuilt, not mirrored", prompt);
+    }
+
+
+    [Fact]
+    public void NoMemoAddsNoThisChapterSection() {
+        string prompt = ClaudeSegmentTranslator.BuildSystemPrompt(Request(), 1);
+
+        Assert.DoesNotContain("THIS CHAPTER", prompt);
+    }
+
+
+    [Fact]
+    public void AMemoAddsItsRegisterAndPresentTermsUnderThisChapter() {
+        CarefulPass.Memo memo = new CarefulPass.Memo("A tense chapter.", ["田中"], []);
+        string prompt = ClaudeSegmentTranslator.BuildSystemPrompt(Request(memo: memo), 1);
+
+        Assert.Contains("THIS CHAPTER", prompt);
+        Assert.Contains("A tense chapter.", prompt);
+        Assert.Contains("田中", prompt);
+    }
+
+
     private static ChapterTranslationRequest Request(
         string? voiceSummary = null,
-        IReadOnlyList<string>? recentContext = null
+        IReadOnlyList<string>? recentContext = null,
+        CarefulPass.Memo? memo = null
     ) {
         return new ChapterTranslationRequest(
             "Japanese",
@@ -74,7 +105,8 @@ public class ClaudeSegmentTranslatorTests {
             false,
             "claude-sonnet",
             null,
-            voiceSummary
+            voiceSummary,
+            memo
         );
     }
 }

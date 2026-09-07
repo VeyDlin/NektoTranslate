@@ -4,6 +4,7 @@ using ClaudeCodeSdk;
 using ClaudeCodeSdk.Types;
 using NektoTranslate.Common.Models;
 using NektoTranslate.Jobs.Contracts;
+using NektoTranslate.Settings.Services;
 using NektoTranslate.Translation.Contracts;
 
 
@@ -22,7 +23,10 @@ public interface ISegmentTranslator {
 }
 
 
-// Translates one chapter's worth of segments in a single call to the Claude Code CLI.
+// Translates one chapter the way a careful editor works: read the whole chapter once and write a
+// memo before touching a paragraph, translate paragraph by paragraph with the couple of neighbours
+// around each as context, then read the finished chapter back once more and redo whatever still
+// reads wrong.
 //
 // Three flags strip the coding agent down to a plain translation engine: --safe-mode drops
 // CLAUDE.md, skills, plugins, hooks and MCP servers while leaving authentication working;
@@ -34,13 +38,15 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
     private readonly BatchingOptions batching = options.batching;
 
 
-    // A chapter is normally one request. A long one is split on paragraph boundaries, because the
-    // alternative is a reply truncated at the token ceiling - which arrives as a segment-count
-    // mismatch and costs the whole chapter rather than one batch.
+    // A chapter is normally many small requests rather than one - passSegments paragraphs at a
+    // time, each read with its neighbours as context, the way an editor works rather than the way a
+    // single big batch skims. A paragraph too large for one request on its own is still split on
+    // sentence or character boundaries first, exactly as before.
     //
     // Batches run in order and each is given the tail of the previous batch's translation, so the
-    // voice does not reset in the middle of a chapter. The glossary is in the system prompt and so
-    // reaches every batch unchanged.
+    // voice does not reset mid-chapter. The glossary is in the system prompt and so reaches every
+    // batch unchanged. The chapter is read back once as a whole after every batch has answered, and
+    // whatever the proofread flags is redone once more with its critique attached.
     public async Task<ChapterTranslationOutcome> TranslateAsync(
         ChapterTranslationRequest request,
         Func<string, Task>? onDelta = null,
@@ -74,20 +80,41 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
         ChunkBudget budget = request.effectiveBudget;
 
         (List<string> pieces, List<int> owners) = SegmentChunker.Flatten(request.segments, budget);
-        List<IReadOnlyList<string>> batches = SegmentChunker.Partition(pieces, budget);
+        List<SegmentChunker.ContextBatch> batches = SegmentChunker.WithContext(
+            pieces,
+            request.passSegments,
+            request.passContextBefore,
+            request.passContextAfter
+        );
+
+        int stepCount = 1 + batches.Count + (request.proofread ? 1 : 0);
+        int stepIndex = 1;
+        double totalCostUsd = 0;
+
+        (CarefulPass.Memo memo, double memoCostUsd) = await BuildMemoAsync(request, cancellationToken);
+        totalCostUsd += memoCostUsd;
+        progress?.Report(new RunStep("reading the chapter", stepIndex, stepCount, memoCostUsd));
 
         List<string> translatedPieces = [];
         List<string> carriedContext = request.recentContext.ToList();
         string sessionId = string.Empty;
-        double costUsd = 0;
+        int pieceCursor = 0;
 
-        for (int index = 0; index < batches.Count; index++) {
-            IReadOnlyList<string> batch = batches[index];
-            string hash = BatchHash.Of(batch, request.targetLanguage, request.model, promptFingerprint);
+        for (int batchPosition = 0; batchPosition < batches.Count; batchPosition++) {
+            SegmentChunker.ContextBatch batch = batches[batchPosition];
+
+            string hash = BatchHash.Of(
+                batch.contextBefore,
+                batch.body,
+                batch.contextAfter,
+                request.targetLanguage,
+                request.model,
+                promptFingerprint
+            );
 
             // A batch already translated in an earlier, interrupted run is reused rather than paid
-            // for again. On a chapter that takes seventeen requests, a failure on the fifteenth
-            // otherwise discards fourteen that succeeded - and the retry spends that money twice.
+            // for again. On a chapter that takes many requests, a failure on a late one otherwise
+            // discards every one that succeeded before it - and the retry spends that money twice.
             string? cached = await cache.TryGetAsync(hash, cancellationToken);
             IReadOnlyList<string> batchResult;
             double batchCostUsd = 0;
@@ -97,7 +124,9 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
             } else {
                 ChapterTranslationOutcome outcome = await TranslateResilientAsync(
                     request,
+                    memo,
                     batch,
+                    null,
                     carriedContext,
                     onDelta,
                     cancellationToken
@@ -105,12 +134,12 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
 
                 batchResult = outcome.segments;
                 batchCostUsd = outcome.costUsd;
-                costUsd += outcome.costUsd;
+                totalCostUsd += outcome.costUsd;
                 sessionId = outcome.sessionId;
 
                 await cache.StoreAsync(
                     hash,
-                    index,
+                    batchPosition,
                     JsonSerializer.Serialize(batchResult),
                     outcome.costUsd,
                     cancellationToken
@@ -118,13 +147,15 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
             }
 
             translatedPieces.AddRange(batchResult);
+            pieceCursor += batch.body.Count;
+            stepIndex++;
 
             // Reported for a cached batch too, at zero cost: the bar still needs to move past it, and
             // that batch's money was already charged to the run that first translated it.
             progress?.Report(new RunStep(
-                $"translating batch {index + 1} of {batches.Count}",
-                index + 1,
-                batches.Count,
+                CarefulPass.ParagraphRangeTitle("translating", pieceCursor - batch.body.Count + 1, pieceCursor, pieces.Count),
+                stepIndex,
+                stepCount,
                 batchCostUsd
             ));
 
@@ -135,11 +166,137 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
             }
         }
 
-        return new ChapterTranslationOutcome(
-            SegmentChunker.Rejoin(translatedPieces, owners, request.segments.Count),
-            sessionId,
-            costUsd
+        List<string> finalSegments = SegmentChunker.Rejoin(translatedPieces, owners, request.segments.Count);
+
+        if (request.proofread) {
+            // The cross-chapter voice window, not carriedContext: a re-pass batch is not
+            // necessarily adjacent to wherever the main loop's last batch happened to end, so the
+            // within-chapter tail that window grew is not this batch's neighbour and would only
+            // read as a non sequitur. Its own contextBefore, drawn from its actual position, already
+            // covers what a reader needs for continuity.
+            (finalSegments, double proofreadCostUsd) = await ProofreadAndRepassAsync(
+                request,
+                memo,
+                pieces,
+                owners,
+                translatedPieces,
+                finalSegments,
+                request.recentContext,
+                stepIndex,
+                stepCount,
+                onDelta,
+                progress,
+                cancellationToken
+            );
+
+            totalCostUsd += proofreadCostUsd;
+        }
+
+        return new ChapterTranslationOutcome(finalSegments, sessionId, totalCostUsd);
+    }
+
+
+    // Reads the finished chapter back once, source against translation, and redoes whatever it
+    // flags through the same careful pass, with the critique attached. At most one re-pass: what
+    // comes back from it is final, whether or not it would still satisfy a second reading.
+    private async Task<(List<string> segments, double costUsd)> ProofreadAndRepassAsync(
+        ChapterTranslationRequest request,
+        CarefulPass.Memo memo,
+        List<string> pieces,
+        List<int> owners,
+        List<string> translatedPieces,
+        List<string> reassembledSegments,
+        IReadOnlyList<string> recentContext,
+        int stepIndex,
+        int stepCount,
+        Func<string, Task>? onDelta,
+        IProgress<RunStep>? progress,
+        CancellationToken cancellationToken
+    ) {
+        double costUsd = 0;
+
+        string proofreadSystemPrompt = CarefulPass.BuildTranslateProofreadSystemPrompt(
+            request.sourceLanguage,
+            request.targetLanguage,
+            request.segments.Count,
+            request.glossary,
+            request.voiceSummary
         );
+        string passage = CarefulPass.BuildTranslateProofreadPassage(request.segments, reassembledSegments);
+
+        (string reply, double proofreadCostUsd) = await AskAsync(
+            proofreadSystemPrompt,
+            passage,
+            request.model,
+            request.thinkingTokens,
+            cancellationToken
+        );
+
+        costUsd += proofreadCostUsd;
+        stepIndex++;
+
+        IReadOnlyList<CarefulPass.ProofreadFinding> findings = CarefulPass.ParseProofreadFindings(
+            reply,
+            request.segments.Count
+        );
+
+        progress?.Report(new RunStep("proofreading", stepIndex, stepCount, proofreadCostUsd));
+
+        if (findings.Count == 0) {
+            return (reassembledSegments, costUsd);
+        }
+
+        Dictionary<int, string> problemsBySegment = findings
+            .GroupBy(finding => finding.segmentIndex)
+            .ToDictionary(group => group.Key, group => string.Join("; ", group.Select(finding => finding.problem)));
+
+        List<int> flaggedPieces = Enumerable.Range(0, pieces.Count)
+            .Where(pieceIndex => problemsBySegment.ContainsKey(owners[pieceIndex]))
+            .ToList();
+
+        List<CarefulPass.RepassGroup> repassGroups = CarefulPass.GroupFlaggedForRepass(
+            flaggedPieces,
+            pieces,
+            request.passSegments,
+            request.passContextBefore,
+            request.passContextAfter
+        );
+
+        double repassCostUsd = 0;
+
+        foreach (CarefulPass.RepassGroup group in repassGroups) {
+            List<string?> critiques = Enumerable.Range(0, group.batch.body.Count)
+                .Select(offset => problemsBySegment.GetValueOrDefault(owners[group.firstPieceIndex + offset]))
+                .ToList();
+
+            ChapterTranslationOutcome redone = await TranslateResilientAsync(
+                request,
+                memo,
+                group.batch,
+                critiques,
+                recentContext,
+                onDelta,
+                cancellationToken
+            );
+
+            repassCostUsd += redone.costUsd;
+
+            for (int offset = 0; offset < redone.segments.Count; offset++) {
+                translatedPieces[group.firstPieceIndex + offset] = redone.segments[offset];
+            }
+        }
+
+        costUsd += repassCostUsd;
+        stepIndex++;
+
+        progress?.Report(new RunStep(
+            CarefulPass.RedoneParagraphsTitle(problemsBySegment.Count),
+            stepIndex,
+            stepCount,
+            repassCostUsd
+        ));
+
+        return (SegmentChunker.Rejoin(translatedPieces, owners, request.segments.Count), costUsd);
     }
 
 
@@ -148,22 +305,31 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
     // losing one paragraph's worth of work and losing everything already paid for, and it also
     // recovers from the ordinary cause - a batch that turned out to be too large for one reply.
     //
-    // Subdivision stops at a single segment: at that point the format is not the problem.
+    // Subdivision stops at a single segment: at that point the format is not the problem. Both
+    // halves keep the whole batch's context - halving the body must not also halve what it is read
+    // against.
     private async Task<ChapterTranslationOutcome> TranslateResilientAsync(
         ChapterTranslationRequest request,
-        IReadOnlyList<string> batch,
+        CarefulPass.Memo memo,
+        SegmentChunker.ContextBatch batch,
+        IReadOnlyList<string?>? critiques,
         IReadOnlyList<string> context,
         Func<string, Task>? onDelta,
         CancellationToken cancellationToken
     ) {
         try {
-            return await TranslateBatchAsync(request, batch, context, onDelta, cancellationToken);
-        } catch (SegmentProtocolException) when (batch.Count > 1) {
-            int half = batch.Count / 2;
+            return await TranslateBatchAsync(request, memo, batch, critiques, context, onDelta, cancellationToken);
+        } catch (SegmentProtocolException) when (batch.body.Count > 1) {
+            int half = batch.body.Count / 2;
+
+            SegmentChunker.ContextBatch firstHalf = batch with { body = batch.body.Take(half).ToList() };
+            SegmentChunker.ContextBatch secondHalf = batch with { body = batch.body.Skip(half).ToList() };
 
             ChapterTranslationOutcome first = await TranslateResilientAsync(
                 request,
-                batch.Take(half).ToList(),
+                memo,
+                firstHalf,
+                critiques?.Take(half).ToList(),
                 context,
                 onDelta,
                 cancellationToken
@@ -171,7 +337,9 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
 
             ChapterTranslationOutcome second = await TranslateResilientAsync(
                 request,
-                batch.Skip(half).ToList(),
+                memo,
+                secondHalf,
+                critiques?.Skip(half).ToList(),
                 context,
                 onDelta,
                 cancellationToken
@@ -188,23 +356,30 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
 
     private async Task<ChapterTranslationOutcome> TranslateBatchAsync(
         ChapterTranslationRequest request,
-        IReadOnlyList<string> segments,
+        CarefulPass.Memo memo,
+        SegmentChunker.ContextBatch batch,
+        IReadOnlyList<string?>? critiques,
         IReadOnlyList<string> context,
         Func<string, Task>? onDelta,
         CancellationToken cancellationToken
     ) {
-        request = request with { segments = segments, recentContext = context };
+        ChapterTranslationRequest batchRequest = request with {
+            segments = batch.body,
+            recentContext = context,
+            memo = memo
+        };
 
-        string prompt = SegmentProtocol.Format(segments);
+        string prompt = CarefulPass.BuildBatchPrompt(batch.contextBefore, batch.body, batch.contextAfter, critiques);
         double costUsd = 0;
         SegmentProtocolException? lastFailure = null;
 
         for (int attempt = 1; attempt <= batching.maxAttempts; attempt++) {
             ClaudeCodeOptions options = new ClaudeCodeOptions {
                 Model = request.model,
-                SystemPrompt = BuildSystemPrompt(request, attempt),
+                SystemPrompt = BuildSystemPrompt(batchRequest, attempt),
                 MaxTurns = 1,
                 IncludePartialMessages = onDelta is not null,
+                EnvironmentVariables = ThinkingEnvironment.BuildEnvironmentVariables(request.thinkingTokens),
                 ExtraArgs = new Dictionary<string, string?> {
                     { "safe-mode", null },
                     { "tools", "" },
@@ -242,7 +417,7 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
             }
 
             try {
-                IReadOnlyList<string> parsed = SegmentProtocol.Parse(reply.ToString(), request.segments.Count);
+                IReadOnlyList<string> parsed = SegmentProtocol.Parse(reply.ToString(), batch.body.Count);
 
                 return new ChapterTranslationOutcome(parsed, sessionId, costUsd);
             } catch (SegmentProtocolException failure) {
@@ -251,6 +426,78 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
         }
 
         throw lastFailure!;
+    }
+
+
+    // Reads the whole chapter once, before any paragraph of it is translated, on the glossary
+    // model rather than the book's own - listing which established terms this chapter mentions and
+    // describing its register is reading comprehension, not the literary judgement a translation
+    // pays for.
+    private static async Task<(CarefulPass.Memo memo, double costUsd)> BuildMemoAsync(
+        ChapterTranslationRequest request,
+        CancellationToken cancellationToken
+    ) {
+        string systemPrompt = CarefulPass.BuildTranslateMemoPrompt(
+            request.sourceLanguage,
+            request.targetLanguage,
+            request.glossary
+        );
+
+        (string reply, double costUsd) = await AskAsync(
+            systemPrompt,
+            request.sourcePlainText,
+            request.glossaryModel,
+            0,
+            cancellationToken
+        );
+
+        return (CarefulPass.ParseTranslateMemo(reply), costUsd);
+    }
+
+
+    // The same one-shot, tool-less, single-turn call the memo and the proofread both make - listing
+    // or reading back rather than writing prose is not what the translation model's careful-pass
+    // machinery above is built for. thinkingTokens is 0 for the memo (a mechanical reading) and
+    // request.thinkingTokens for the proofread (a pass call).
+    private static async Task<(string reply, double costUsd)> AskAsync(
+        string systemPrompt,
+        string prompt,
+        string model,
+        int thinkingTokens,
+        CancellationToken cancellationToken
+    ) {
+        ClaudeCodeOptions options = new ClaudeCodeOptions {
+            Model = model,
+            SystemPrompt = systemPrompt,
+            MaxTurns = 1,
+            EnvironmentVariables = ThinkingEnvironment.BuildEnvironmentVariables(thinkingTokens),
+            ExtraArgs = new Dictionary<string, string?> {
+                { "safe-mode", null },
+                { "tools", "" },
+                { "no-session-persistence", null }
+            }
+        };
+
+        StringBuilder reply = new StringBuilder();
+        double costUsd = 0;
+
+        await foreach (IMessage message in ClaudeQuery.QueryAsync(prompt, options, null, cancellationToken)) {
+            if (message is AssistantMessage assistant) {
+                foreach (TextBlock block in assistant.Content.OfType<TextBlock>()) {
+                    reply.Append(block.Text);
+                }
+            }
+
+            if (message is ResultMessage result) {
+                costUsd += result.TotalCostUsd ?? 0;
+
+                if (result.IsError) {
+                    throw new InvalidOperationException($"Claude Code returned an error: {result.Result}");
+                }
+            }
+        }
+
+        return (reply.ToString(), costUsd);
     }
 
 
@@ -381,12 +628,22 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
             prompt.AppendLine(request.styleGuide);
         }
 
+        // What the chapter's own memo already read, and how to read each paragraph closely rather
+        // than skimming a whole batch - the two things a careful pass adds on top of everything
+        // above, which stays exactly what it already was.
+        if (request.memo is not null) {
+            CarefulPass.AppendThisChapter(prompt, request.memo);
+        }
+
+        CarefulPass.AppendHowToReadForTranslate(prompt, request.sourceLanguage, request.targetLanguage);
+
         return prompt.ToString();
     }
 
 
     // The CLI wraps the raw API event, so the text of a delta sits several levels down. Anything
-    // that is not a text delta - and there are several other event types - yields nothing.
+    // that is not a text delta - and there are several other event types, thinking among them - is
+    // filtered out here and reaches neither the reader's stream nor the segment parser.
     private static string ReadTextDelta(StreamEvent partial) {
         if (!partial.Event.TryGetProperty("delta", out JsonElement delta)) {
             return string.Empty;

@@ -7,22 +7,13 @@ using Xunit;
 namespace NektoTranslate.Tests.Translation;
 
 
-// The "who is who" pass that runs before a repair rewrites a chapter: the prompt that hands the
-// model every established name in the book, and the parser that decides which of its answers are
-// trustworthy enough to feed back into the rewrite. A pair this parser accepts is one the rewrite
-// will be told to enforce everywhere it appears, so what it lets through matters as much as what the
-// rewrite prompt itself may not invent.
+// The parser that decides which of the memo's MISSPELLED answers are trustworthy enough to feed
+// back into a rewrite - shared verbatim between the memo's own parsing (CarefulPassTests covers the
+// prompt that asks for these pairs) and, before the memo replaced it, a dedicated per-batch
+// alignment pass. A pair this parser accepts is one the rewrite will be told to enforce everywhere
+// it appears, so what it lets through matters as much as what the rewrite prompt itself may not
+// invent.
 public class NameAlignmentTests {
-
-    [Fact]
-    public void ThePromptNamesEveryOfferedNameAndStatesTheFormat() {
-        string prompt = RepairPrompt.BuildNameAlignmentSystemPrompt("Russian", [Name("Уолтер Тай"), Name("Ханако")]);
-
-        Assert.Contains("Уолтер Тай", prompt);
-        Assert.Contains("Ханако", prompt);
-        Assert.Contains("written in the passage | established rendering", prompt);
-    }
-
 
     [Fact]
     public void AValidPairIsAccepted() {

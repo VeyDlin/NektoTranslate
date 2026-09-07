@@ -45,10 +45,15 @@ public static class CarefulPass {
     // context. A side with nothing to show - the first batch has no contextBefore, the last has no
     // contextAfter - contributes no heading at all, so a chapter short enough for one batch reads
     // exactly as it always did.
+    //
+    // critiques, when given, carries the proofreader's own finding for each body item in the same
+    // order and count as body - null where that item was not flagged. A re-pass batch is built from
+    // items that were all flagged, so every entry is normally set, but the shape tolerates a mix.
     public static string BuildBatchPrompt(
         IReadOnlyList<string> contextBefore,
         IReadOnlyList<string> body,
-        IReadOnlyList<string> contextAfter
+        IReadOnlyList<string> contextAfter,
+        IReadOnlyList<string?>? critiques = null
     ) {
         StringBuilder prompt = new StringBuilder();
 
@@ -58,6 +63,12 @@ public static class CarefulPass {
         }
 
         prompt.Append(SegmentProtocol.Format(body));
+
+        if (critiques is not null && critiques.Any(critique => critique is not null)) {
+            prompt.AppendLine();
+            prompt.AppendLine();
+            AppendCritiques(prompt, critiques);
+        }
 
         if (contextAfter.Count > 0) {
             prompt.AppendLine();
@@ -75,6 +86,97 @@ public static class CarefulPass {
         foreach (string line in lines) {
             prompt.Append("(context) ").AppendLine(line.ReplaceLineEndings(" "));
         }
+    }
+
+
+    // WHAT THE PROOFREADER FOUND, one line per flagged body item, under the same marker the body
+    // itself used - the marker a reply must already answer under, so pairing a critique to its
+    // paragraph costs the model nothing extra to read.
+    private static void AppendCritiques(StringBuilder prompt, IReadOnlyList<string?> critiques) {
+        prompt.AppendLine("WHAT THE PROOFREADER FOUND");
+
+        for (int index = 0; index < critiques.Count; index++) {
+            if (critiques[index] is string problem) {
+                prompt.Append(SegmentProtocol.Marker(index)).Append(' ').AppendLine(problem);
+            }
+        }
+    }
+
+
+    // One run of a re-pass: firstPieceIndex is where batch.body starts in the pieces list the
+    // flagged positions were grouped from, which is what lets a caller write the re-pass's result
+    // back to the right place in the chapter's full piece list once it comes back.
+    public sealed record RepassGroup(int firstPieceIndex, SegmentChunker.ContextBatch batch);
+
+
+    // Groups the paragraphs a proofread flagged into the same shape an ordinary pass batches in -
+    // contiguous runs of flagged positions, each no longer than passSegments, with the chapter's own
+    // neighbouring pieces attached as context exactly as WithContext would attach them. A run rather
+    // than one batch per flagged position, so two paragraphs the proofreader flagged next to each
+    // other are re-read together with the same continuity a first pass would have given them; capped
+    // at passSegments so a chapter flagged almost throughout still batches sensibly rather than
+    // becoming one request the size of the whole re-pass.
+    //
+    // flaggedIndices are positions into pieces - the same units WithContext itself batches, so a
+    // caller maps whatever granularity a proofread actually flagged (a translate's source segments,
+    // a repair's blocks) back to piece positions via the owners Flatten returned before calling this.
+    public static List<RepassGroup> GroupFlaggedForRepass(
+        IReadOnlyList<int> flaggedIndices,
+        IReadOnlyList<string> pieces,
+        int passSegments,
+        int before,
+        int after
+    ) {
+        List<RepassGroup> groups = [];
+        List<int> sorted = flaggedIndices.Distinct().OrderBy(index => index).ToList();
+        int step = Math.Max(1, passSegments);
+        int cursor = 0;
+
+        while (cursor < sorted.Count) {
+            int runStart = cursor;
+
+            while (cursor + 1 < sorted.Count
+                && sorted[cursor + 1] == sorted[cursor] + 1
+                && cursor + 1 - runStart < step) {
+                cursor++;
+            }
+
+            int firstIndex = sorted[runStart];
+            int lastIndex = sorted[cursor];
+            int beforeStart = Math.Max(0, firstIndex - before);
+            int afterEnd = Math.Min(pieces.Count, lastIndex + 1 + after);
+
+            groups.Add(new RepassGroup(
+                firstIndex,
+                new SegmentChunker.ContextBatch(
+                    pieces.Skip(beforeStart).Take(firstIndex - beforeStart).ToList(),
+                    pieces.Skip(firstIndex).Take(lastIndex - firstIndex + 1).ToList(),
+                    pieces.Skip(lastIndex + 1).Take(afterEnd - (lastIndex + 1)).ToList()
+                )
+            ));
+
+            cursor++;
+        }
+
+        return groups;
+    }
+
+
+    // ---- progress titles ----------------------------------------------------------------------
+
+    // "translating paragraphs 3-7 of 42" or, for a body of one, "translating paragraph 3 of 42" -
+    // the range a pass batch just covered, in the piece numbering the whole chapter is counted in.
+    // Shared between translate ("translating") and repair ("rewriting") so the wording only differs
+    // by the one word that says what is being done to the paragraph.
+    public static string ParagraphRangeTitle(string verb, int first, int last, int total) {
+        string range = first == last ? $"paragraph {first}" : $"paragraphs {first}–{last}";
+
+        return $"{verb} {range} of {total}";
+    }
+
+
+    public static string RedoneParagraphsTitle(int count) {
+        return count == 1 ? "re-doing 1 paragraph" : $"re-doing {count} paragraphs";
     }
 
 

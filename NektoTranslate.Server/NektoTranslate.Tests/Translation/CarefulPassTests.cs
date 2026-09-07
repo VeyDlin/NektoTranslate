@@ -53,6 +53,111 @@ public class CarefulPassTests {
     }
 
 
+    [Fact]
+    public void ACritiqueIsShownUnderTheSameMarkerItsBodyItemUsed() {
+        string prompt = CarefulPass.BuildBatchPrompt([], ["первый", "второй"], [], ["плохо", null]);
+
+        Assert.Contains("WHAT THE PROOFREADER FOUND", prompt);
+        Assert.Contains("⟦#0⟧ плохо", prompt);
+        Assert.DoesNotContain("⟦#1⟧ ", prompt.Split("WHAT THE PROOFREADER FOUND")[1]);
+    }
+
+
+    [Fact]
+    public void NoCritiquesAddsNoCritiqueBlock() {
+        string prompt = CarefulPass.BuildBatchPrompt([], ["первый"], [], [null]);
+
+        Assert.DoesNotContain("WHAT THE PROOFREADER FOUND", prompt);
+    }
+
+
+    // ---- grouping flagged paragraphs for a re-pass ----
+
+    [Fact]
+    public void AdjacentFlaggedPiecesAreGroupedIntoOneRun() {
+        List<CarefulPass.RepassGroup> groups = CarefulPass.GroupFlaggedForRepass(
+            [2, 3],
+            ["a", "b", "c", "d", "e"],
+            5,
+            1,
+            1
+        );
+
+        CarefulPass.RepassGroup group = Assert.Single(groups);
+        Assert.Equal(2, group.firstPieceIndex);
+        Assert.Equal(["c", "d"], group.batch.body);
+        Assert.Equal(["b"], group.batch.contextBefore);
+        Assert.Equal(["e"], group.batch.contextAfter);
+    }
+
+
+    [Fact]
+    public void NonAdjacentFlaggedPiecesBecomeSeparateRuns() {
+        List<CarefulPass.RepassGroup> groups = CarefulPass.GroupFlaggedForRepass(
+            [0, 4],
+            ["a", "b", "c", "d", "e"],
+            5,
+            1,
+            1
+        );
+
+        Assert.Equal(2, groups.Count);
+        Assert.Equal(["a"], groups[0].batch.body);
+        Assert.Equal(0, groups[0].firstPieceIndex);
+        Assert.Equal(["e"], groups[1].batch.body);
+        Assert.Equal(4, groups[1].firstPieceIndex);
+    }
+
+
+    [Fact]
+    public void ARunLongerThanPassSegmentsIsSplit() {
+        List<CarefulPass.RepassGroup> groups = CarefulPass.GroupFlaggedForRepass(
+            [0, 1, 2, 3],
+            ["a", "b", "c", "d"],
+            2,
+            0,
+            0
+        );
+
+        Assert.Equal(2, groups.Count);
+        Assert.Equal(["a", "b"], groups[0].batch.body);
+        Assert.Equal(["c", "d"], groups[1].batch.body);
+        Assert.Equal(2, groups[1].firstPieceIndex);
+    }
+
+
+    [Fact]
+    public void NoFlaggedIndicesYieldsNoBatches() {
+        Assert.Empty(CarefulPass.GroupFlaggedForRepass([], ["a", "b"], 5, 1, 1));
+    }
+
+
+    // ---- progress titles ----
+
+    [Fact]
+    public void ARangeOfSeveralParagraphsReadsAsARange() {
+        Assert.Equal("translating paragraphs 3–7 of 42", CarefulPass.ParagraphRangeTitle("translating", 3, 7, 42));
+    }
+
+
+    [Fact]
+    public void ARangeOfOneParagraphReadsAsASingleParagraph() {
+        Assert.Equal("rewriting paragraph 5 of 42", CarefulPass.ParagraphRangeTitle("rewriting", 5, 5, 42));
+    }
+
+
+    [Fact]
+    public void RedoneTitleIsSingularForOneParagraph() {
+        Assert.Equal("re-doing 1 paragraph", CarefulPass.RedoneParagraphsTitle(1));
+    }
+
+
+    [Fact]
+    public void RedoneTitleIsPluralForSeveralParagraphs() {
+        Assert.Equal("re-doing 3 paragraphs", CarefulPass.RedoneParagraphsTitle(3));
+    }
+
+
     // ---- the memo: translate ----
 
     [Fact]

@@ -68,6 +68,9 @@ public static class ServiceCollectionExtensions {
         ));
 
         services.AddScoped<IChapterTranslator, ChapterTranslator>();
+        // Shared by voice learning and a repair's decisions step - both feed a MergedTerm read off
+        // an existing translation into the same TranslationTerms merge.
+        services.AddScoped<ITermUpserter, TermUpserter>();
         services.AddScoped<IVoiceLearner, VoiceLearner>();
         services.AddScoped<IGlossaryLearner, GlossaryLearner>();
         services.AddScoped<IChapterRepairer, ChapterRepairer>();

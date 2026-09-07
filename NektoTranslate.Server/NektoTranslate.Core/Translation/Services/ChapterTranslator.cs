@@ -163,7 +163,14 @@ public class ChapterTranslator(
                 novel.normalizeQuotes,
                 novel.model,
                 ChunkBudget.From(applicationSettings, engine.batching),
-                voiceProfile?.summary
+                voiceProfile?.summary,
+                passSegments: applicationSettings.passSegments,
+                passContextBefore: applicationSettings.passContextBefore,
+                passContextAfter: applicationSettings.passContextAfter,
+                thinkingTokens: applicationSettings.thinkingTokens,
+                proofread: applicationSettings.proofread,
+                glossaryModel: glossaryModel,
+                sourcePlainText: sourcePlainText
             ),
             text => notifier.TranslationDeltaAsync(novel.id, chapter.id, text),
             new DatabaseBatchCache(database, chapter.id, language, novel.model),

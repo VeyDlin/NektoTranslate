@@ -290,6 +290,56 @@ public class RepairPromptTests {
     }
 
 
+    // ---- the careful pass's own additions ----
+
+    [Fact]
+    public void HowToReadEachParagraphIsAlwaysPresent() {
+        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 1, 1, []);
+
+        Assert.Contains("HOW TO READ EACH PARAGRAPH", prompt);
+        Assert.Contains("a change is a decision, not a reflex", prompt);
+    }
+
+
+    [Fact]
+    public void NoMemoAddsNoThisChapterSection() {
+        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 1, 1, []);
+
+        Assert.DoesNotContain("THIS CHAPTER", prompt);
+    }
+
+
+    [Fact]
+    public void AMemoAddsItsRegisterUnderThisChapter() {
+        CarefulPass.Memo memo = new CarefulPass.Memo("A tense chapter.", ["Иван"], []);
+
+        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 1, 1, [], memo);
+
+        Assert.Contains("THIS CHAPTER", prompt);
+        Assert.Contains("A tense chapter.", prompt);
+        Assert.Contains("Иван", prompt);
+    }
+
+
+    [Fact]
+    public void NoExamplesAddsNoExamplesSection() {
+        string prompt = RepairPrompt.BuildSystemPrompt("Russian", null, [], "", "", 1, 1, []);
+
+        Assert.DoesNotContain("EXAMPLES", prompt);
+    }
+
+
+    [Fact]
+    public void ExamplesAreShownWhenGiven() {
+        string prompt = RepairPrompt.BuildSystemPrompt(
+            "Russian", null, [], "", "", 1, 1, [], null, ["Пример хорошего перевода из этой книги."]
+        );
+
+        Assert.Contains("EXAMPLES", prompt);
+        Assert.Contains("Пример хорошего перевода из этой книги.", prompt);
+    }
+
+
     private static TranslationTerm Term(string term, string variantsJson) {
         return new TranslationTerm {
             novelId = 1,

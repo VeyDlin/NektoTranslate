@@ -25,7 +25,10 @@ namespace NektoTranslate.Translation.Services;
 
 // Rewrites a stretch of an existing translation that has no reliable original behind it, in the
 // voice a VoiceProfile has already learned from the chapters of this book a human actually
-// translated.
+// translated - the way a careful editor works: read the chapter once and write a memo before
+// touching a paragraph, rewrite paragraph by paragraph with the couple of neighbours around each as
+// context, read the finished chapter back once more, and write down what was decided so the next
+// chapter does not decide again.
 //
 // This is a repair, not a translation, and the two are not the same operation with a different
 // input. A translation pass can check its own output against the source it was given; this one
@@ -50,11 +53,31 @@ namespace NektoTranslate.Translation.Services;
 public class ChapterRepairer(
     NektoDbContext database,
     ISettingsService settings,
+    ITermUpserter termUpserter,
     EngineOptions engine,
     ILogger<ChapterRepairer> logger
 ) : IChapterRepairer {
 
     private readonly BatchingOptions batching = engine.batching;
+
+
+    // Everything about this repair that stays the same across every batch it sends, the re-pass
+    // included - bundled the same way ChapterTranslationRequest bundles a translate run's own
+    // constants, so a method that needs one of them does not have to carry eight separate
+    // parameters to get it.
+    private sealed record RepairContext(
+        string language,
+        string model,
+        VoiceProfile? voice,
+        IReadOnlyList<RepairTerm> terms,
+        CarefulPass.Memo memo,
+        IReadOnlyList<string> examples,
+        string previousTail,
+        int thinkingTokens,
+        int passSegments,
+        int passContextBefore,
+        int passContextAfter
+    );
 
 
     public async Task<RepairedChapter> RepairAsync(
@@ -121,67 +144,115 @@ public class ChapterRepairer(
 
         // Every Person, Place and Organization SelectRelevantTerms offered - which, unlike the rest
         // of the glossary, is already the whole book's roster regardless of what this chapter
-        // mentions. That is exactly the set a "who is who" pass needs to compare a chapter's own
-        // spellings against.
+        // mentions. That is exactly the set the memo's "who is who" question needs to compare a
+        // chapter's own spellings against.
         IReadOnlyList<RepairTerm> names = terms.Where(term => RepairPrompt.IsName(term.category)).ToList();
 
         string previousTail = await PreviousChapterTailAsync(novel.id, language, chapter.index, cancellationToken);
 
         ApplicationSettings applicationSettings = await settings.GetAsync(cancellationToken);
+        // Null means the book's own model - the one novel.model already names for every other run.
+        string model = applicationSettings.repairModel ?? novel.model;
         ChunkBudget budget = ChunkBudget.From(applicationSettings, batching);
 
         (List<string> pieces, List<int> owners) = SegmentChunker.Flatten(blocks, budget);
-        List<IReadOnlyList<string>> requestBatches = SegmentChunker.Partition(pieces, budget);
+        List<SegmentChunker.ContextBatch> passBatches = SegmentChunker.WithContext(
+            pieces,
+            applicationSettings.passSegments,
+            applicationSettings.passContextBefore,
+            applicationSettings.passContextAfter
+        );
 
-        (IReadOnlyList<NameAlignment> alignments, double alignmentCost) = await AlignNamesAsync(
-            chapter.id,
+        // One memo, one step per pass batch, one proofread if it is on, and one decisions step -
+        // always, since a repair always leaves something for the next chapter to reuse. A needed
+        // re-pass grows this by one more once the proofread has actually run.
+        int stepCount = 1 + passBatches.Count + (applicationSettings.proofread ? 1 : 0) + 1;
+        int stepIndex = 1;
+        double costUsd = 0;
+
+        (CarefulPass.Memo memo, double memoCostUsd) = await BuildMemoAsync(
             language,
             applicationSettings.glossaryModel,
             names,
-            requestBatches,
+            current.plainText,
+            engine.glossary.maxInflectionLength,
             cancellationToken
         );
+        costUsd += memoCostUsd;
+        progress?.Report(new RunStep("reading the chapter", stepIndex, stepCount, memoCostUsd));
 
-        // One alignment pass plus one step per rewrite batch, so the bar inside this chapter has as
-        // many stops as the repair actually takes.
-        int stepCount = requestBatches.Count + 1;
-        progress?.Report(new RunStep("aligning names", 1, stepCount, alignmentCost));
+        IReadOnlyList<string> examples = await LoadExamplesAsync(novel.id, language, voice, cancellationToken);
+
+        RepairContext context = new RepairContext(
+            language,
+            model,
+            voice,
+            terms,
+            memo,
+            examples,
+            previousTail,
+            applicationSettings.thinkingTokens,
+            applicationSettings.passSegments,
+            applicationSettings.passContextBefore,
+            applicationSettings.passContextAfter
+        );
 
         List<string> repairedPieces = [];
         string carriedTail = string.Empty;
-        double costUsd = alignmentCost;
+        int pieceCursor = 0;
 
-        for (int index = 0; index < requestBatches.Count; index++) {
-            IReadOnlyList<string> batch = requestBatches[index];
-
-            (IReadOnlyList<string> result, double batchCost) = await RepairResilientAsync(
-                language,
-                novel.model,
-                voice,
-                terms,
-                alignments,
-                previousTail,
+        foreach (SegmentChunker.ContextBatch batch in passBatches) {
+            (IReadOnlyList<string> result, double batchCostUsd) = await RepairResilientAsync(
+                context,
                 carriedTail,
                 batch,
+                null,
                 cancellationToken
             );
 
             repairedPieces.AddRange(result);
-            costUsd += batchCost;
+            pieceCursor += batch.body.Count;
+            costUsd += batchCostUsd;
+            stepIndex++;
 
             progress?.Report(new RunStep(
-                $"rewriting batch {index + 1} of {requestBatches.Count}",
-                index + 2,
+                CarefulPass.ParagraphRangeTitle("rewriting", pieceCursor - batch.body.Count + 1, pieceCursor, pieces.Count),
+                stepIndex,
                 stepCount,
-                batchCost
+                batchCostUsd
             ));
 
-            if (requestBatches.Count > 1) {
+            if (passBatches.Count > 1) {
                 carriedTail = string.Join("\n", result.TakeLast(batching.carryParagraphs));
             }
         }
 
         List<string> repairedBlocks = SegmentChunker.Rejoin(repairedPieces, owners, blocks.Count);
+
+        if (applicationSettings.proofread) {
+            // Empty, not carriedTail: a re-pass batch is not necessarily adjacent to wherever the
+            // main loop's last batch happened to end, so that tail is not this batch's neighbour
+            // and would only read as a non sequitur under CONTINUATION. Its own contextBefore,
+            // drawn from its actual position, already covers what a reader needs for continuity;
+            // context.previousTail - the previous chapter's own tail - is unaffected either way.
+            (List<string> proofread, double proofreadCostUsd, int nextStepIndex, int nextStepCount) = await ProofreadAndRepassAsync(
+                context,
+                pieces,
+                owners,
+                repairedPieces,
+                repairedBlocks,
+                string.Empty,
+                stepIndex,
+                stepCount,
+                progress,
+                cancellationToken
+            );
+
+            repairedBlocks = proofread;
+            costUsd += proofreadCostUsd;
+            stepIndex = nextStepIndex;
+            stepCount = nextStepCount;
+        }
 
         ChapterTranslation repaired = new ChapterTranslation {
             chapterId = chapter.id,
@@ -189,7 +260,7 @@ public class ChapterRepairer(
             markdown = TranslationBlocks.Join(repairedBlocks),
             plainText = TranslationBlocks.PlainTextOf(repairedBlocks),
             origin = TranslationOrigin.Repaired,
-            model = novel.model,
+            model = model,
             costUsd = costUsd
         };
 
@@ -201,7 +272,23 @@ public class ChapterRepairer(
         // rather than leaving a working chapter flagged as broken.
         chapter.translationState = ChapterTranslationState.Translated;
 
-        await RecordAlignmentVariantsAsync(alignments, names, cancellationToken);
+        await RecordAlignmentVariantsAsync(memo.misspelled, names, cancellationToken);
+
+        stepIndex++;
+
+        double decisionsCostUsd = await RecordDecisionsAsync(
+            novel.id,
+            language,
+            chapter.id,
+            repairedBlocks,
+            applicationSettings.glossaryModel,
+            budget,
+            cancellationToken
+        );
+        costUsd += decisionsCostUsd;
+        repaired.costUsd = costUsd;
+
+        progress?.Report(new RunStep("recording decisions", stepIndex, stepCount, decisionsCostUsd));
 
         await database.SaveChangesAsync(cancellationToken);
 
@@ -239,56 +326,70 @@ public class ChapterRepairer(
     }
 
 
+    // Two or three paragraphs of this book's own good translation, for the pass to match exactly -
+    // read from the newest translation of the chapter the voice profile itself was learned up to,
+    // since that chapter is known to carry a human translation. No voice profile means no chapter to
+    // point at, so there is nothing to show.
+    private async Task<IReadOnlyList<string>> LoadExamplesAsync(
+        long novelId,
+        string language,
+        VoiceProfile? voice,
+        CancellationToken cancellationToken
+    ) {
+        if (voice is null) {
+            return [];
+        }
+
+        string? plainText = await database.chapterTranslations
+            .AsNoTracking()
+            .Where(translation => translation.language == language
+                && translation.chapter!.novelId == novelId
+                && translation.chapter.index == voice.toChapterIndex)
+            .OrderByDescending(translation => translation.createdAt)
+            .ThenByDescending(translation => translation.id)
+            .Select(translation => translation.plainText)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (plainText is null) {
+            return [];
+        }
+
+        return CarefulPass.SelectExampleParagraphs(VoicePrompt.SplitParagraphs(plainText));
+    }
+
+
     // A batch the model could not answer in the required format is halved and each half retried,
     // mirroring ClaudeSegmentTranslator's own resilience - the failure mode is identical, and so is
     // the fix. Subdivision stops at a single segment: at that point the format is not the problem.
+    // Both halves keep the whole batch's context, exactly as the translate side does.
     private async Task<(IReadOnlyList<string> segments, double costUsd)> RepairResilientAsync(
-        string language,
-        string model,
-        VoiceProfile? voice,
-        IReadOnlyList<RepairTerm> terms,
-        IReadOnlyList<NameAlignment> alignments,
-        string previousTail,
+        RepairContext context,
         string carriedTail,
-        IReadOnlyList<string> batch,
+        SegmentChunker.ContextBatch batch,
+        IReadOnlyList<string?>? critiques,
         CancellationToken cancellationToken
     ) {
         try {
-            return await RepairBatchAsync(
-                language,
-                model,
-                voice,
-                terms,
-                alignments,
-                previousTail,
-                carriedTail,
-                batch,
-                cancellationToken
-            );
-        } catch (SegmentProtocolException) when (batch.Count > 1) {
-            int half = batch.Count / 2;
+            return await RepairBatchAsync(context, carriedTail, batch, critiques, cancellationToken);
+        } catch (SegmentProtocolException) when (batch.body.Count > 1) {
+            int half = batch.body.Count / 2;
+
+            SegmentChunker.ContextBatch firstHalf = batch with { body = batch.body.Take(half).ToList() };
+            SegmentChunker.ContextBatch secondHalf = batch with { body = batch.body.Skip(half).ToList() };
 
             (IReadOnlyList<string> first, double firstCost) = await RepairResilientAsync(
-                language,
-                model,
-                voice,
-                terms,
-                alignments,
-                previousTail,
+                context,
                 carriedTail,
-                batch.Take(half).ToList(),
+                firstHalf,
+                critiques?.Take(half).ToList(),
                 cancellationToken
             );
 
             (IReadOnlyList<string> second, double secondCost) = await RepairResilientAsync(
-                language,
-                model,
-                voice,
-                terms,
-                alignments,
-                previousTail,
+                context,
                 carriedTail,
-                batch.Skip(half).ToList(),
+                secondHalf,
+                critiques?.Skip(half).ToList(),
                 cancellationToken
             );
 
@@ -298,34 +399,33 @@ public class ChapterRepairer(
 
 
     private async Task<(IReadOnlyList<string> segments, double costUsd)> RepairBatchAsync(
-        string language,
-        string model,
-        VoiceProfile? voice,
-        IReadOnlyList<RepairTerm> terms,
-        IReadOnlyList<NameAlignment> alignments,
-        string previousTail,
+        RepairContext context,
         string carriedTail,
-        IReadOnlyList<string> batch,
+        SegmentChunker.ContextBatch batch,
+        IReadOnlyList<string?>? critiques,
         CancellationToken cancellationToken
     ) {
-        string prompt = SegmentProtocol.Format(batch);
+        string prompt = CarefulPass.BuildBatchPrompt(batch.contextBefore, batch.body, batch.contextAfter, critiques);
         double costUsd = 0;
         SegmentProtocolException? lastFailure = null;
 
         for (int attempt = 1; attempt <= batching.maxAttempts; attempt++) {
             ClaudeCodeOptions options = new ClaudeCodeOptions {
-                Model = model,
+                Model = context.model,
                 SystemPrompt = RepairPrompt.BuildSystemPrompt(
-                    language,
-                    voice,
-                    terms,
-                    previousTail,
+                    context.language,
+                    context.voice,
+                    context.terms,
+                    context.previousTail,
                     carriedTail,
-                    batch.Count,
+                    batch.body.Count,
                     attempt,
-                    alignments
+                    context.memo.misspelled,
+                    context.memo,
+                    context.examples
                 ),
                 MaxTurns = 1,
+                EnvironmentVariables = ThinkingEnvironment.BuildEnvironmentVariables(context.thinkingTokens),
                 ExtraArgs = new Dictionary<string, string?> {
                     { "safe-mode", null },
                     { "tools", "" },
@@ -352,7 +452,7 @@ public class ChapterRepairer(
             }
 
             try {
-                return (SegmentProtocol.Parse(reply.ToString(), batch.Count), costUsd);
+                return (SegmentProtocol.Parse(reply.ToString(), batch.body.Count), costUsd);
             } catch (SegmentProtocolException failure) {
                 lastFailure = failure;
             }
@@ -362,68 +462,140 @@ public class ChapterRepairer(
     }
 
 
-    // Asks the glossary model, once per request batch, which of the book's established names this
-    // chapter's own text spells differently - the "who is who" pass the rewrite loop below needs its
-    // answer from before it can tell the model to fix a name the mention test never found.
-    //
-    // Run over the same requestBatches the repair loop itself will send, not the chapter as a whole,
-    // so the passage this asks about is exactly the passage size the rest of the pipeline already
-    // treats as one request; a name flagged in an earlier batch is unioned in so it still reaches the
-    // system prompt of every later batch, including the ones it was not itself found in.
-    //
-    // A failure here - the model erroring, or a reply ParseNameAlignments cannot use - must not be
-    // able to break a repair that would otherwise have succeeded: it is caught, logged, and the
-    // repair proceeds with no alignments, exactly as it did before this pass existed.
-    private async Task<(IReadOnlyList<NameAlignment> alignments, double costUsd)> AlignNamesAsync(
-        long chapterId,
-        string language,
-        string model,
-        IReadOnlyList<RepairTerm> names,
-        IReadOnlyList<IReadOnlyList<string>> requestBatches,
+    // Reads the repaired chapter back once, the way a proofreader reads a finished page, and redoes
+    // whatever it flags through the same careful pass, with its critique attached. At most one
+    // re-pass: what comes back from it is final, whether or not it would still satisfy a second
+    // reading.
+    private async Task<(List<string> blocks, double costUsd, int stepIndex, int stepCount)> ProofreadAndRepassAsync(
+        RepairContext context,
+        List<string> pieces,
+        List<int> owners,
+        List<string> repairedPieces,
+        List<string> repairedBlocks,
+        string carriedTail,
+        int stepIndex,
+        int stepCount,
+        IProgress<RunStep>? progress,
         CancellationToken cancellationToken
     ) {
-        if (names.Count == 0) {
-            return ([], 0);
+        double costUsd = 0;
+
+        string proofreadSystemPrompt = CarefulPass.BuildRepairProofreadSystemPrompt(
+            context.language,
+            repairedBlocks.Count,
+            context.terms,
+            context.voice?.summary
+        );
+        string passage = SegmentProtocol.Format(repairedBlocks);
+
+        (string reply, double proofreadCostUsd) = await AskAsync(
+            proofreadSystemPrompt,
+            passage,
+            context.model,
+            context.thinkingTokens,
+            cancellationToken
+        );
+
+        costUsd += proofreadCostUsd;
+        stepIndex++;
+
+        IReadOnlyList<CarefulPass.ProofreadFinding> findings = CarefulPass.ParseProofreadFindings(
+            reply,
+            repairedBlocks.Count
+        );
+
+        progress?.Report(new RunStep("proofreading", stepIndex, stepCount, proofreadCostUsd));
+
+        if (findings.Count == 0) {
+            return (repairedBlocks, costUsd, stepIndex, stepCount);
         }
 
-        try {
-            string systemPrompt = RepairPrompt.BuildNameAlignmentSystemPrompt(language, names);
-            Dictionary<string, NameAlignment> unioned = new Dictionary<string, NameAlignment>(StringComparer.Ordinal);
-            double costUsd = 0;
+        Dictionary<int, string> problemsByBlock = findings
+            .GroupBy(finding => finding.segmentIndex)
+            .ToDictionary(group => group.Key, group => string.Join("; ", group.Select(finding => finding.problem)));
 
-            foreach (IReadOnlyList<string> batch in requestBatches) {
-                string passage = string.Join("\n", batch);
+        List<int> flaggedPieces = Enumerable.Range(0, pieces.Count)
+            .Where(pieceIndex => problemsByBlock.ContainsKey(owners[pieceIndex]))
+            .ToList();
 
-                (string reply, double batchCost) = await AskAsync(systemPrompt, passage, model, cancellationToken);
-                costUsd += batchCost;
+        List<CarefulPass.RepassGroup> repassGroups = CarefulPass.GroupFlaggedForRepass(
+            flaggedPieces,
+            pieces,
+            context.passSegments,
+            context.passContextBefore,
+            context.passContextAfter
+        );
 
-                foreach (NameAlignment alignment in RepairPrompt.ParseNameAlignments(
-                    reply,
-                    names,
-                    passage,
-                    engine.glossary.maxInflectionLength
-                )) {
-                    unioned[alignment.written] = alignment;
-                }
+        double repassCostUsd = 0;
+
+        foreach (CarefulPass.RepassGroup group in repassGroups) {
+            List<string?> critiques = Enumerable.Range(0, group.batch.body.Count)
+                .Select(offset => problemsByBlock.GetValueOrDefault(owners[group.firstPieceIndex + offset]))
+                .ToList();
+
+            (IReadOnlyList<string> redone, double batchCostUsd) = await RepairResilientAsync(
+                context,
+                carriedTail,
+                group.batch,
+                critiques,
+                cancellationToken
+            );
+
+            repassCostUsd += batchCostUsd;
+
+            for (int offset = 0; offset < redone.Count; offset++) {
+                repairedPieces[group.firstPieceIndex + offset] = redone[offset];
             }
-
-            return (unioned.Values.ToList(), costUsd);
-        } catch (OperationCanceledException) {
-            throw;
-        } catch (Exception failure) {
-            logger.LogWarning(failure, "Could not align established names for chapter {ChapterId}", chapterId);
-
-            return ([], 0);
         }
+
+        costUsd += repassCostUsd;
+        stepCount++;
+        stepIndex++;
+
+        progress?.Report(new RunStep(
+            CarefulPass.RedoneParagraphsTitle(problemsByBlock.Count),
+            stepIndex,
+            stepCount,
+            repassCostUsd
+        ));
+
+        return (SegmentChunker.Rejoin(repairedPieces, owners, repairedBlocks.Count), costUsd, stepIndex, stepCount);
+    }
+
+
+    // Reads the whole chapter once, before any paragraph of it is touched - the same "which of
+    // these established names does this text spell differently" question the old per-batch
+    // alignment pass asked, now asked once for the whole chapter instead of once per request batch,
+    // which is also what lets it catch a name spelled two different ways in two different batches
+    // of the same chapter.
+    private static async Task<(CarefulPass.Memo memo, double costUsd)> BuildMemoAsync(
+        string language,
+        string glossaryModel,
+        IReadOnlyList<RepairTerm> names,
+        string chapterPlainText,
+        int maxInflectionLength,
+        CancellationToken cancellationToken
+    ) {
+        string systemPrompt = CarefulPass.BuildRepairMemoPrompt(language, names);
+
+        (string reply, double costUsd) = await AskAsync(
+            systemPrompt,
+            chapterPlainText,
+            glossaryModel,
+            0,
+            cancellationToken
+        );
+
+        return (CarefulPass.ParseRepairMemo(reply, names, chapterPlainText, maxInflectionLength), costUsd);
     }
 
 
     // The next chapter that misspells the same name the same way is then caught by the ordinary
-    // mention test without a second model call - a written form the alignment pass confirmed once
-    // becomes part of the term's own recorded variants instead of being rediscovered, chapter after
-    // chapter, at the glossary model's cost. Only an alignment traced back to a TranslationTerm
-    // qualifies: a GlossaryEntry's aliases are source-language spellings, and a target-language
-    // misspelling has no business among them.
+    // mention test without a second model call - a written form the memo confirmed once becomes
+    // part of the term's own recorded variants instead of being rediscovered, chapter after chapter,
+    // at the glossary model's cost. Only an alignment traced back to a TranslationTerm qualifies: a
+    // GlossaryEntry's aliases are source-language spellings, and a target-language misspelling has
+    // no business among them.
     private async Task RecordAlignmentVariantsAsync(
         IReadOnlyList<NameAlignment> alignments,
         IReadOnlyList<RepairTerm> names,
@@ -454,19 +626,87 @@ public class ChapterRepairer(
     }
 
 
-    // The same one-shot, tool-less, single-turn call VoiceLearner.AskAsync makes for its own
-    // mechanical reading-comprehension questions - listing names rather than writing prose is not
-    // what the book's translation model is billed for.
+    // GitHub issue #10: what a repair decided is written down so the next chapter does not decide
+    // again. Reads VoicePrompt's own chunk extraction over the just-repaired text - the same
+    // mechanical, budget-sized chunking VoiceLearner uses for a whole sample, here over one
+    // chapter - and keeps only its TERMS section; the VOICE half of the same reply is not this
+    // step's concern. New names are upserted through the same merge voice learning itself uses,
+    // via ITermUpserter, so a name already known only gains occurrences and variants rather than
+    // being recorded twice.
+    //
+    // A failure here must not be able to undo a repair that otherwise succeeded - the chapter was
+    // already rewritten and is worth keeping whether or not this bookkeeping step lands - so it is
+    // caught, logged, and the repair still returns as though nothing went wrong here.
+    private async Task<double> RecordDecisionsAsync(
+        long novelId,
+        string language,
+        long chapterId,
+        IReadOnlyList<string> repairedBlocks,
+        string glossaryModel,
+        ChunkBudget budget,
+        CancellationToken cancellationToken
+    ) {
+        try {
+            string plainText = TranslationBlocks.PlainTextOf(repairedBlocks);
+            List<string> paragraphs = VoicePrompt.SplitParagraphs(plainText).ToList();
+
+            if (paragraphs.Count == 0) {
+                return 0;
+            }
+
+            (List<string> pieces, _) = SegmentChunker.Flatten(paragraphs, budget);
+            List<IReadOnlyList<string>> requestBatches = SegmentChunker.Partition(pieces, budget);
+
+            Dictionary<string, MergedTerm> merged = new(StringComparer.Ordinal);
+            double costUsd = 0;
+
+            foreach (IReadOnlyList<string> batch in requestBatches) {
+                (string reply, double batchCost) = await AskAsync(
+                    VoicePrompt.BuildChunkSystemPrompt(language),
+                    string.Join("\n\n", batch),
+                    glossaryModel,
+                    0,
+                    cancellationToken
+                );
+
+                costUsd += batchCost;
+
+                ChunkExtraction extraction = VoicePrompt.Parse(reply);
+                VoicePrompt.MergeTerms(merged, extraction.terms, chapterId);
+            }
+
+            foreach (MergedTerm term in merged.Values) {
+                int occurrences = VoicePrompt.CountOccurrences(plainText, term.term, term.variants);
+
+                await termUpserter.UpsertAsync(novelId, language, term, occurrences, cancellationToken);
+            }
+
+            return costUsd;
+        } catch (OperationCanceledException) {
+            throw;
+        } catch (Exception failure) {
+            logger.LogWarning(failure, "Could not record decisions for chapter {ChapterId}", chapterId);
+
+            return 0;
+        }
+    }
+
+
+    // The same one-shot, tool-less, single-turn call the memo, the decisions step and the proofread
+    // all make. thinkingTokens is 0 for a mechanical reading (the memo, the decisions step) and the
+    // configured budget for the proofread, which is a pass call like any other.
     private static async Task<(string reply, double costUsd)> AskAsync(
         string systemPrompt,
         string prompt,
         string model,
+        int thinkingTokens,
         CancellationToken cancellationToken
     ) {
         ClaudeCodeOptions options = new ClaudeCodeOptions {
             Model = model,
             SystemPrompt = systemPrompt,
             MaxTurns = 1,
+            EnvironmentVariables = ThinkingEnvironment.BuildEnvironmentVariables(thinkingTokens),
             ExtraArgs = new Dictionary<string, string?> {
                 { "safe-mode", null },
                 { "tools", "" },
@@ -520,12 +760,12 @@ public sealed record RepairTerm(
 );
 
 
-// One name the alignment pass found spelled differently in this chapter than the book has already
-// settled on: written is exactly the spelling this chapter's own text uses, established is the
+// One name the memo found spelled differently in this chapter than the book has already settled
+// on: written is exactly the spelling this chapter's own text uses, established is the
 // RepairTerm.term it was matched to. Both are known to actually mean something by the time this is
-// constructed - ParseNameAlignments has already dropped a pair whose established value is not one
-// of the offered names, whose written value does not occur in the passage, or that is a no-op
-// because the two sides already agree.
+// constructed - RepairPrompt.ParseNameAlignments has already dropped a pair whose established value
+// is not one of the offered names, whose written value does not occur in the passage, or that is a
+// no-op because the two sides already agree.
 public sealed record NameAlignment(string written, string established);
 
 
@@ -627,7 +867,7 @@ public static class RepairPrompt {
     // Person, Place and Organization are the categories a reader notices at a glance when they are
     // wrong; Technique, Item and Other are not. Shared between SelectRelevantTerms, which uses it to
     // decide what bypasses the mention test, and ChapterRepairer, which uses it to build the roster
-    // the name-alignment pass compares a chapter's own spellings against.
+    // the memo compares a chapter's own spellings against.
     public static bool IsName(GlossaryCategory category) {
         return category is GlossaryCategory.Person or GlossaryCategory.Place or GlossaryCategory.Organization;
     }
@@ -651,7 +891,9 @@ public static class RepairPrompt {
         string carriedTail,
         int segmentCount,
         int attempt,
-        IReadOnlyList<NameAlignment> alignments
+        IReadOnlyList<NameAlignment> alignments,
+        CarefulPass.Memo? memo = null,
+        IReadOnlyList<string>? examples = null
     ) {
         StringBuilder prompt = new StringBuilder();
 
@@ -750,39 +992,16 @@ public static class RepairPrompt {
             prompt.AppendLine(carriedTail);
         }
 
-        return prompt.ToString();
-    }
-
-
-    // The "who is who" pass's own system prompt: every established name the book has, so the model
-    // can compare this chapter's spellings against a roster instead of guessing from the passage
-    // alone. The passage itself is the user message, not part of this - the same split ChapterRepairer
-    // already uses for the rewrite prompt above.
-    public static string BuildNameAlignmentSystemPrompt(string language, IReadOnlyList<RepairTerm> names) {
-        StringBuilder prompt = new StringBuilder();
-
-        prompt.AppendLine(
-            $"You are reading one passage of an existing {language} translation of a light novel. "
-            + "Below is the established rendering of every person, place and organisation in this "
-            + "book."
-        );
-        prompt.AppendLine(
-            "Read the passage and list every name in it that refers to one of these established "
-            + "names but is spelled differently, one per line, exactly in this form: written in the "
-            + "passage | established rendering"
-        );
-        prompt.AppendLine(
-            "Skip a name that is already spelled correctly. List a name only when you are confident "
-            + "it is the same person, place or organisation - never guess."
-        );
-        prompt.AppendLine("If no name in the passage needs correcting, answer NONE. Write nothing else.");
-
-        prompt.AppendLine();
-        prompt.AppendLine("ESTABLISHED NAMES");
-
-        foreach (RepairTerm name in names) {
-            prompt.Append("- ").AppendLine(name.term);
+        // What the chapter's own memo already read, how to read each paragraph closely rather than
+        // skimming a whole batch, and an example or two of this book's own good translation - the
+        // three things a careful pass adds on top of everything above, which stays exactly what it
+        // already was.
+        if (memo is not null) {
+            CarefulPass.AppendThisChapter(prompt, memo);
         }
+
+        CarefulPass.AppendHowToReadForRepair(prompt, language);
+        CarefulPass.AppendExamples(prompt, examples ?? []);
 
         return prompt.ToString();
     }
@@ -794,6 +1013,9 @@ public static class RepairPrompt {
     // sides are non-empty once trimmed, established is one of the names this call actually offered,
     // written is not simply established repeated back, and written can be found in the passage by the
     // same rule the rest of the pipeline uses to decide a term is present at all.
+    //
+    // Shared with CarefulPass.ParseRepairMemo, which reads this exact reply shape out of a memo's
+    // MISSPELLED section rather than a dedicated alignment call's whole reply.
     public static IReadOnlyList<NameAlignment> ParseNameAlignments(
         string reply,
         IReadOnlyList<RepairTerm> names,

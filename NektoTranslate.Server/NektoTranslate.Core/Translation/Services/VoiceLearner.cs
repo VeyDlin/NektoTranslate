@@ -37,6 +37,7 @@ namespace NektoTranslate.Translation.Services;
 public class VoiceLearner(
     NektoDbContext database,
     ISettingsService settings,
+    ITermUpserter termUpserter,
     EngineOptions engine
 ) : IVoiceLearner {
 
@@ -177,7 +178,7 @@ public class VoiceLearner(
         foreach (MergedTerm term in merged.Values) {
             int occurrences = VoicePrompt.CountOccurrences(corpus, term.term, term.variants);
 
-            await UpsertTermAsync(novelId, language, term, occurrences, cancellationToken);
+            await termUpserter.UpsertAsync(novelId, language, term, occurrences, cancellationToken);
         }
 
         await database.SaveChangesAsync(cancellationToken);
@@ -266,48 +267,6 @@ public class VoiceLearner(
         );
 
         return (reply.Trim(), costUsd);
-    }
-
-
-    // Re-running over the same or an overlapping range should grow what is already known rather
-    // than replace it: a second pass reads a different slice of the sample and may catch a spelling
-    // or a mention the first pass missed, but it must never forget what the first pass already
-    // settled. firstSeenChapterId and category are written once, at creation, and left alone after -
-    // they describe how the term was first met, and a later pass rereading the same book does not
-    // change that history.
-    private async Task UpsertTermAsync(
-        long novelId,
-        string language,
-        MergedTerm term,
-        int occurrences,
-        CancellationToken cancellationToken
-    ) {
-        TranslationTerm? existing = await database.translationTerms.FirstOrDefaultAsync(
-            row => row.novelId == novelId && row.language == language && row.term == term.term,
-            cancellationToken
-        );
-
-        if (existing is null) {
-            database.translationTerms.Add(new TranslationTerm {
-                novelId = novelId,
-                language = language,
-                term = term.term,
-                variantsJson = JsonSerializer.Serialize(term.variants),
-                category = term.category,
-                notes = term.notes,
-                occurrences = occurrences,
-                firstSeenChapterId = term.firstSeenChapterId
-            });
-
-            return;
-        }
-
-        HashSet<string> variants = VoicePrompt.DecodeVariants(existing.variantsJson);
-        variants.UnionWith(term.variants);
-
-        existing.variantsJson = JsonSerializer.Serialize(variants);
-        existing.occurrences += occurrences;
-        existing.notes ??= term.notes;
     }
 
 

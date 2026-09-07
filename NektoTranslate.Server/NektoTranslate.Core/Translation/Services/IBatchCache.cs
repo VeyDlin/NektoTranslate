@@ -82,6 +82,44 @@ public static class BatchHash {
     }
 
 
+    // A careful pass's own hash: the body plus its surrounding context, since the context shapes
+    // the answer just as much as the body does - the same chapter's paragraph translated with a
+    // different neighbour on either side is not the same request. Context lines are marked apart
+    // from body lines so a context paragraph and a body paragraph that happen to read identically
+    // cannot be mistaken for one another in the hashed material.
+    public static string Of(
+        IReadOnlyList<string> contextBefore,
+        IReadOnlyList<string> body,
+        IReadOnlyList<string> contextAfter,
+        string language,
+        string model,
+        string glossaryFingerprint
+    ) {
+        StringBuilder material = new StringBuilder();
+
+        material
+            .Append(language)
+            .Append(separator)
+            .Append(model)
+            .Append(separator)
+            .Append(glossaryFingerprint);
+
+        foreach (string segment in contextBefore) {
+            material.Append(separator).Append("before:").Append(segment);
+        }
+
+        foreach (string segment in body) {
+            material.Append(separator).Append(segment);
+        }
+
+        foreach (string segment in contextAfter) {
+            material.Append(separator).Append("after:").Append(segment);
+        }
+
+        return Hash(material.ToString());
+    }
+
+
     // The glossary reaches the model through the system prompt, so a change to it changes the
     // translation. Folding it into the key is what makes a corrected term take effect on re-run
     // instead of being served from cache.
