@@ -3,6 +3,7 @@ using System.Text.Json;
 using ClaudeCodeSdk;
 using ClaudeCodeSdk.Types;
 using NektoTranslate.Common.Models;
+using NektoTranslate.Jobs.Contracts;
 using NektoTranslate.Translation.Contracts;
 
 
@@ -15,6 +16,7 @@ public interface ISegmentTranslator {
         ChapterTranslationRequest request,
         Func<string, Task>? onDelta = null,
         IBatchCache? cache = null,
+        IProgress<RunStep>? progress = null,
         CancellationToken cancellationToken = default
     );
 }
@@ -43,6 +45,7 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
         ChapterTranslationRequest request,
         Func<string, Task>? onDelta = null,
         IBatchCache? cache = null,
+        IProgress<RunStep>? progress = null,
         CancellationToken cancellationToken = default
     ) {
         if (request.segments.Count == 0) {
@@ -87,6 +90,7 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
             // otherwise discards fourteen that succeeded - and the retry spends that money twice.
             string? cached = await cache.TryGetAsync(hash, cancellationToken);
             IReadOnlyList<string> batchResult;
+            double batchCostUsd = 0;
 
             if (cached is not null) {
                 batchResult = JsonSerializer.Deserialize<List<string>>(cached) ?? [];
@@ -100,6 +104,7 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
                 );
 
                 batchResult = outcome.segments;
+                batchCostUsd = outcome.costUsd;
                 costUsd += outcome.costUsd;
                 sessionId = outcome.sessionId;
 
@@ -113,6 +118,15 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
             }
 
             translatedPieces.AddRange(batchResult);
+
+            // Reported for a cached batch too, at zero cost: the bar still needs to move past it, and
+            // that batch's money was already charged to the run that first translated it.
+            progress?.Report(new RunStep(
+                $"translating batch {index + 1} of {batches.Count}",
+                index + 1,
+                batches.Count,
+                batchCostUsd
+            ));
 
             if (batches.Count > 1) {
                 carriedContext = request.recentContext

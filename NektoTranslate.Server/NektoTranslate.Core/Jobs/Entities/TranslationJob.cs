@@ -50,4 +50,16 @@ public class TranslationJob {
     public DateTimeOffset? finishedAt { get; set; }
 
     public string? error { get; set; }
+
+    // What the run is doing right now, in words a reader understands: "Translating batch 3 of 7",
+    // "Aligning names", "Reading chapters 6–7 (passage 4 of 12)", "Writing the voice profile".
+    // Cleared when the run stops.
+    [MaxLength(200)]
+    public string? currentStep { get; set; }
+
+    // Position inside the current unit of work - the batch inside the chapter being translated or
+    // repaired - so the bar can move between chapters. Null when the unit has no inner steps.
+    public int? stepIndex { get; set; }
+
+    public int? stepCount { get; set; }
 }

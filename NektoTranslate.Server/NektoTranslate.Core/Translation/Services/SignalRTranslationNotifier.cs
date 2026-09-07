@@ -17,9 +17,14 @@ public class SignalRTranslationNotifier(IHubContext<TranslationHub> hub) : ITran
         string state,
         int processed,
         int total,
-        double costUsd
+        double costUsd,
+        string? currentStep,
+        int? stepIndex,
+        int? stepCount
     ) {
-        return Send(novelId, "JobStateChanged", new { jobId, state, processed, total, costUsd });
+        return Send(novelId, "JobStateChanged", new {
+            jobId, state, processed, total, costUsd, currentStep, stepIndex, stepCount
+        });
     }
 
 

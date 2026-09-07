@@ -8,6 +8,7 @@ using NektoTranslate.Common.Data;
 using NektoTranslate.Common.Models;
 using NektoTranslate.Glossary.Enums;
 using NektoTranslate.Glossary.Services;
+using NektoTranslate.Jobs.Contracts;
 using NektoTranslate.Settings.Entities;
 using NektoTranslate.Settings.Services;
 using NektoTranslate.Translation.Contracts;
@@ -41,7 +42,9 @@ public class VoiceLearner(
 
     private readonly BatchingOptions batching = engine.batching;
 
-    private sealed record SampleChapter(long id, string plainText);
+    // index is the chapter's own zero-based Chapter.index, carried alongside the sample so a batch
+    // can be reported by the 1-based chapter numbers it spans rather than by its internal id.
+    private sealed record SampleChapter(long id, int index, string plainText);
 
 
     public async Task<LearnedVoice> LearnAsync(
@@ -49,6 +52,7 @@ public class VoiceLearner(
         string language,
         int fromChapterIndex,
         int toChapterIndex,
+        IProgress<RunStep>? progress = null,
         CancellationToken cancellationToken = default
     ) {
         List<SampleChapter> chapters = await LoadSampleAsync(
@@ -94,17 +98,36 @@ public class VoiceLearner(
         (List<string> pieces, List<int> owners) = SegmentChunker.Flatten(segments, budget);
         List<IReadOnlyList<string>> requestBatches = SegmentChunker.Partition(pieces, budget);
 
+        // 1-based, the numbers a reader sees on the chapter list - used only to name the chapters a
+        // batch spans in its own progress line, never stored or compared against anything.
+        Dictionary<long, int> chapterNumberById = chapters.ToDictionary(chapter => chapter.id, chapter => chapter.index + 1);
+
         Dictionary<string, MergedTerm> merged = new(StringComparer.Ordinal);
         List<string> voiceNotes = [];
         double costUsd = 0;
         int pieceCursor = 0;
 
-        foreach (IReadOnlyList<string> batch in requestBatches) {
+        // One learning step per batch plus one for the synthesis that follows, so the run's total
+        // step count - what the worker offsets the glossary phase by - matches exactly what gets
+        // reported below.
+        int stepCount = requestBatches.Count + 1;
+
+        for (int batchPosition = 0; batchPosition < requestBatches.Count; batchPosition++) {
+            IReadOnlyList<string> batch = requestBatches[batchPosition];
+
             // Partition consumes pieces in order without reordering or dropping any of them, so the
             // chapter that owns this batch's first piece is the chapter this batch mostly belongs
             // to - an approximation of "first seen" that is exact whenever a batch does not straddle
             // a chapter boundary, and only ever a chapter or two off when it does.
             long batchChapterId = segmentChapterIds[owners[pieceCursor]];
+
+            // The batch's own span, for the progress line - the chapter its first piece came from
+            // and the chapter its last piece came from. Segments are appended chapter by chapter, so
+            // a batch's owning chapters are contiguous and this pair already covers every chapter in
+            // between.
+            int fromChapterNumber = chapterNumberById[batchChapterId];
+            int toChapterNumber = chapterNumberById[segmentChapterIds[owners[pieceCursor + batch.Count - 1]]];
+
             pieceCursor += batch.Count;
 
             (ChunkExtraction extraction, double batchCost) = await ExtractChunkAsync(
@@ -121,10 +144,21 @@ public class VoiceLearner(
             }
 
             VoicePrompt.MergeTerms(merged, extraction.terms, batchChapterId);
+
+            int stepIndex = batchPosition + 1;
+
+            progress?.Report(new RunStep(
+                $"Reading chapters {fromChapterNumber}–{toChapterNumber} (passage {stepIndex} of {requestBatches.Count})",
+                stepIndex,
+                stepCount,
+                batchCost
+            ));
         }
 
         (string summary, double synthesisCost) = await SummarizeVoiceAsync(language, model, voiceNotes, cancellationToken);
         costUsd += synthesisCost;
+
+        progress?.Report(new RunStep("Writing the voice profile", stepCount, stepCount, synthesisCost));
 
         VoiceProfile profile = new VoiceProfile {
             novelId = novelId,
@@ -167,6 +201,7 @@ public class VoiceLearner(
             .OrderBy(chapter => chapter.index)
             .Select(chapter => new {
                 chapter.id,
+                chapter.index,
                 // The newest rendering, whatever produced it - imported, manual, machine, already
                 // repaired. Voice learning reads what is on the page today, not how it got there.
                 translation = chapter.translations
@@ -183,7 +218,7 @@ public class VoiceLearner(
         // still worth learning from without it.
         return rows
             .Where(row => row.translation is not null)
-            .Select(row => new SampleChapter(row.id, row.translation!))
+            .Select(row => new SampleChapter(row.id, row.index, row.translation!))
             .ToList();
     }
 

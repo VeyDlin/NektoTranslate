@@ -12,7 +12,17 @@ namespace NektoTranslate.Translation.Services;
 // a run would make a thousand-chapter job feel like it does nothing for hours.
 public interface ITranslationNotifier {
 
-    Task JobStateChangedAsync(long novelId, long jobId, string state, int processed, int total, double costUsd);
+    Task JobStateChangedAsync(
+        long novelId,
+        long jobId,
+        string state,
+        int processed,
+        int total,
+        double costUsd,
+        string? currentStep,
+        int? stepIndex,
+        int? stepCount
+    );
 
 
     Task ChapterStateChangedAsync(long novelId, long chapterId, ChapterTranslationState state);

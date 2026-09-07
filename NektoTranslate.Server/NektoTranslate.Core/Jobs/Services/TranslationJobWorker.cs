@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using NektoTranslate.Chapters.Enums;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Glossary.Services;
+using NektoTranslate.Jobs.Contracts;
 using NektoTranslate.Jobs.Entities;
 using NektoTranslate.Jobs.Enums;
 using NektoTranslate.Translation.Contracts;
@@ -28,6 +29,18 @@ public class TranslationJobWorker(
     TranslationJobQueue queue,
     ILogger<TranslationJobWorker> logger
 ) : BackgroundService {
+
+    // Bridges a doer's synchronous IProgress<RunStep> callback to the async work of applying it,
+    // saving it and publishing it. Blocking inside Report is safe here: nothing in this pipeline runs
+    // under a captured synchronization context, and blocking is what keeps one step's publish
+    // finished, in order, before the doer moves on to report the next one.
+    private sealed class StepReporter(Func<RunStep, Task> handler) : IProgress<RunStep> {
+
+        public void Report(RunStep value) {
+            handler(value).GetAwaiter().GetResult();
+        }
+    }
+
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken) {
         await ReleaseStrandedChaptersAsync(stoppingToken);
@@ -176,28 +189,31 @@ public class TranslationJobWorker(
     ) {
         await notifier.ChapterStateChangedAsync(job.novelId, chapterId, ChapterTranslationState.Running);
 
-        // Marks where this attempt begins, so the batches it pays for can be identified even if it
-        // never returns.
-        DateTimeOffset attemptStarted = DateTimeOffset.UtcNow;
+        int chapterNumber = await ChapterNumberAsync(database, chapterId, cancellationToken);
+
+        // What the batches reported have already added to job.costUsd as they came in - tracked here
+        // so the summary's own total, which counts them again, only contributes what is genuinely
+        // new: extraction, glossary reconciliation, settling unresolved terms.
+        double stepCostReported = 0;
+
+        IProgress<RunStep> progress = new StepReporter(async step => {
+            stepCostReported += step.costUsd;
+            ApplyStep(job, 0, chapterNumber, step);
+            await database.SaveChangesAsync(CancellationToken.None);
+            await Publish(notifier, job);
+        });
 
         try {
-            ChapterTranslationSummary summary = await translator.TranslateAsync(chapterId, cancellationToken);
+            ChapterTranslationSummary summary = await translator.TranslateAsync(chapterId, progress, cancellationToken);
 
-            job.costUsd += summary.costUsd;
+            job.costUsd += summary.costUsd - stepCostReported;
             await notifier.ChapterTranslatedAsync(job.novelId, chapterId);
         } catch (OperationCanceledException) {
-            // A cancelled chapter has usually already paid for some of its batches. Charging them
-            // to the job before rethrowing is what keeps the reported spend honest - and the budget
-            // ceiling reads the same field, so without this a series of cancelled runs could spend
-            // past a limit that never noticed.
-            job.costUsd += await SpentSinceAsync(database, chapterId, attemptStarted);
-            await database.SaveChangesAsync(CancellationToken.None);
-
+            // Nothing more to add here: every batch this attempt finished before cancelling already
+            // charged its own cost to the job the moment it was reported.
             throw;
         } catch (Exception failure) {
             logger.LogError(failure, "Chapter {ChapterId} failed to translate", chapterId);
-
-            job.costUsd += await SpentSinceAsync(database, chapterId, attemptStarted);
 
             await database.chapters
                 .Where(chapter => chapter.id == chapterId)
@@ -213,6 +229,9 @@ public class TranslationJobWorker(
         }
 
         job.processedCount++;
+        job.currentStep = null;
+        job.stepIndex = null;
+        job.stepCount = null;
         await database.SaveChangesAsync(CancellationToken.None);
         await Publish(notifier, job);
     }
@@ -221,10 +240,11 @@ public class TranslationJobWorker(
     // Mirrors TranslateOneAsync's shape, so a repair reports through the exact events the strip and
     // the reader already listen to and no client change is needed to show one running.
     //
-    // It differs in one respect: a repair that fails or is cancelled reports no partial spend.
-    // ChapterRepairer does not cache its progress batch by batch the way ClaudeSegmentTranslator
-    // does for a translation, because a repair chapter is ordinarily a single request - the added
-    // bookkeeping was not worth it for the rare chapter long enough to need more than one.
+    // It differs in one respect: without ClaudeSegmentTranslator's per-batch cache, a repair cannot
+    // resume from where a previous, interrupted attempt left off - a cancelled or failed repair
+    // starts its next attempt from the first batch again. Partial spend is not lost, though: the
+    // same RunStep progress that moves the bar mid-chapter already charges each batch's cost to the
+    // job the moment it is reported, cancelled or not.
     private async Task RepairOneAsync(
         NektoDbContext database,
         IChapterRepairer repairer,
@@ -235,10 +255,22 @@ public class TranslationJobWorker(
     ) {
         await notifier.ChapterStateChangedAsync(job.novelId, chapterId, ChapterTranslationState.Running);
 
-        try {
-            RepairedChapter outcome = await repairer.RepairAsync(chapterId, cancellationToken);
+        int chapterNumber = await ChapterNumberAsync(database, chapterId, cancellationToken);
+        double stepCostReported = 0;
 
-            job.costUsd += outcome.costUsd;
+        IProgress<RunStep> progress = new StepReporter(async step => {
+            stepCostReported += step.costUsd;
+            ApplyStep(job, 0, chapterNumber, step);
+            await database.SaveChangesAsync(CancellationToken.None);
+            await Publish(notifier, job);
+        });
+
+        try {
+            RepairedChapter outcome = await repairer.RepairAsync(chapterId, progress, cancellationToken);
+
+            // The alignment pass and every batch already reported their own cost; a repair, unlike a
+            // translation, has nothing beyond them, so this is normally an addition of zero.
+            job.costUsd += outcome.costUsd - stepCostReported;
             await notifier.ChapterTranslatedAsync(job.novelId, chapterId);
         } catch (OperationCanceledException) {
             throw;
@@ -263,6 +295,9 @@ public class TranslationJobWorker(
         }
 
         job.processedCount++;
+        job.currentStep = null;
+        job.stepIndex = null;
+        job.stepCount = null;
         await database.SaveChangesAsync(CancellationToken.None);
         await Publish(notifier, job);
     }
@@ -286,7 +321,6 @@ public class TranslationJobWorker(
     ) {
         job.state = JobState.Running;
         job.startedAt = DateTimeOffset.UtcNow;
-        job.totalCount = 1;
         await database.SaveChangesAsync(cancellationToken);
         await Publish(notifier, job);
 
@@ -308,26 +342,41 @@ public class TranslationJobWorker(
                 );
             }
 
+            // How many steps the voice phase reported, read back off the job the moment it finishes -
+            // the glossary phase that follows offsets its own step numbers by this, so the two phases
+            // fill one continuous "N of M steps" instead of each restarting from one.
+            int voiceSteps = 0;
+
+            IProgress<RunStep> voiceProgress = new StepReporter(async step => {
+                voiceSteps = step.count;
+                ApplyStep(job, 0, null, step);
+                await database.SaveChangesAsync(CancellationToken.None);
+                await Publish(notifier, job);
+            });
+
             LearnedVoice learnedVoice = await voiceLearner.LearnAsync(
                 job.novelId,
                 language,
                 job.fromIndex.Value,
                 job.toIndex.Value,
+                voiceProgress,
                 cancellationToken
             );
 
-            job.costUsd += learnedVoice.costUsd;
+            IProgress<RunStep> glossaryProgress = new StepReporter(async step => {
+                ApplyStep(job, voiceSteps, null, step);
+                await database.SaveChangesAsync(CancellationToken.None);
+                await Publish(notifier, job);
+            });
 
             LearnedGlossary learnedGlossary = await glossaryLearner.LearnAsync(
                 job.novelId,
                 language,
                 job.fromIndex.Value,
                 job.toIndex.Value,
+                glossaryProgress,
                 cancellationToken
             );
-
-            job.costUsd += learnedGlossary.costUsd;
-            job.processedCount = 1;
 
             await notifier.AgentMessageAsync(
                 job.novelId,
@@ -379,19 +428,45 @@ public class TranslationJobWorker(
     }
 
 
-    // What this attempt actually paid for, read from the batches it committed.
-    //
-    // Cost is recorded per batch as each one comes back, so it survives an attempt that never
-    // finished. Summing the batches is the only way to know what a cancelled chapter cost, because
-    // the chapter itself produced no result to report.
-    private static async Task<double> SpentSinceAsync(
+    // The 1-based number a reader sees on the chapter list, for the "Chapter N · ..." prefix a
+    // reported step is shown under. Read fresh rather than threaded through from the caller: the
+    // chapter loop above only ever carries ids, the same ones ResolveScopeAsync handed back.
+    private static async Task<int> ChapterNumberAsync(
         NektoDbContext database,
         long chapterId,
-        DateTimeOffset since
+        CancellationToken cancellationToken
     ) {
-        return await database.chapterChunks
-            .Where(chunk => chunk.chapterId == chapterId && chunk.createdAt >= since)
-            .SumAsync(chunk => chunk.costUsd, CancellationToken.None);
+        int index = await database.chapters
+            .Where(chapter => chapter.id == chapterId)
+            .Select(chapter => chapter.index)
+            .FirstAsync(cancellationToken);
+
+        return index + 1;
+    }
+
+
+    // Turns one reported RunStep into the job fields the strip and the jobs table read, for every
+    // mode. Translate and Repair have a chapter to hang the step under: the title is prefixed with
+    // it and the step's own index/count move the bar inside that chapter, leaving processedCount and
+    // totalCount alone - those still count chapters, exactly as they did before this existed.
+    // LearnVoice has no chapter to hang a step under - voice and glossary are each one continuous
+    // pass over a range - so there it drives processedCount/totalCount directly instead, offset by
+    // whatever phase (voice, then glossary) has already claimed, and stepIndex/stepCount stay null.
+    //
+    // Pure and static - no database, no queue, no job in flight - so the one place an off-by-one
+    // would silently show the wrong "N of M" can be tested directly.
+    public static void ApplyStep(TranslationJob job, int phaseOffset, int? chapterNumber, RunStep step) {
+        if (chapterNumber is not null) {
+            job.currentStep = $"Chapter {chapterNumber} · {step.title}";
+            job.stepIndex = step.index;
+            job.stepCount = step.count;
+        } else {
+            job.totalCount = phaseOffset + step.count;
+            job.processedCount = phaseOffset + step.index;
+            job.currentStep = step.title;
+        }
+
+        job.costUsd += step.costUsd;
     }
 
 
@@ -406,6 +481,9 @@ public class TranslationJobWorker(
         job.state = state;
         job.error = error;
         job.finishedAt = DateTimeOffset.UtcNow;
+        job.currentStep = null;
+        job.stepIndex = null;
+        job.stepCount = null;
 
         await database.SaveChangesAsync(cancellationToken);
         await ReleaseRunningChaptersAsync(database, notifier, job);
@@ -457,7 +535,10 @@ public class TranslationJobWorker(
             job.state.ToString(),
             job.processedCount,
             job.totalCount,
-            job.costUsd
+            job.costUsd,
+            job.currentStep,
+            job.stepIndex,
+            job.stepCount
         );
     }
 }

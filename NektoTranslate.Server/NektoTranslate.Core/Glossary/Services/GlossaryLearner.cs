@@ -5,6 +5,7 @@ using NektoTranslate.Chapters.Enums;
 using NektoTranslate.Chapters.Services;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Common.Models;
+using NektoTranslate.Jobs.Contracts;
 using NektoTranslate.Novels.Entities;
 using NektoTranslate.Settings.Entities;
 using NektoTranslate.Settings.Services;
@@ -26,6 +27,7 @@ public interface IGlossaryLearner {
         string language,
         int fromChapterIndex,
         int toChapterIndex,
+        IProgress<RunStep>? progress = null,
         CancellationToken cancellationToken = default
     );
 }
@@ -56,6 +58,7 @@ public class GlossaryLearner(
         string language,
         int fromChapterIndex,
         int toChapterIndex,
+        IProgress<RunStep>? progress = null,
         CancellationToken cancellationToken = default
     ) {
         Novel novel = await database.novels.FirstAsync(n => n.id == novelId, cancellationToken);
@@ -83,7 +86,9 @@ public class GlossaryLearner(
         int stillUnknownCount = 0;
         double costUsd = 0;
 
-        foreach (Chapter chapter in qualifying) {
+        for (int position = 0; position < qualifying.Count; position++) {
+            Chapter chapter = qualifying[position];
+
             SegmentedChapter segmented = segmenter.Segment(chapter.sourceMarkdown!);
             List<string> sourceTexts = segmented.segments.Select(segment => segment.text).ToList();
 
@@ -111,6 +116,15 @@ public class GlossaryLearner(
 
             chapter.glossaryState = ChapterGlossaryState.Analyzed;
             await database.SaveChangesAsync(cancellationToken);
+
+            int number = position + 1;
+
+            progress?.Report(new RunStep(
+                $"Learning renderings from chapter {number} of {qualifying.Count}",
+                number,
+                qualifying.Count,
+                extractionCost + resolveCost
+            ));
         }
 
         return new LearnedGlossary(qualifying.Count, renderingsLearned, stillUnknownCount, costUsd);

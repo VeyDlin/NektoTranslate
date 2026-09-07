@@ -1,4 +1,5 @@
 using NektoTranslate.Glossary.Enums;
+using NektoTranslate.Jobs.Contracts;
 
 
 namespace NektoTranslate.Translation.Contracts;
@@ -53,6 +54,7 @@ public interface IVoiceLearner {
         string language,
         int fromChapterIndex,
         int toChapterIndex,
+        IProgress<RunStep>? progress = null,
         CancellationToken cancellationToken = default
     );
 }
@@ -73,6 +75,7 @@ public interface IChapterRepairer {
 
     Task<RepairedChapter> RepairAsync(
         long chapterId,
+        IProgress<RunStep>? progress = null,
         CancellationToken cancellationToken = default
     );
 }

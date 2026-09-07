@@ -11,6 +11,7 @@ using NektoTranslate.Common.Models;
 using NektoTranslate.Glossary.Entities;
 using NektoTranslate.Glossary.Enums;
 using NektoTranslate.Glossary.Services;
+using NektoTranslate.Jobs.Contracts;
 using NektoTranslate.Novels.Entities;
 using NektoTranslate.Settings.Entities;
 using NektoTranslate.Settings.Services;
@@ -58,6 +59,7 @@ public class ChapterRepairer(
 
     public async Task<RepairedChapter> RepairAsync(
         long chapterId,
+        IProgress<RunStep>? progress = null,
         CancellationToken cancellationToken = default
     ) {
         Chapter chapter = await database.chapters
@@ -140,6 +142,11 @@ public class ChapterRepairer(
             cancellationToken
         );
 
+        // One alignment pass plus one step per rewrite batch, so the bar inside this chapter has as
+        // many stops as the repair actually takes.
+        int stepCount = requestBatches.Count + 1;
+        progress?.Report(new RunStep("aligning names", 1, stepCount, alignmentCost));
+
         List<string> repairedPieces = [];
         string carriedTail = string.Empty;
         double costUsd = alignmentCost;
@@ -161,6 +168,13 @@ public class ChapterRepairer(
 
             repairedPieces.AddRange(result);
             costUsd += batchCost;
+
+            progress?.Report(new RunStep(
+                $"rewriting batch {index + 1} of {requestBatches.Count}",
+                index + 2,
+                stepCount,
+                batchCost
+            ));
 
             if (requestBatches.Count > 1) {
                 carriedTail = string.Join("\n", result.TakeLast(batching.carryParagraphs));

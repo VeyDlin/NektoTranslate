@@ -8,6 +8,7 @@ using NektoTranslate.Common.Data;
 using NektoTranslate.Common.Models;
 using NektoTranslate.Glossary.Enums;
 using NektoTranslate.Glossary.Services;
+using NektoTranslate.Jobs.Contracts;
 using NektoTranslate.Novels.Entities;
 using NektoTranslate.Settings.Entities;
 using NektoTranslate.Settings.Services;
@@ -24,6 +25,7 @@ public interface IChapterTranslator {
 
     Task<ChapterTranslationSummary> TranslateAsync(
         long chapterId,
+        IProgress<RunStep>? progress = null,
         CancellationToken cancellationToken = default
     );
 }
@@ -53,6 +55,7 @@ public class ChapterTranslator(
 
     public async Task<ChapterTranslationSummary> TranslateAsync(
         long chapterId,
+        IProgress<RunStep>? progress = null,
         CancellationToken cancellationToken = default
     ) {
         Chapter chapter = await database.chapters
@@ -164,6 +167,7 @@ public class ChapterTranslator(
             ),
             text => notifier.TranslationDeltaAsync(novel.id, chapter.id, text),
             new DatabaseBatchCache(database, chapter.id, language, novel.model),
+            progress,
             cancellationToken
         );
 
