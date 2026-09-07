@@ -253,7 +253,8 @@
 <script setup lang="ts">
     import type { TranslationJobMode } from "@/types/models/domain";
 
-    import { computed, ref } from "vue";
+    import { computed, ref, watch } from "vue";
+    import { useRoute, useRouter } from "vue-router";
 
     import ChapterTable from "@/components/chapters/ChapterTable.vue";
     import DeleteChaptersModal from "@/components/chapters/DeleteChaptersModal.vue";
@@ -277,9 +278,37 @@
 
     const props = defineProps<{ novelId: string }>();
 
+    const route = useRoute();
+    const router = useRouter();
+
     const id = computed(() => Number(props.novelId));
 
-    const tab = ref("chapters");
+    // The open tab lives in the address as its hash - /novels/10#voice - so a reload, the back
+    // button and a pasted link all land on the tab that was meant, not on the chapter list every
+    // time. The chapter list is the default and carries no hash, so a plain book address stays
+    // plain. `replace` rather than `push`: switching tabs is not a step the back button should
+    // have to retrace one by one.
+    const TabNames = ["chapters", "glossary", "voice", "chat", "runs"] as const;
+
+    function tabFromHash(hash: string): string {
+        const name = hash.replace(/^#/, "");
+
+        return (TabNames as readonly string[]).includes(name) ? name : "chapters";
+    }
+
+    const tab = ref(tabFromHash(route.hash));
+
+    watch(tab, (value) => {
+        const hash = value === "chapters" ? "" : `#${value}`;
+
+        if (route.hash !== hash) {
+            void router.replace({ hash });
+        }
+    });
+
+    watch(() => route.hash, (hash) => {
+        tab.value = tabFromHash(hash);
+    });
     const starting = ref(false);
     const removing = ref(false);
     const startMode = ref<TranslationJobMode>("Translate");
