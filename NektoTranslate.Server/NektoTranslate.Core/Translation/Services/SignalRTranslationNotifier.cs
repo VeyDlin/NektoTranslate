@@ -43,6 +43,11 @@ public class SignalRTranslationNotifier(IHubContext<TranslationHub> hub) : ITran
     }
 
 
+    public Task ChapterCurrentVersionChangedAsync(long novelId, long chapterId) {
+        return Send(novelId, "ChapterCurrentVersionChanged", new { chapterId });
+    }
+
+
     public Task GlossaryChangedAsync(long novelId, string sourceTerm, string targetTerm, string origin) {
         return Send(novelId, "GlossaryChanged", new { sourceTerm, targetTerm, origin });
     }

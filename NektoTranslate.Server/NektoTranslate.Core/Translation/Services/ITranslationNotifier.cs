@@ -36,6 +36,14 @@ public interface ITranslationNotifier {
     Task ChapterTranslatedAsync(long novelId, long chapterId);
 
 
+    // Which version is current changed with nothing else about the chapter changing - not a
+    // translation, not its state. Kept apart from ChapterTranslatedAsync because that event also
+    // tells the chapter list the chapter is now Translated and its glossary Analyzed, neither of
+    // which is true here: a chapter already sitting at Failed stays Failed when an older version is
+    // pinned back to current.
+    Task ChapterCurrentVersionChangedAsync(long novelId, long chapterId);
+
+
     Task GlossaryChangedAsync(long novelId, string sourceTerm, string targetTerm, string origin);
 
 

@@ -1,4 +1,5 @@
 using NektoTranslate.Common.Contracts;
+using NektoTranslate.Jobs.Enums;
 
 
 namespace NektoTranslate.Translation.Contracts;
@@ -38,4 +39,18 @@ public sealed record MoveTranslationsResult(
 public sealed record DeleteTranslationsResult(
     int chapters,
     int versions
+);
+
+
+// Pins the first or the newest version current for every chapter of a selection, in one request
+// rather than one per chapter - the selection bar's own bulk action.
+public sealed record SetCurrentVersionsRequest(
+    IReadOnlyList<long> chapterIds,
+    TranslationVersionPick pick
+);
+
+
+public sealed record SetCurrentVersionsResult(
+    int changed,
+    int skipped
 );

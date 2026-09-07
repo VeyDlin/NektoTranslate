@@ -19,6 +19,8 @@ namespace NektoTranslate.Translation.Controllers;
 public class TranslationsController(
     ITranslationImportService importer,
     ITranslationMapping mapping,
+    ITranslationVersions translationVersions,
+    ITranslationNotifier notifier,
     NektoDbContext database
 ) : ControllerBase {
 
@@ -54,12 +56,10 @@ public class TranslationsController(
                     ? null
                     : chapter.sourcePlainText.Substring(0, PreviewLength),
 
-                // The newest version, because that is the one the reader sees. The count tells the
+                // The current version, because that is the one the reader sees. The count tells the
                 // interface that earlier ones exist without sending them.
                 translation = chapter.translations
-                    .Where(translation => translation.language == language)
-                    .OrderByDescending(translation => translation.createdAt)
-                    .ThenByDescending(translation => translation.id)
+                    .Where(translation => translation.language == language && translation.isCurrent)
                     .Select(translation => new {
                         translation.id,
                         translation.origin,
@@ -104,6 +104,31 @@ public class TranslationsController(
         CancellationToken cancellationToken
     ) {
         return await mapping.DeleteRangeAsync(novelId, language, from, to, cancellationToken);
+    }
+
+
+    // Pins the first or the newest version current for every chapter in the selection. A chapter
+    // with no translation in this language, or busy with a run about to write one, is skipped rather
+    // than failing the whole request - the same tolerance a partial import already extends to a
+    // batch that is not all in the same state.
+    [HttpPost("current")]
+    public async Task<SetCurrentVersionsResult> SetCurrentVersions(
+        long novelId,
+        [FromBody] SetCurrentVersionsRequest request,
+        CancellationToken cancellationToken
+    ) {
+        BulkVersionChangeOutcome outcome = await translationVersions.SetCurrentForChaptersAsync(
+            novelId,
+            request.chapterIds,
+            request.pick,
+            cancellationToken
+        );
+
+        foreach (long chapterId in outcome.changedChapterIds) {
+            await notifier.ChapterCurrentVersionChangedAsync(novelId, chapterId);
+        }
+
+        return new SetCurrentVersionsResult(outcome.changed, outcome.skipped);
     }
 
 

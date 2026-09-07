@@ -4,7 +4,9 @@ using Microsoft.EntityFrameworkCore;
 using NektoTranslate.Chapters.Commands;
 using NektoTranslate.Chapters.Contracts;
 using NektoTranslate.Chapters.Entities;
+using NektoTranslate.Chapters.Enums;
 using NektoTranslate.Common.Data;
+using NektoTranslate.Translation.Entities;
 using NektoTranslate.Translation.Enums;
 using NektoTranslate.Translation.Services;
 
@@ -14,7 +16,12 @@ namespace NektoTranslate.Chapters.Controllers;
 
 [ApiController]
 [Route("api/novels/{novelId:long}/chapters")]
-public class ChaptersController(IMediator mediator, NektoDbContext database) : ControllerBase {
+public class ChaptersController(
+    IMediator mediator,
+    NektoDbContext database,
+    ITranslationVersions translationVersions,
+    ITranslationNotifier notifier
+) : ControllerBase {
 
     [HttpPost("import")]
     public async Task<IReadOnlyList<Chapter>> Import(
@@ -55,7 +62,20 @@ public class ChaptersController(IMediator mediator, NektoDbContext database) : C
                 // a repair or a forced re-translation broke on it, and still has the rendering it had
                 // before - repair and learning can take it; the state alone said they could not.
                 hasTranslation = database.chapterTranslations.Any(translation =>
-                    translation.chapterId == chapter.id && translation.language == language)
+                    translation.chapterId == chapter.id && translation.language == language),
+
+                // True exactly when a current version exists and something newer than it also does -
+                // a person pinned an older rendering, or a bulk pick landed on one. Expressed as
+                // "the current row has something newer" rather than comparing two separately fetched
+                // ids, so there is one correlated existence check instead of two subqueries to keep
+                // in sync.
+                currentIsOlder = database.chapterTranslations.Any(current => current.chapterId == chapter.id
+                    && current.language == language
+                    && current.isCurrent
+                    && database.chapterTranslations.Any(other => other.chapterId == current.chapterId
+                        && other.language == current.language
+                        && (other.createdAt > current.createdAt
+                            || (other.createdAt == current.createdAt && other.id > current.id))))
             })
             .ToListAsync<object>(cancellationToken);
     }
@@ -101,7 +121,8 @@ public class ChaptersController(IMediator mediator, NektoDbContext database) : C
                         translation.markdown,
                         translation.origin,
                         translation.costUsd,
-                        translation.createdAt
+                        translation.createdAt,
+                        translation.isCurrent
                     }),
 
                 // Carried with the chapter rather than fetched separately: the reader needs them at
@@ -128,5 +149,50 @@ public class ChaptersController(IMediator mediator, NektoDbContext database) : C
             .FirstOrDefaultAsync(cancellationToken);
 
         return chapter is null ? NotFound() : chapter;
+    }
+
+
+    // Pins one existing version as the one every reader of this chapter now reads. Refused, like an
+    // edit, while a run holds the chapter - it is about to write a new version, and making an old
+    // one current under it would be replaced the moment that write lands.
+    [HttpPost("{chapterId:long}/translations/{translationId:long}/current")]
+    public async Task<ActionResult<object>> MakeCurrent(
+        long novelId,
+        long chapterId,
+        long translationId,
+        CancellationToken cancellationToken
+    ) {
+        Chapter? chapter = await database.chapters
+            .FirstOrDefaultAsync(
+                candidate => candidate.id == chapterId && candidate.novelId == novelId,
+                cancellationToken
+            );
+
+        if (chapter is null) {
+            return NotFound();
+        }
+
+        if (chapter.translationState is ChapterTranslationState.Running or ChapterTranslationState.Queued) {
+            throw new InvalidOperationException(
+                "This chapter is queued or being translated. The run would overwrite the change."
+            );
+        }
+
+        ChapterTranslation? translation = await database.chapterTranslations
+            .FirstOrDefaultAsync(
+                candidate => candidate.id == translationId && candidate.chapterId == chapterId,
+                cancellationToken
+            );
+
+        if (translation is null) {
+            return NotFound();
+        }
+
+        await translationVersions.MakeCurrentAsync(translation, cancellationToken);
+        await database.SaveChangesAsync(cancellationToken);
+
+        await notifier.ChapterCurrentVersionChangedAsync(novelId, chapterId);
+
+        return await Get(novelId, chapterId, cancellationToken);
     }
 }
