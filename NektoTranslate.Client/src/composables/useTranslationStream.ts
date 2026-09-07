@@ -62,6 +62,16 @@ export function useTranslationStream(novelId: MaybeRefOrGetter<number | null>): 
             void queryClient.invalidateQueries({ queryKey: chapterKey(novel, payload.chapterId) });
         });
 
+        // Only currentIsOlder can have changed - not the state or the glossary flag ChapterTranslated
+        // also carries, which is why this is its own event rather than a reuse of that one. The
+        // chapter list is worth a full refetch here: this fires once for a deliberate click or a
+        // handful of times for a bulk pick, never per chapter of an ordinary translation run the way
+        // ChapterStateChanged does.
+        stream.on("ChapterCurrentVersionChanged", (payload) => {
+            void queryClient.invalidateQueries({ queryKey: chapterKey(novel, payload.chapterId) });
+            void queryClient.invalidateQueries({ queryKey: chaptersKey(novel) });
+        });
+
         stream.on("JobStateChanged", (payload) => {
             run.applyJobEvent({
                 jobId: payload.jobId,

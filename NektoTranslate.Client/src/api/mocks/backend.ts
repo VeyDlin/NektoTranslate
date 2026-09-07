@@ -1,7 +1,14 @@
 import type { ProsePair, Seed, SeedChapter } from "./seed";
-import type { ImportedChapter, StartImportRequest, StartTranslationJobRequest, UpsertGlossaryEntryRequest } from "@/types/api/requests";
+import type {
+    ImportedChapter,
+    SetCurrentVersionsRequest,
+    StartImportRequest,
+    StartTranslationJobRequest,
+    UpsertGlossaryEntryRequest,
+} from "@/types/api/requests";
 import type {
     Activity,
+    ChapterTranslation,
     ChatMessage,
     GlossaryEntry,
     ImportJob,
@@ -9,6 +16,7 @@ import type {
     JobState,
     TranslationJob,
     TranslationState,
+    TranslationVersionPick,
 } from "@/types/models/domain";
 
 import { mockEmitter } from "./emitter";
@@ -61,6 +69,44 @@ function delay(ms: number): Promise<void> {
     return new Promise((resolve) => {
         setTimeout(resolve, ms);
     });
+}
+
+
+// Mirrors the server's own projection: true only once there is a current version and a later one
+// exists that it is not.
+function currentIsOlder(chapter: SeedChapter): boolean {
+    if (chapter.translations.length < 2) {
+        return false;
+    }
+
+    const current = chapter.translations.find(translation => translation.isCurrent);
+
+    if (current === undefined) {
+        return false;
+    }
+
+    const newest = [...chapter.translations].sort(
+        (left, right) => right.createdAt.localeCompare(left.createdAt) || right.id - left.id,
+    )[0];
+
+    return newest !== undefined && newest.id !== current.id;
+}
+
+
+function pickTranslation(translations: ChapterTranslation[], pick: TranslationVersionPick): ChapterTranslation | undefined {
+    if (translations.length === 0) {
+        return undefined;
+    }
+
+    if (pick === "Current") {
+        return translations.find(translation => translation.isCurrent);
+    }
+
+    const sorted = [...translations].sort(
+        (left, right) => left.createdAt.localeCompare(right.createdAt) || left.id - right.id,
+    );
+
+    return pick === "First" ? sorted[0] : sorted[sorted.length - 1];
 }
 
 
@@ -208,6 +254,14 @@ export class MockBackend {
             if (segments.length === 5 && method === "DELETE") {
                 return this.deleteChapter(novelId, Number(segments[4]));
             }
+
+            if (segments[5] === "translations" && segments[7] === "current" && method === "POST") {
+                return this.makeTranslationCurrent(novelId, Number(segments[4]), Number(segments[6]));
+            }
+        }
+
+        if (segments[3] === "translations" && segments[4] === "current" && method === "POST") {
+            return this.setCurrentVersions(novelId, body as SetCurrentVersionsRequest);
         }
 
         if (segments[3] === "chat") {
@@ -517,6 +571,7 @@ export class MockBackend {
             title: chapter.title,
             glossaryState: chapter.glossaryState,
             translationState: chapter.translationState,
+            currentIsOlder: currentIsOlder(chapter),
         }));
     }
 
@@ -544,6 +599,7 @@ export class MockBackend {
             sourceMarkdown: `## ${chapter.sourceHeading}\n\n${prose.sourceMarkdown}`,
             glossaryState: chapter.glossaryState,
             translationState: chapter.translationState,
+            currentIsOlder: currentIsOlder(chapter),
             translations: [...chapter.translations]
                 .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
                 .map(translation => ({
@@ -553,6 +609,7 @@ export class MockBackend {
                     origin: translation.origin,
                     costUsd: translation.costUsd,
                     createdAt: translation.createdAt,
+                    isCurrent: translation.isCurrent,
                 })),
 
             // No checks run against the mock, so there is never anything to report. The field is
@@ -560,6 +617,70 @@ export class MockBackend {
             // missing is not the same thing as one that arrives empty.
             issues: [],
         };
+    }
+
+
+    // Pins one existing version current for one chapter, and answers with the chapter detail whole
+    // - the same shape getChapter returns - the way the real endpoint does.
+    private makeTranslationCurrent(novelId: number, chapterId: number, translationId: number): unknown {
+        const chapter = this.chaptersOf(novelId).find(candidate => candidate.id === chapterId);
+
+        if (chapter === undefined) {
+            throw new MockNotFound("POST", `/api/novels/${novelId}/chapters/${chapterId}/translations/${translationId}/current`);
+        }
+
+        const translation = chapter.translations.find(candidate => candidate.id === translationId);
+
+        if (translation === undefined) {
+            throw new MockNotFound(
+                "POST",
+                `/api/novels/${novelId}/chapters/${chapterId}/translations/${translationId}/current`,
+            );
+        }
+
+        for (const candidate of chapter.translations) {
+            candidate.isCurrent = candidate.id === translation.id;
+        }
+
+        mockEmitter.emit(novelId, "ChapterCurrentVersionChanged", { chapterId });
+
+        return this.getChapter(novelId, chapterId);
+    }
+
+
+    // Chapters with no translation are skipped rather than failing the whole request, the same
+    // tolerance the real endpoint's service extends. The mock has no notion of a chapter being busy
+    // beyond Queued/Running, so those are skipped here too.
+    private setCurrentVersions(novelId: number, request: SetCurrentVersionsRequest): unknown {
+        let changed = 0;
+        let skipped = 0;
+
+        for (const chapterId of new Set(request.chapterIds ?? [])) {
+            const chapter = this.chaptersOf(novelId).find(candidate => candidate.id === chapterId);
+
+            if (chapter === undefined || chapter.translationState === "Queued" || chapter.translationState === "Running") {
+                skipped++;
+
+                continue;
+            }
+
+            const picked = pickTranslation(chapter.translations, request.pick);
+
+            if (picked === undefined) {
+                skipped++;
+
+                continue;
+            }
+
+            for (const candidate of chapter.translations) {
+                candidate.isCurrent = candidate.id === picked.id;
+            }
+
+            changed++;
+            mockEmitter.emit(novelId, "ChapterCurrentVersionChanged", { chapterId });
+        }
+
+        return { changed, skipped };
     }
 
 
@@ -746,6 +867,7 @@ export class MockBackend {
             fromIndex: request.fromIndex ?? null,
             toIndex: request.toIndex ?? null,
             chapterIds: request.chapterIds ?? [],
+            sourceVersion: request.sourceVersion ?? "Current",
             state: "Queued",
             processedCount: 0,
             totalCount: targets.length,
@@ -851,6 +973,13 @@ export class MockBackend {
 
             const cost = 0.028 + (chapter.index % 6) * 0.004;
 
+            // A forced re-translation of an already-translated chapter adds beside what is there
+            // rather than replacing it, the same as the real translator - so any existing current
+            // version is cleared before this one takes over.
+            for (const existing of chapter.translations) {
+                existing.isCurrent = false;
+            }
+
             chapter.translations.push({
                 id: this.nextTranslationId,
                 language: "English",
@@ -858,6 +987,7 @@ export class MockBackend {
                 origin: "Ai",
                 costUsd: cost,
                 createdAt: new Date().toISOString(),
+                isCurrent: true,
             });
 
             chapter.translationState = "Translated";
@@ -1201,6 +1331,7 @@ export class MockBackend {
                         origin: "Imported",
                         costUsd: null,
                         createdAt: new Date().toISOString(),
+                        isCurrent: true,
                     });
 
                     chapter.translationState = "Translated";

@@ -116,6 +116,7 @@
     import { useActivityStore } from "@/stores/activity.store";
     import { useRunStore } from "@/stores/run.store";
     import { formatCost, formatCount, jobModeProgressLabel, jobProgressUnit } from "@/utils/format";
+    import { sourceVersionPhrase } from "@/utils/translationVersions";
 
 
     // The screen each import kind has to itself, where Pause/Resume/Cancel already live in its own
@@ -208,6 +209,14 @@
         return "i-material-symbols:pause-circle-outline";
     });
 
+    // Silent for Translate and for Current: neither is worth saying, since Current is what every
+    // run already meant before this existed and Translate never reads a version at all.
+    const modeLabel = computed(() => {
+        const suffix = sourceVersionPhrase(run.sourceVersion);
+
+        return suffix === "" ? jobModeProgressLabel(run.mode) : `${jobModeProgressLabel(run.mode)} ${suffix}`;
+    });
+
     // Cancellation takes effect between chapters, so saying "Cancelled" the instant the button is
     // pressed would be a lie that makes the button look broken when the current chapter keeps going.
     const headline = computed(() => {
@@ -225,8 +234,8 @@
             }
 
             return run.currentStep === null || run.currentStep.length === 0
-                ? jobModeProgressLabel(run.mode)
-                : `${jobModeProgressLabel(run.mode)} — ${run.currentStep}`;
+                ? modeLabel.value
+                : `${modeLabel.value} — ${run.currentStep}`;
         }
 
         if (activeImport.value === null) {

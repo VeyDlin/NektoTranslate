@@ -1,9 +1,9 @@
 import type { MaybeRefOrGetter } from "vue";
-import type { ImportedChapter } from "@/types/api/requests";
+import type { ImportedChapter, SetCurrentVersionsRequest } from "@/types/api/requests";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
 
 import { computed, toValue } from "vue";
-import { chaptersApi } from "@/api";
+import { chaptersApi, translationsApi } from "@/api";
 
 
 export function chaptersKey(novelId: number): unknown[] {
@@ -54,6 +54,36 @@ export function useImportChapters(novelId: MaybeRefOrGetter<number>) {
 
     return useMutation({
         mutationFn: (chapters: ImportedChapter[]) => chaptersApi.import(toValue(novelId), chapters),
+        onSuccess: () => {
+            void queryClient.invalidateQueries({ queryKey: chaptersKey(toValue(novelId)) });
+        },
+    });
+}
+
+
+// Pins one existing version current for one chapter - the reader's own "Make current" button. The
+// server answers with the chapter detail whole, so the cache is replaced directly rather than
+// refetched; the list is still invalidated for its currentIsOlder marker.
+export function useMakeChapterCurrent(novelId: MaybeRefOrGetter<number>) {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ chapterId, translationId }: { chapterId: number; translationId: number }) =>
+            chaptersApi.makeCurrent(toValue(novelId), chapterId, translationId),
+        onSuccess: (chapter, { chapterId }) => {
+            queryClient.setQueryData(chapterKey(toValue(novelId), chapterId), chapter);
+            void queryClient.invalidateQueries({ queryKey: chaptersKey(toValue(novelId)) });
+        },
+    });
+}
+
+
+// The selection bar's bulk "use first/newest version" action.
+export function useMakeVersionsCurrent(novelId: MaybeRefOrGetter<number>) {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: (request: SetCurrentVersionsRequest) => translationsApi.setCurrentVersions(toValue(novelId), request),
         onSuccess: () => {
             void queryClient.invalidateQueries({ queryKey: chaptersKey(toValue(novelId)) });
         },

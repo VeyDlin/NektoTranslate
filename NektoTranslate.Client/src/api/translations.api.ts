@@ -1,4 +1,4 @@
-import type { MoveTranslationsRequest } from "@/types/api/requests";
+import type { MoveTranslationsRequest, SetCurrentVersionsRequest } from "@/types/api/requests";
 import type {
     AlignmentRow,
     DeleteTranslationsResult,
@@ -6,6 +6,12 @@ import type {
 } from "@/types/models/domain";
 
 import { apiClient } from "./client";
+
+
+export interface SetCurrentVersionsResult {
+    changed: number;
+    skipped: number;
+}
 
 
 export const translationsApi = {
@@ -39,6 +45,16 @@ export const translationsApi = {
     // — see useAlignment, which normalises both into one shape.
     move(novelId: number, request: MoveTranslationsRequest): Promise<MoveTranslationsResult> {
         return apiClient<MoveTranslationsResult>(`/api/novels/${novelId}/translations/move`, {
+            method: "POST",
+            body: request,
+        });
+    },
+
+    // Pins the first or the newest version current for every chapter of a selection. Chapters with
+    // no translation, or busy with a run about to write one, are skipped rather than failing the
+    // whole request.
+    setCurrentVersions(novelId: number, request: SetCurrentVersionsRequest): Promise<SetCurrentVersionsResult> {
+        return apiClient<SetCurrentVersionsResult>(`/api/novels/${novelId}/translations/current`, {
             method: "POST",
             body: request,
         });

@@ -37,6 +37,14 @@ export interface ChapterTranslatedEvent {
 }
 
 
+// Which version is current changed with nothing else about the chapter changing - not the
+// translation, not its state. Kept apart from ChapterTranslated: that event also tells the chapter
+// list the chapter is now Translated and its glossary Analyzed, neither of which is true here.
+export interface ChapterCurrentVersionChangedEvent {
+    chapterId: number;
+}
+
+
 export interface GlossaryChangedEvent {
     sourceTerm: string;
     targetTerm: string;
@@ -82,6 +90,7 @@ export interface TranslationEvents {
     ChapterStateChanged: ChapterStateChangedEvent;
     TranslationDelta: TranslationDeltaEvent;
     ChapterTranslated: ChapterTranslatedEvent;
+    ChapterCurrentVersionChanged: ChapterCurrentVersionChangedEvent;
     GlossaryChanged: GlossaryChangedEvent;
     AgentMessage: AgentMessageEvent;
     ImportStateChanged: ImportStateChangedEvent;

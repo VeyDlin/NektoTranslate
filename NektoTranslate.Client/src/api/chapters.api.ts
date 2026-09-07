@@ -18,6 +18,7 @@ interface RawChapterSummary {
     translationState: number | string;
     hasOriginal: boolean;
     hasTranslation: boolean;
+    currentIsOlder: boolean;
 }
 
 
@@ -30,6 +31,7 @@ interface RawChapter extends RawChapterSummary {
         origin: number | string;
         costUsd: number | null;
         createdAt: string;
+        isCurrent: boolean;
     }[];
     issues: {
         id: number;
@@ -51,6 +53,34 @@ function toSummary(raw: RawChapterSummary): ChapterSummary {
         translationState: decodeTranslationState(raw.translationState),
         hasOriginal: raw.hasOriginal,
         hasTranslation: raw.hasTranslation,
+        currentIsOlder: raw.currentIsOlder,
+    };
+}
+
+
+// Shared by getById and makeCurrent, which answers with the exact same shape so the reader can
+// replace what it holds without a second request.
+function toChapter(raw: RawChapter): Chapter {
+    return {
+        ...toSummary(raw),
+        sourceMarkdown: raw.sourceMarkdown,
+        translations: raw.translations.map(translation => ({
+            id: translation.id,
+            language: translation.language,
+            markdown: translation.markdown,
+            origin: decodeTranslationOrigin(translation.origin),
+            costUsd: translation.costUsd,
+            createdAt: translation.createdAt,
+            isCurrent: translation.isCurrent,
+        })),
+        issues: raw.issues.map(issue => ({
+            id: issue.id,
+            language: issue.language,
+            check: issue.check,
+            message: issue.message,
+            blockIndex: issue.blockIndex,
+            state: decodeTranslationIssueState(issue.state),
+        })),
     };
 }
 
@@ -61,26 +91,7 @@ export const chaptersApi = {
     },
 
     getById(novelId: number, chapterId: number): Promise<Chapter> {
-        return apiClient<RawChapter>(`/api/novels/${novelId}/chapters/${chapterId}`).then(raw => ({
-            ...toSummary(raw),
-            sourceMarkdown: raw.sourceMarkdown,
-            translations: raw.translations.map(translation => ({
-                id: translation.id,
-                language: translation.language,
-                markdown: translation.markdown,
-                origin: decodeTranslationOrigin(translation.origin),
-                costUsd: translation.costUsd,
-                createdAt: translation.createdAt,
-            })),
-            issues: raw.issues.map(issue => ({
-                id: issue.id,
-                language: issue.language,
-                check: issue.check,
-                message: issue.message,
-                blockIndex: issue.blockIndex,
-                state: decodeTranslationIssueState(issue.state),
-            })),
-        }));
+        return apiClient<RawChapter>(`/api/novels/${novelId}/chapters/${chapterId}`).then(toChapter);
     },
 
     remove(novelId: number, chapterId: number): Promise<void> {
@@ -94,5 +105,14 @@ export const chaptersApi = {
             method: "POST",
             body: chapters,
         }).then(rows => rows.map(toSummary));
+    },
+
+    // Pins one existing version as the one every reader of this chapter now reads. Answers with the
+    // same chapter detail getById does, so the caller can replace its cache without a second request.
+    makeCurrent(novelId: number, chapterId: number, translationId: number): Promise<Chapter> {
+        return apiClient<RawChapter>(
+            `/api/novels/${novelId}/chapters/${chapterId}/translations/${translationId}/current`,
+            { method: "POST" },
+        ).then(toChapter);
     },
 };

@@ -106,6 +106,17 @@
                     Clear
                 </UButton>
 
+                <UDropdownMenu :items="versionMenuItems">
+                    <UButton
+                        size="xs"
+                        color="neutral"
+                        variant="ghost"
+                        trailing-icon="i-material-symbols:keyboard-arrow-down-rounded"
+                    >
+                        Version
+                    </UButton>
+                </UDropdownMenu>
+
                 <span class="spacer" />
 
                 <UButton
@@ -251,6 +262,7 @@
 </template>
 
 <script setup lang="ts">
+    import type { DropdownMenuItem } from "@nuxt/ui";
     import type { TranslationJobMode } from "@/types/models/domain";
 
     import { computed, ref, watch } from "vue";
@@ -265,7 +277,7 @@
     import StartRunModal from "@/components/jobs/StartRunModal.vue";
     import VoicePanel from "@/components/voice/VoicePanel.vue";
     import { useActivity } from "@/composables/useActivity";
-    import { useChapters } from "@/composables/useChapters";
+    import { useChapters, useMakeVersionsCurrent } from "@/composables/useChapters";
     import { useGlossary } from "@/composables/useGlossary";
     import { useJobs } from "@/composables/useJobs";
     import { useNovelProgress } from "@/composables/useNovelProgress";
@@ -274,6 +286,8 @@
     import { useProgressStore } from "@/stores/progress.store";
     import { chapterNumber, formatCount, hostOf } from "@/utils/format";
     import { scriptLangFor, scriptLangIf } from "@/utils/language";
+    import { notifySuccess } from "@/utils/notify";
+    import { bulkCurrentToastTitle } from "@/utils/translationVersions";
 
 
     const props = defineProps<{ novelId: string }>();
@@ -350,6 +364,31 @@
     // have to reach it — an id list would only let it say "3 chapters", which is not enough to hand
     // someone before an irreversible action.
     const selectedRows = computed(() => rows.value.filter(row => rowSelection.value[String(row.id)] === true));
+
+    const { mutateAsync: makeVersionsCurrent, isPending: isMakingVersionsCurrent } = useMakeVersionsCurrent(id);
+
+    const versionMenuItems = computed<DropdownMenuItem[]>(() => [
+        {
+            label: "Use first version",
+            disabled: isMakingVersionsCurrent.value,
+            onSelect: () => {
+                void applyVersionPick("First");
+            },
+        },
+        {
+            label: "Use newest version",
+            disabled: isMakingVersionsCurrent.value,
+            onSelect: () => {
+                void applyVersionPick("Newest");
+            },
+        },
+    ]);
+
+    async function applyVersionPick(pick: "First" | "Newest"): Promise<void> {
+        const { changed, skipped } = await makeVersionsCurrent({ chapterIds: [...selectedIds.value], pick });
+
+        notifySuccess(bulkCurrentToastTitle(pick, changed, skipped));
+    }
 
     // The two site-reading screens each own one kind of job, and each of their buttons carries that
     // job's progress, so the way back to a running import is the button that started it.

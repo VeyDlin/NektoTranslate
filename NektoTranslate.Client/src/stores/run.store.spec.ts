@@ -16,6 +16,7 @@ function makeJob(overrides: Partial<TranslationJob> = {}): TranslationJob {
         fromIndex: 0,
         toIndex: 9,
         chapterIds: [],
+        sourceVersion: "Current",
         state: "Running",
         processedCount: 3,
         totalCount: 10,
@@ -111,5 +112,22 @@ describe("useRunStore progress", () => {
         expect(run.stepIndex).toBeNull();
         expect(run.stepCount).toBeNull();
         expect(run.progress).toBe(0);
+    });
+
+    it("carries sourceVersion from the job that started the run", () => {
+        const run = useRunStore();
+
+        run.adopt(makeJob({ mode: "Repair", sourceVersion: "First" }));
+
+        expect(run.sourceVersion).toBe("First");
+    });
+
+    it("resets sourceVersion to Current on clear", () => {
+        const run = useRunStore();
+
+        run.adopt(makeJob({ sourceVersion: "Newest" }));
+        run.clear();
+
+        expect(run.sourceVersion).toBe("Current");
     });
 });

@@ -47,6 +47,13 @@
                     :title="glossaryMark(row.original)!.title"
                     class="terms"
                 />
+
+                <UIcon
+                    v-if="row.original.currentIsOlder"
+                    name="i-material-symbols:history-rounded"
+                    title="An older version is current"
+                    class="terms"
+                />
             </span>
         </template>
     </UTable>

@@ -40,6 +40,7 @@
         jobProgressUnit,
         jobStateLabel,
     } from "@/utils/format";
+    import { sourceVersionPhrase } from "@/utils/translationVersions";
 
 
     defineProps<{ jobs: TranslationJob[] }>();
@@ -85,6 +86,14 @@
 
 
     function scopeLabel(job: TranslationJob): string {
+        const scope = baseScopeLabel(job);
+        const suffix = sourceVersionPhrase(job.sourceVersion);
+
+        return suffix === "" ? scope : `${scope} · ${suffix}`;
+    }
+
+
+    function baseScopeLabel(job: TranslationJob): string {
         switch (job.scopeKind) {
             case "Range":
                 return job.fromIndex === null || job.toIndex === null

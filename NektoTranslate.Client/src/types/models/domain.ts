@@ -32,6 +32,13 @@ export const JOB_MODES = ["Translate", "LearnVoice", "Repair"] as const;
 export type TranslationJobMode = (typeof JOB_MODES)[number];
 
 
+// Which rendering a Repair or LearnVoice run reads; Translate ignores it. Current is the default and
+// the only choice that ever meant anything before this existed.
+export const TRANSLATION_VERSION_PICKS = ["Current", "First", "Newest"] as const;
+
+export type TranslationVersionPick = (typeof TRANSLATION_VERSION_PICKS)[number];
+
+
 export const IMPORT_KINDS = ["Originals", "Translation"] as const;
 
 export type ImportKind = (typeof IMPORT_KINDS)[number];
@@ -241,6 +248,11 @@ export interface ChapterSummary {
     // or a forced re-translation broke on it and still has the rendering it had before: repair and
     // learning can take it, and the state alone said they could not.
     hasTranslation: boolean;
+
+    // True when a current version exists and it is not the newest - a person pinned an older
+    // rendering, or a bulk "use first version" ran, and everything written after it is being read
+    // past rather than read.
+    currentIsOlder: boolean;
 }
 
 
@@ -253,6 +265,10 @@ export interface ChapterTranslation {
     origin: TranslationOrigin;
     costUsd: number | null;
     createdAt: string;
+
+    // Exactly one translation of a chapter carries this, in each language, whenever any exists. The
+    // reader, a repair and voice learning all read this one rather than guessing from createdAt.
+    isCurrent: boolean;
 }
 
 
@@ -385,6 +401,10 @@ export interface TranslationJob {
     fromIndex: number | null;
     toIndex: number | null;
     chapterIds: number[];
+
+    // Which version Repair and LearnVoice read; meaningless for Translate, which always reads what
+    // it is about to write over.
+    sourceVersion: TranslationVersionPick;
     state: JobState;
     processedCount: number;
     totalCount: number;

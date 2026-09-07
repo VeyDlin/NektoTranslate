@@ -72,6 +72,21 @@
                     </UFormField>
                 </div>
 
+                <!-- Only Repair and LearnVoice ever read a stored version rather than writing over
+                     whatever is there - Translate always reads the original, never a translation. -->
+                <UFormField
+                    v-if="mode === 'Repair' || mode === 'LearnVoice'"
+                    label="Read from"
+                    description="First is the translation as it was imported - repair from it to start over rather than build on an earlier repair."
+                >
+                    <USelect
+                        v-model="sourceVersion"
+                        :items="sourceVersionOptions"
+                        :disabled="isPending"
+                        class="w-full"
+                    />
+                </UFormField>
+
                 <!-- Money, and shown as money: a bare number with a half-unit step read as a count
                      of something unnamed. The run's cost is what the model bills, in dollars and
                      cents, and this is the line it may not cross. -->
@@ -178,7 +193,7 @@
 </template>
 
 <script setup lang="ts">
-    import type { ChapterSummary, JobScopeKind, TranslationJobMode } from "@/types/models/domain";
+    import type { ChapterSummary, JobScopeKind, TranslationJobMode, TranslationVersionPick } from "@/types/models/domain";
 
     import { computed, ref, watch } from "vue";
     import { useStartJob } from "@/composables/useJobs";
@@ -218,6 +233,15 @@
     const scope = ref<JobScopeKind>("Range");
     const budget = ref<number | undefined>(undefined);
     const force = ref(false);
+
+    // Repair and LearnVoice only - Translate always reads the original, never a stored version.
+    const sourceVersion = ref<TranslationVersionPick>("Current");
+
+    const sourceVersionOptions: { value: TranslationVersionPick; label: string }[] = [
+        { value: "Current", label: "Current version" },
+        { value: "First", label: "First version" },
+        { value: "Newest", label: "Newest version" },
+    ];
 
     // The range is picked by which chapters, not by typing a position a reader has to work out for
     // themselves first — a book split across a site's own renumbering has no position that matches
@@ -366,6 +390,8 @@
             return;
         }
 
+        sourceVersion.value = "Current";
+
         if (current !== "LearnVoice") {
             if (props.selectedIds.length > 0) {
                 scope.value = "Selection";
@@ -470,7 +496,7 @@
     // that are no longer on screen.
     const failure = ref<string | null>(null);
 
-    watch([open, mode, scope, fromChapterId, toChapterId, budget, force], () => {
+    watch([open, mode, scope, fromChapterId, toChapterId, budget, force, sourceVersion], () => {
         failure.value = null;
     });
 
@@ -519,6 +545,7 @@
                         : null,
                 budgetUsd: budget.value ?? null,
                 force: mode.value === "Translate" ? force.value : null,
+                sourceVersion: mode.value === "Repair" || mode.value === "LearnVoice" ? sourceVersion.value : null,
             });
         }
         catch (error) {

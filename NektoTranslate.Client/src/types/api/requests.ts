@@ -1,4 +1,4 @@
-import type { GlossaryCategory, ImportKind, JobScopeKind, ParsedChapterLink, TranslationJobMode } from "@/types/models/domain";
+import type { GlossaryCategory, ImportKind, JobScopeKind, ParsedChapterLink, TranslationJobMode, TranslationVersionPick } from "@/types/models/domain";
 
 
 export interface CreateNovelRequest {
@@ -37,6 +37,18 @@ export interface StartTranslationJobRequest {
     // same translation at no cost. Change the glossary, either style guide, the quote setting or the
     // model and it genuinely re-translates. Meaningless outside Translate mode and left unset there.
     force?: boolean | null;
+
+    // Which version Repair and LearnVoice read. Omitted defaults to Current on the server - the
+    // choice every run made before this field existed. Meaningless for Translate and left unset
+    // there.
+    sourceVersion?: TranslationVersionPick | null;
+}
+
+
+// Pins the first or the newest version current for every chapter of a selection, in one request.
+export interface SetCurrentVersionsRequest {
+    chapterIds: number[];
+    pick: "First" | "Newest";
 }
 
 

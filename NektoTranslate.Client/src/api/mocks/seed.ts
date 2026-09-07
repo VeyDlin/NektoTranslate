@@ -297,12 +297,14 @@ export function createSeed(): Seed {
             origin: human ? "Imported" : "Ai",
             costUsd: human ? null : 0.031 + (chapter.index % 7) * 0.004,
             createdAt: daysAgo(human ? 30 : 6 - (chapter.index % 5)),
+            isCurrent: true,
         });
     }
 
-    // Chapter 12 carries both an inherited human rendering and a later machine pass. The reader has
-    // to let the user pick between them; showing only the newest would silently bury the version
-    // the reader has already read 120 chapters of.
+    // Chapter 12 carries both an inherited human rendering and a later machine pass. The human one
+    // (pushed above, isCurrent already true) stays pinned current on purpose - the showcase for
+    // currentIsOlder: the reader has already read 120 chapters in that voice, and a later machine
+    // pass must not quietly become "the" version just for being newer.
     const contested = ashTown.find(chapter => chapter.index === 12);
 
     contested?.translations.push({
@@ -312,6 +314,7 @@ export function createSeed(): Seed {
         origin: "Ai",
         costUsd: 0.041,
         createdAt: daysAgo(2),
+        isCurrent: false,
     });
 
     const longNight = buildChapters(2, LONG_NIGHT_TOTAL, CHINESE_TITLES, CHINESE_PROSE.length, 20_000, "章", index => (
@@ -329,6 +332,7 @@ export function createSeed(): Seed {
                 origin: "Ai",
                 costUsd: 0.028 + (chapter.index % 5) * 0.003,
                 createdAt: daysAgo(8 - Math.floor(chapter.index / 4)),
+                isCurrent: true,
             });
         }
     }
@@ -540,6 +544,7 @@ export function createSeed(): Seed {
             fromIndex: 121,
             toIndex: 187,
             chapterIds: [],
+            sourceVersion: "Current",
             state: "Completed",
             processedCount: 66,
             totalCount: 67,
@@ -561,6 +566,7 @@ export function createSeed(): Seed {
             fromIndex: 1,
             toIndex: 40,
             chapterIds: [],
+            sourceVersion: "Current",
             state: "Paused",
             processedCount: 24,
             totalCount: 40,

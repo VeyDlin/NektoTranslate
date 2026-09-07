@@ -99,6 +99,20 @@
                     />
                     <span v-else class="origin">{{ translationOriginLabel(shown.origin) }}</span>
 
+                    <!-- Only when the version on screen is not the one the rest of the application
+                         reads - a chapter with one version is that version by definition. -->
+                    <UButton
+                        v-if="!shown.isCurrent"
+                        size="xs"
+                        color="neutral"
+                        variant="ghost"
+                        :loading="isMakingCurrent"
+                        :disabled="isMakingCurrent"
+                        @click="makeCurrent"
+                    >
+                        Make current
+                    </UButton>
+
                     <span v-if="shown.costUsd !== null" class="cost">{{ formatCost(shown.costUsd) }}</span>
                 </div>
 
@@ -144,7 +158,7 @@
     import { useRouter } from "vue-router";
     import ChapterTurn from "@/components/reader/ChapterTurn.vue";
     import ReaderSettings from "@/components/reader/ReaderSettings.vue";
-    import { useChapter, useChapters } from "@/composables/useChapters";
+    import { useChapter, useChapters, useMakeChapterCurrent } from "@/composables/useChapters";
     import { useStartJob } from "@/composables/useJobs";
     import { useNovel } from "@/composables/useNovels";
     import { useProgressStore } from "@/stores/progress.store";
@@ -153,6 +167,7 @@
     import { chapterNumber, formatCost, formatWhen, translationOriginLabel } from "@/utils/format";
     import { scriptLangFor, scriptLangIf } from "@/utils/language";
     import { renderMarkdown } from "@/utils/markdown";
+    import { defaultShownTranslationId } from "@/utils/translationVersions";
 
 
     const props = defineProps<{
@@ -172,6 +187,7 @@
     const { data: rowData } = useChapters(id);
     const { data: chapterData, isLoading } = useChapter(id, chapterKey);
     const { mutateAsync: startJob, isPending: isStarting } = useStartJob(id);
+    const { mutateAsync: makeChapterCurrent, isPending: isMakingCurrent } = useMakeChapterCurrent(id);
 
     const novel = computed(() => novelData.value ?? null);
     const chapter = computed(() => chapterData.value ?? null);
@@ -264,7 +280,7 @@
 
     const translationOptions = computed(() => (chapter.value?.translations ?? []).map(translation => ({
         value: translation.id,
-        label: `${translationOriginLabel(translation.origin)}, ${formatWhen(translation.createdAt)}`,
+        label: `${translationOriginLabel(translation.origin)}, ${formatWhen(translation.createdAt)}${translation.isCurrent ? " · current" : ""}`,
     })));
 
     const modeOptions: { label: string; value: ReaderMode }[] = [
@@ -302,8 +318,8 @@
     });
 
 
-    // Selecting the newest by default is not the same as showing it silently: the picker has to name
-    // which rendering is on screen, and it cannot do that with nothing selected.
+    // Selecting the current version by default is not the same as showing it silently: the picker
+    // has to name which rendering is on screen, and it cannot do that with nothing selected.
     watch(
         [chapterKey, () => chapter.value?.translations],
         () => {
@@ -311,11 +327,20 @@
             const stillThere = all.some(translation => translation.id === shownId.value);
 
             if (!stillThere) {
-                shownId.value = all[0]?.id ?? null;
+                shownId.value = defaultShownTranslationId(all);
             }
         },
         { immediate: true },
     );
+
+
+    async function makeCurrent(): Promise<void> {
+        if (shown.value === null) {
+            return;
+        }
+
+        await makeChapterCurrent({ chapterId: chapterKey.value, translationId: shown.value.id });
+    }
 
 
     // Recorded on arrival rather than on leaving: closing the window is the ordinary way to stop
