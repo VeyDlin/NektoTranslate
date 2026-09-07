@@ -264,10 +264,13 @@
             if (props.selectedIds.length > 0) {
                 scope.value = "Selection";
             }
-            else if (current === "Repair" && scope.value === "WholeBook") {
+            else if (current === "Repair") {
                 // A repair of the whole book is the expensive choice and rarely the intended one.
                 // It stays available, but the dialog opens on one chapter - the last that has a
                 // rendering - for the reader to widen, rather than on forty-two to be narrowed.
+                // Whatever the scope was before counts for nothing here: switching over from
+                // learning left its whole-book range in place, which is forty-two again by another
+                // door.
                 const numbered = props.rows
                     .filter(row => row.hasTranslation)
                     .map(row => chapterNumber(row.index));
