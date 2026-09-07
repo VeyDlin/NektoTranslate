@@ -30,6 +30,11 @@ public class ChaptersController(IMediator mediator, NektoDbContext database) : C
     // several megabytes of prose to render a table of contents.
     [HttpGet]
     public async Task<IReadOnlyList<object>> List(long novelId, CancellationToken cancellationToken) {
+        string language = await database.novels
+            .Where(novel => novel.id == novelId)
+            .Select(novel => novel.targetLanguage)
+            .FirstAsync(cancellationToken);
+
         return await database.chapters
             .AsNoTracking()
             .Where(chapter => chapter.novelId == novelId)
@@ -44,7 +49,13 @@ public class ChaptersController(IMediator mediator, NektoDbContext database) : C
                 // Whether there is anything to translate from. The source itself is deliberately not
                 // sent - that is the megabytes this projection exists to avoid - but its absence is
                 // a fact the list needs: it decides what a run can be asked to do with the chapter.
-                hasOriginal = chapter.sourceMarkdown != null
+                hasOriginal = chapter.sourceMarkdown != null,
+
+                // Whether a rendering is on file, apart from the state. A chapter reads Failed after
+                // a repair or a forced re-translation broke on it, and still has the rendering it had
+                // before - repair and learning can take it; the state alone said they could not.
+                hasTranslation = database.chapterTranslations.Any(translation =>
+                    translation.chapterId == chapter.id && translation.language == language)
             })
             .ToListAsync<object>(cancellationToken);
     }

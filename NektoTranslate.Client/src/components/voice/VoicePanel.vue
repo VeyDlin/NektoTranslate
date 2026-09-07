@@ -131,7 +131,7 @@
 
     const profile = computed(() => profileData.value);
 
-    const hasTranslatedChapters = computed(() => props.rows.some(row => row.translationState === "Translated"));
+    const hasTranslatedChapters = computed(() => props.rows.some(row => row.hasTranslation));
 
     // Most-seen first: a term that shows up three hundred times and one seen once are not the same
     // kind of fact about the book, and the order is what makes that legible at a glance.

@@ -215,6 +215,13 @@ public class TranslationJobWorker(
         } catch (Exception failure) {
             logger.LogError(failure, "Chapter {ChapterId} failed to translate", chapterId);
 
+            // The reason goes to the reader as well as to the log: a chapter marked Failed with the
+            // cause visible only in the server's console is a red dot nobody can act on.
+            await notifier.AgentMessageAsync(
+                job.novelId,
+                $"Chapter {chapterNumber} could not be translated: {failure.Message}"
+            );
+
             await database.chapters
                 .Where(chapter => chapter.id == chapterId)
                 .ExecuteUpdateAsync(
@@ -276,6 +283,11 @@ public class TranslationJobWorker(
             throw;
         } catch (Exception failure) {
             logger.LogError(failure, "Chapter {ChapterId} failed to repair", chapterId);
+
+            await notifier.AgentMessageAsync(
+                job.novelId,
+                $"Chapter {chapterNumber} could not be repaired: {failure.Message}"
+            );
 
             // The rendering this chapter already had is untouched - a repair never overwrites or
             // deletes it. Marking the chapter Failed here carries the same meaning it already carries

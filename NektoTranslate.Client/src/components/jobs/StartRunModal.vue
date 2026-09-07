@@ -107,8 +107,11 @@
                         Cancel
                     </UButton>
 
+                    <!-- The count on the button itself, where the click happens: a whole-book run
+                         started for what was meant to be one chapter had only the small print above
+                         to say so. -->
                     <UButton :disabled="targets.length === 0" :loading="isPending" @click="start">
-                        Start
+                        {{ startLabel }}
                     </UButton>
                 </div>
             </div>
@@ -209,7 +212,7 @@
             { value: "LearnVoice", label: "Learn from the translation" },
         ];
 
-        if (props.rows.some(row => row.translationState === "Translated")) {
+        if (props.rows.some(row => row.hasTranslation)) {
             options.push({ value: "Repair", label: "Repair" });
         }
 
@@ -257,7 +260,7 @@
         }
 
         const translated = props.rows
-            .filter(row => row.translationState === "Translated")
+            .filter(row => row.hasTranslation)
             .map(row => chapterNumber(row.index));
 
         if (translated.length > 0) {
@@ -296,7 +299,10 @@
                 : inScope.value.filter(row => row.translationState !== "Translated");
         }
 
-        return inScope.value.filter(row => row.translationState === "Translated");
+        // A rendering on file is what repair and learning need, whatever the state says: a chapter
+        // marked Failed by a broken repair still has the rendering it had before, and refusing to
+        // repair it again would leave the failure the only thing that could ever happen to it.
+        return inScope.value.filter(row => row.hasTranslation);
     });
 
     const skipped = computed(() => inScope.value.length - targets.value.length);
@@ -326,6 +332,21 @@
             : `${formatCount(targets.value.length)} ${targets.value.length === 1 ? "chapter" : "chapters"}`;
 
         return `${jobModeProgressLabel(mode.value)}: ${scopeWords}`;
+    });
+
+
+    const startLabel = computed(() => {
+        const count = targets.value.length;
+        const chapters = `${formatCount(count)} ${count === 1 ? "chapter" : "chapters"}`;
+
+        switch (mode.value) {
+            case "Translate":
+                return `Translate ${chapters}`;
+            case "Repair":
+                return `Repair ${chapters}`;
+            default:
+                return `Learn from ${chapters}`;
+        }
     });
 
 

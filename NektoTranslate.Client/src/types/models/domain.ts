@@ -226,6 +226,11 @@ export interface ChapterSummary {
     // False for a chapter that arrived as somebody else's translation with no original anywhere. It
     // can be read, edited and repaired; it cannot be translated, and nothing may offer to.
     hasOriginal: boolean;
+
+    // Whether a rendering is on file, apart from the state. A chapter reads Failed after a repair
+    // or a forced re-translation broke on it and still has the rendering it had before: repair and
+    // learning can take it, and the state alone said they could not.
+    hasTranslation: boolean;
 }
 
 

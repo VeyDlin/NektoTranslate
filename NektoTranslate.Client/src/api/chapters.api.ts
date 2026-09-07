@@ -17,6 +17,7 @@ interface RawChapterSummary {
     glossaryState: number | string;
     translationState: number | string;
     hasOriginal: boolean;
+    hasTranslation: boolean;
 }
 
 
@@ -49,6 +50,7 @@ function toSummary(raw: RawChapterSummary): ChapterSummary {
         glossaryState: decodeGlossaryState(raw.glossaryState),
         translationState: decodeTranslationState(raw.translationState),
         hasOriginal: raw.hasOriginal,
+        hasTranslation: raw.hasTranslation,
     };
 }
 
