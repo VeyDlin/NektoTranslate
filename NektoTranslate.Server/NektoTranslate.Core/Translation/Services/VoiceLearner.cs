@@ -4,11 +4,13 @@ using System.Text.RegularExpressions;
 using ClaudeCodeSdk;
 using ClaudeCodeSdk.Types;
 using Microsoft.EntityFrameworkCore;
+using NektoTranslate.Chapters.Entities;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Common.Models;
 using NektoTranslate.Glossary.Enums;
 using NektoTranslate.Glossary.Services;
 using NektoTranslate.Jobs.Contracts;
+using NektoTranslate.Jobs.Enums;
 using NektoTranslate.Settings.Entities;
 using NektoTranslate.Settings.Services;
 using NektoTranslate.Translation.Contracts;
@@ -53,6 +55,7 @@ public class VoiceLearner(
         string language,
         int fromChapterIndex,
         int toChapterIndex,
+        TranslationVersionPick sourceVersion = TranslationVersionPick.Current,
         IProgress<RunStep>? progress = null,
         CancellationToken cancellationToken = default
     ) {
@@ -61,6 +64,7 @@ public class VoiceLearner(
             language,
             fromChapterIndex,
             toChapterIndex,
+            sourceVersion,
             cancellationToken
         );
 
@@ -192,27 +196,55 @@ public class VoiceLearner(
         string language,
         int fromChapterIndex,
         int toChapterIndex,
+        TranslationVersionPick sourceVersion,
         CancellationToken cancellationToken
     ) {
-        var rows = await database.chapters
+        IQueryable<Chapter> chaptersInRange = database.chapters
             .AsNoTracking()
             .Where(chapter => chapter.novelId == novelId
                 && chapter.index >= fromChapterIndex
                 && chapter.index <= toChapterIndex)
-            .OrderBy(chapter => chapter.index)
-            .Select(chapter => new {
-                chapter.id,
-                chapter.index,
-                // The newest rendering, whatever produced it - imported, manual, machine, already
-                // repaired. Voice learning reads what is on the page today, not how it got there.
-                translation = chapter.translations
-                    .Where(translation => translation.language == language)
-                    .OrderByDescending(translation => translation.createdAt)
-                    .ThenByDescending(translation => translation.id)
-                    .Select(translation => translation.plainText)
-                    .FirstOrDefault()
-            })
-            .ToListAsync(cancellationToken);
+            .OrderBy(chapter => chapter.index);
+
+        // Each chapter's own picked version - written out per branch rather than through
+        // TranslationVersions.Pick, because EF cannot translate a call to an external helper made
+        // from inside a per-row correlated subquery like the one below.
+        var firstProjection = chaptersInRange.Select(chapter => new {
+            chapter.id,
+            chapter.index,
+            translation = chapter.translations
+                .Where(translation => translation.language == language)
+                .OrderBy(translation => translation.createdAt)
+                .ThenBy(translation => translation.id)
+                .Select(translation => translation.plainText)
+                .FirstOrDefault()
+        });
+
+        var newestProjection = chaptersInRange.Select(chapter => new {
+            chapter.id,
+            chapter.index,
+            translation = chapter.translations
+                .Where(translation => translation.language == language)
+                .OrderByDescending(translation => translation.createdAt)
+                .ThenByDescending(translation => translation.id)
+                .Select(translation => translation.plainText)
+                .FirstOrDefault()
+        });
+
+        var currentProjection = chaptersInRange.Select(chapter => new {
+            chapter.id,
+            chapter.index,
+            translation = chapter.translations
+                .Where(translation => translation.language == language && translation.isCurrent)
+                .Select(translation => translation.plainText)
+                .FirstOrDefault()
+        });
+
+        var rows = sourceVersion switch {
+            TranslationVersionPick.First => await firstProjection.ToListAsync(cancellationToken),
+            TranslationVersionPick.Newest => await newestProjection.ToListAsync(cancellationToken),
+            _ => await currentProjection.ToListAsync(cancellationToken)
+        };
 
         // A chapter inside the range with no translation yet is skipped rather than failing the
         // whole run - a range picked from the alignment screen can include a gap, and the sample is

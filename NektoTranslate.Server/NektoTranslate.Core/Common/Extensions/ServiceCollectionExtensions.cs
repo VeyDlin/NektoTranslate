@@ -68,6 +68,9 @@ public static class ServiceCollectionExtensions {
         ));
 
         services.AddScoped<IChapterTranslator, ChapterTranslator>();
+        // The one writer of ChapterTranslation.isCurrent - every service below that adds or reads a
+        // version depends on it, so it is registered ahead of them.
+        services.AddScoped<ITranslationVersions, TranslationVersions>();
         // Shared by voice learning and a repair's decisions step - both feed a MergedTerm read off
         // an existing translation into the same TranslationTerms merge.
         services.AddScoped<ITermUpserter, TermUpserter>();

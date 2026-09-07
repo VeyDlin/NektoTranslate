@@ -12,6 +12,7 @@ using NektoTranslate.Glossary.Entities;
 using NektoTranslate.Glossary.Enums;
 using NektoTranslate.Glossary.Services;
 using NektoTranslate.Jobs.Contracts;
+using NektoTranslate.Jobs.Enums;
 using NektoTranslate.Novels.Entities;
 using NektoTranslate.Settings.Entities;
 using NektoTranslate.Settings.Services;
@@ -54,6 +55,7 @@ public class ChapterRepairer(
     NektoDbContext database,
     ISettingsService settings,
     ITermUpserter termUpserter,
+    ITranslationVersions translationVersions,
     EngineOptions engine,
     ILogger<ChapterRepairer> logger
 ) : IChapterRepairer {
@@ -82,6 +84,7 @@ public class ChapterRepairer(
 
     public async Task<RepairedChapter> RepairAsync(
         long chapterId,
+        TranslationVersionPick sourceVersion = TranslationVersionPick.Current,
         IProgress<RunStep>? progress = null,
         CancellationToken cancellationToken = default
     ) {
@@ -92,10 +95,12 @@ public class ChapterRepairer(
         Novel novel = chapter.novel!;
         string language = novel.targetLanguage;
 
-        ChapterTranslation? current = await database.chapterTranslations
-            .Where(translation => translation.chapterId == chapterId && translation.language == language)
-            .OrderByDescending(translation => translation.createdAt)
-            .ThenByDescending(translation => translation.id)
+        // What to read is the caller's choice, never the write: whatever this reads, the repaired
+        // row it produces below always becomes current.
+        IQueryable<ChapterTranslation> versions = database.chapterTranslations
+            .Where(translation => translation.chapterId == chapterId && translation.language == language);
+
+        ChapterTranslation? current = await TranslationVersions.Pick(versions, sourceVersion)
             .FirstOrDefaultAsync(cancellationToken);
 
         if (current is null) {
@@ -266,6 +271,9 @@ public class ChapterRepairer(
         };
 
         database.chapterTranslations.Add(repaired);
+        // Always current, whatever this repair read: a repair that started over from First is meant
+        // to replace what is on the page, not sit unread beside it.
+        await translationVersions.MakeCurrentAsync(repaired, cancellationToken);
 
         // A chapter can sit at Failed after an earlier attempt - a forced re-translation that broke,
         // or a previous repair - even though a perfectly usable rendering is still on file underneath.

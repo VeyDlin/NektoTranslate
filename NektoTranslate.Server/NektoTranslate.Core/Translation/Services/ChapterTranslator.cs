@@ -50,6 +50,7 @@ public class ChapterTranslator(
     ITranslationCheckRunner checks,
     ITranslationNotifier notifier,
     ISettingsService settings,
+    ITranslationVersions translationVersions,
     EngineOptions engine
 ) : IChapterTranslator {
 
@@ -189,7 +190,7 @@ public class ChapterTranslator(
             terms
         ));
 
-        database.chapterTranslations.Add(new ChapterTranslation {
+        ChapterTranslation translation = new ChapterTranslation {
             chapterId = chapter.id,
             language = language,
             markdown = markdown,
@@ -197,7 +198,10 @@ public class ChapterTranslator(
             origin = TranslationOrigin.Ai,
             model = novel.model,
             costUsd = outcome.costUsd
-        });
+        };
+
+        database.chapterTranslations.Add(translation);
+        await translationVersions.MakeCurrentAsync(translation, cancellationToken);
 
         await RecordIssuesAsync(chapter.id, language, issues, cancellationToken);
 
@@ -296,7 +300,8 @@ public class ChapterTranslator(
             .Where(translation => translation.language == language
                 && translation.chapter!.novelId == novelId
                 && translation.chapter.index < beforeIndex
-                && translation.chapter.sourcePlainText != null)
+                && translation.chapter.sourcePlainText != null
+                && translation.isCurrent)
             .OrderByDescending(translation => translation.chapter!.index)
             .Take(applicationSettings.voiceWindowChapters)
             .Select(translation => new {

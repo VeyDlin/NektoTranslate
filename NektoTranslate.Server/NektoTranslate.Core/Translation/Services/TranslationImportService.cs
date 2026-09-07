@@ -41,7 +41,8 @@ public interface ITranslationImportService {
 public class TranslationImportService(
     NektoDbContext database,
     IMarkdownConversion conversion,
-    IChapterTranslationStateSync stateSync
+    IChapterTranslationStateSync stateSync,
+    ITranslationVersions translationVersions
 ) : ITranslationImportService {
 
     public async Task<TranslationImportResult> ImportAsync(
@@ -142,6 +143,9 @@ public class TranslationImportService(
             };
 
             database.chapterTranslations.Add(translation);
+            // An imported row becomes current the same as any other new version - a replace of an
+            // existing translation is meant to be read from now on, not sit beside the old one unread.
+            await translationVersions.MakeCurrentAsync(translation, cancellationToken);
             added.Add((entry.chapterIndex, translation, alreadyHasTranslation));
 
             touched.Add(chapterId);

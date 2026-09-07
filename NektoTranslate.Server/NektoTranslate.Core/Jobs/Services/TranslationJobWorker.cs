@@ -310,7 +310,7 @@ public class TranslationJobWorker(
         });
 
         try {
-            RepairedChapter outcome = await repairer.RepairAsync(chapterId, progress, cancellationToken);
+            RepairedChapter outcome = await repairer.RepairAsync(chapterId, job.sourceVersion, progress, cancellationToken);
 
             // The alignment pass and every batch already reported their own cost; a repair, unlike a
             // translation, has nothing beyond them, so this is normally an addition of zero.
@@ -408,6 +408,7 @@ public class TranslationJobWorker(
                 language,
                 job.fromIndex.Value,
                 job.toIndex.Value,
+                job.sourceVersion,
                 voiceProgress,
                 cancellationToken
             );

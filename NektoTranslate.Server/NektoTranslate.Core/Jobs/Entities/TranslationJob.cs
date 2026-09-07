@@ -33,6 +33,10 @@ public class TranslationJob {
 
     public bool force { get; set; }
 
+    // Which rendering Repair and LearnVoice read; Translate ignores it. Defaults to Current, the
+    // choice every job made before this field existed and the one Translate always means.
+    public TranslationVersionPick sourceVersion { get; set; } = TranslationVersionPick.Current;
+
     public JobState state { get; set; } = JobState.Queued;
 
     public int processedCount { get; set; }

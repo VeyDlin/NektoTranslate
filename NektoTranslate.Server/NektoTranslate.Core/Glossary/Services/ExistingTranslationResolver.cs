@@ -1,7 +1,7 @@
 using Microsoft.EntityFrameworkCore;
-using NektoTranslate.Common.Data;
 using NektoTranslate.Common.Models;
 using NektoTranslate.Glossary.Contracts;
+using NektoTranslate.Translation.Services;
 
 
 namespace NektoTranslate.Glossary.Services;
@@ -26,9 +26,9 @@ public interface IExistingTranslationResolver {
 // paragraph of source, one paragraph of translation and one small model call - never a pass over
 // the chapters, which on a thousand-chapter novel would cost more than the translation itself.
 public class ExistingTranslationResolver(
-    NektoDbContext database,
     ITermLocator locator,
     ITermExtractor extractor,
+    ITranslationVersions translationVersions,
     EngineOptions options
 ) : IExistingTranslationResolver {
 
@@ -59,10 +59,8 @@ public class ExistingTranslationResolver(
         double costUsd = 0;
 
         foreach (TermOccurrence occurrence in occurrences) {
-            string? translated = await database.chapterTranslations
+            string? translated = await translationVersions.CurrentOf(occurrence.chapterId, language)
                 .AsNoTracking()
-                .Where(t => t.chapterId == occurrence.chapterId && t.language == language)
-                .OrderByDescending(t => t.createdAt)
                 .Select(t => t.plainText)
                 .FirstOrDefaultAsync(cancellationToken);
 

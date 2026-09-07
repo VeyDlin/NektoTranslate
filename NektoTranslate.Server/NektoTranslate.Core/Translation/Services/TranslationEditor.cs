@@ -32,7 +32,7 @@ public interface ITranslationEditor {
 // A correction is a new version, never an overwrite. The chapter already holds several translations
 // by design, so keeping the machine pass beside the corrected one costs a row and makes every edit
 // reversible. Overwriting would make a mistyped correction unrecoverable.
-public class TranslationEditor(NektoDbContext database) : ITranslationEditor {
+public class TranslationEditor(NektoDbContext database, ITranslationVersions translationVersions) : ITranslationEditor {
 
     public async Task<TranslationEditOutcome> EditBlockAsync(
         long novelId,
@@ -58,22 +58,21 @@ public class TranslationEditor(NektoDbContext database) : ITranslationEditor {
             return new TranslationEditOutcome(TranslationEditResult.Busy);
         }
 
-        ChapterTranslation? latest = await database.chapterTranslations
-            .Where(translation => translation.chapterId == chapterId
-                && translation.language == request.language)
-            .OrderByDescending(translation => translation.createdAt)
-            .ThenByDescending(translation => translation.id)
+        // The current version, not the newest - a person who pinned an older one and is now fixing a
+        // word in it means to edit that version, not whatever a later, unrelated pass produced.
+        ChapterTranslation? current = await translationVersions
+            .CurrentOf(chapterId, request.language)
             .FirstOrDefaultAsync(cancellationToken);
 
-        if (latest is null) {
+        if (current is null) {
             return new TranslationEditOutcome(TranslationEditResult.NoTranslation);
         }
 
-        if (latest.id != request.baseTranslationId) {
+        if (current.id != request.baseTranslationId) {
             return new TranslationEditOutcome(TranslationEditResult.Stale);
         }
 
-        List<string> blocks = TranslationBlocks.Split(latest.markdown);
+        List<string> blocks = TranslationBlocks.Split(current.markdown);
 
         if (blockIndex < 0 || blockIndex >= blocks.Count) {
             return new TranslationEditOutcome(TranslationEditResult.BlockOutOfRange);
@@ -94,6 +93,9 @@ public class TranslationEditor(NektoDbContext database) : ITranslationEditor {
         };
 
         database.chapterTranslations.Add(edited);
+        // The person editing was reading the current version and fixed a word in it - the edited row
+        // takes over as current whatever the base was, pinned or not.
+        await translationVersions.MakeCurrentAsync(edited, cancellationToken);
 
         // The findings on this block are answered by definition - the user looked at the block and
         // rewrote it. Resolved rather than dismissed, because the text really did change.

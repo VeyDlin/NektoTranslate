@@ -31,6 +31,14 @@ public class ChapterTranslation {
 
     public TranslationOrigin origin { get; set; }
 
+    // Exactly one row per (chapterId, language) carries this flag whenever at least one row exists -
+    // enforced by a filtered unique index in NektoDbContext, and kept true by ITranslationVersions
+    // rather than by any writer touching it directly. "Current" is a choice, not a recency fact: by
+    // default it lands on the newest row a writer adds, but a reader may pin an older one, and every
+    // reader of "the" translation - the reader, a repair, voice learning - reads this flag rather than
+    // guessing from createdAt.
+    public bool isCurrent { get; set; }
+
     // The address it was matched from, so a re-import of the same page can recognise a translation
     // that is already here instead of relying on its position among the others. Null for anything
     // the application wrote itself or that a person pasted in by hand - those have no address to

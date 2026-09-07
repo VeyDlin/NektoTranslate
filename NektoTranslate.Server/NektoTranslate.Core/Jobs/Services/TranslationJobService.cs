@@ -20,6 +20,7 @@ public interface ITranslationJobService {
         IReadOnlyList<long> chapterIds,
         double? budgetUsd,
         bool force,
+        TranslationVersionPick sourceVersion,
         CancellationToken cancellationToken = default
     );
 
@@ -42,6 +43,7 @@ public class TranslationJobService(NektoDbContext database, TranslationJobQueue 
         IReadOnlyList<long> chapterIds,
         double? budgetUsd,
         bool force,
+        TranslationVersionPick sourceVersion,
         CancellationToken cancellationToken = default
     ) {
         TranslationJob job = new TranslationJob {
@@ -53,6 +55,7 @@ public class TranslationJobService(NektoDbContext database, TranslationJobQueue 
             chapterIds = chapterIds.ToList(),
             budgetUsd = budgetUsd,
             force = force,
+            sourceVersion = sourceVersion,
             state = JobState.Queued
         };
 

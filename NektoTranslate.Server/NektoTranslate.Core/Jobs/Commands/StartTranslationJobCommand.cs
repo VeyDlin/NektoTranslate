@@ -1,6 +1,7 @@
 using Mediator;
 using NektoTranslate.Jobs.Contracts;
 using NektoTranslate.Jobs.Entities;
+using NektoTranslate.Jobs.Enums;
 using NektoTranslate.Jobs.Services;
 
 
@@ -29,6 +30,7 @@ public class StartTranslationJobCommandHandler(ITranslationJobService jobs)
             command.request.chapterIds ?? [],
             command.request.budgetUsd,
             command.request.force ?? false,
+            command.request.sourceVersion ?? TranslationVersionPick.Current,
             cancellationToken
         );
     }

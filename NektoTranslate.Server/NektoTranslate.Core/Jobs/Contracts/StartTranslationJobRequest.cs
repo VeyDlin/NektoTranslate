@@ -28,5 +28,9 @@ public sealed record StartTranslationJobRequest(
     // hold a rendering but have no original text left to translate: it is a rewrite of the existing
     // words, not a translation checked against a source, and it cannot recover meaning an earlier
     // machine pass lost or invented - only fix names, terms, register and sentence flow.
-    TranslationJobMode mode = TranslationJobMode.Translate
+    TranslationJobMode mode = TranslationJobMode.Translate,
+    // Which rendering Repair and LearnVoice read; Translate ignores it. Nullable for the same
+    // reason force is: the client sends JSON null rather than omitting the field, and null means
+    // Current, the choice every run made before this field existed.
+    TranslationVersionPick? sourceVersion = null
 );

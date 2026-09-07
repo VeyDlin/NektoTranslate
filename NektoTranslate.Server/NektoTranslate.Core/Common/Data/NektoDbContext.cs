@@ -98,7 +98,19 @@ public class NektoDbContext(DbContextOptions<NektoDbContext> options) : DbContex
         });
 
         builder.Entity<ChapterTranslation>(translation => {
-            translation.HasIndex(t => new { t.chapterId, t.language });
+            // Both named explicitly. EF keys an index by its property list unless told otherwise, so
+            // two plain calls to HasIndex on the same two columns would not create two indexes - the
+            // second would just reconfigure the first, silently dropping the plain one this index
+            // still serves: every "every version of this chapter" query that is not itself asking for
+            // the current one.
+            translation.HasIndex(t => new { t.chapterId, t.language }, "IX_chapter_translations_chapterId_language");
+
+            // Exactly one current row per (chapterId, language), whenever one exists at all - SQLite's
+            // partial index enforces the invariant ITranslationVersions is written to keep, rather
+            // than trusting every writer to get it right.
+            translation.HasIndex(t => new { t.chapterId, t.language }, "IX_chapter_translations_chapterId_language_current")
+                .IsUnique()
+                .HasFilter("isCurrent = 1");
         });
 
         // One rendering per source term per target language. A second rendering of the same term
