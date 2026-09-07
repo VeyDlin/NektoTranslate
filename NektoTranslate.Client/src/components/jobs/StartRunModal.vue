@@ -7,7 +7,15 @@
             <div class="run">
                 <URadioGroup v-model="mode" :items="modeOptions" :disabled="isPending" />
 
-                <URadioGroup v-model="scope" :items="scopeOptions" :disabled="isPending" />
+                <!-- A choice is only shown when there is one: with nothing ticked in the list the
+                     range is the sole scope, and a radio group of one option is a question with
+                     one answer. -->
+                <URadioGroup
+                    v-if="scopeOptions.length > 1"
+                    v-model="scope"
+                    :items="scopeOptions"
+                    :disabled="isPending"
+                />
 
                 <div v-if="scope === 'Range'" class="range">
                     <UFormField label="From chapter">
@@ -49,15 +57,19 @@
                     </UFormField>
                 </div>
 
+                <!-- Money, and shown as money: a bare number with a half-unit step read as a count
+                     of something unnamed. The run's cost is what the model bills, in dollars and
+                     cents, and this is the line it may not cross. -->
                 <UFormField
                     label="Spending ceiling"
                     hint="Optional"
-                    description="The run pauses when it reaches this. Nothing already paid for is lost."
+                    description="In dollars, as the model bills them. The run pauses the moment its cost reaches this; nothing already paid for is lost. Leave it empty and the run does not stop for money."
                 >
                     <UInputNumber
                         v-model="budget"
                         :min="0"
                         :step="0.5"
+                        :format-options="{ style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol' }"
                         placeholder="No ceiling"
                         :disabled="isPending"
                         class="w-full"
@@ -188,7 +200,7 @@
         row.translationState === "Translated" && row.glossaryState === "NotAnalyzed"
     )).length);
 
-    const scope = ref<JobScopeKind>("WholeBook");
+    const scope = ref<JobScopeKind>("Range");
     const budget = ref<number | undefined>(undefined);
     const force = ref(false);
 
@@ -301,11 +313,14 @@
         return options;
     });
 
-    // Learning a voice reads a contiguous stretch of the book, not a scattered pick — there is no
-    // single range a handful of chapters from all over it would describe.
+    // No "whole book" choice: it was a range from the first chapter to the last with the two ends
+    // hidden, and a choice that hides what it covers is what started a forty-two-chapter repair for
+    // one. The range is always on screen with both ends named; the whole book is simply what the
+    // ends say when a translate run opens. Learning a voice reads a contiguous stretch of the book,
+    // not a scattered pick — there is no single range a handful of chapters from all over it would
+    // describe, so the selection is not offered for it.
     const scopeOptions = computed(() => {
         const options = [
-            { value: "WholeBook", label: "The whole book" },
             { value: "Range", label: "A range of chapters" },
         ];
 
@@ -329,23 +344,28 @@
             return;
         }
 
-        // Seeded once, the same way the numeric fields used to open on "1": a starting pair of ends
-        // for whichever branch below does not set one of its own, so a reader who switches scope to
-        // Range by hand always finds two real chapters already picked rather than two empty menus.
-        if (fromChapterId.value === null || toChapterId.value === null) {
-            const first = props.rows.at(0) ?? null;
-
-            if (first !== null) {
-                fromChapterId.value = first.id;
-                toChapterId.value = first.id;
-            }
-        }
-
         if (current !== "LearnVoice") {
             if (props.selectedIds.length > 0) {
                 scope.value = "Selection";
+
+                return;
             }
-            else if (current === "Repair") {
+
+            scope.value = "Range";
+
+            if (current === "Translate") {
+                // A translate run's natural extent is the whole book: it skips what is already
+                // translated, so "everything" costs only the chapters still to do. Both ends are
+                // named all the same, so what "everything" means is on screen.
+                const first = props.rows.at(0) ?? null;
+                const last = props.rows.at(-1) ?? null;
+
+                if (first !== null && last !== null) {
+                    fromChapterId.value = first.id;
+                    toChapterId.value = last.id;
+                }
+            }
+            else {
                 // A repair of the whole book is the expensive choice and rarely the intended one.
                 // It stays available, but the dialog opens on one chapter - the last that has a
                 // rendering - for the reader to widen, rather than on forty-two to be narrowed.
@@ -355,7 +375,6 @@
                 const latest = extremeTranslatedChapter("latest");
 
                 if (latest !== null) {
-                    scope.value = "Range";
                     fromChapterId.value = latest.id;
                     toChapterId.value = latest.id;
                 }
@@ -364,9 +383,7 @@
             return;
         }
 
-        if (scope.value === "Selection") {
-            scope.value = "Range";
-        }
+        scope.value = "Range";
 
         const earliest = extremeTranslatedChapter("earliest");
         const latest = extremeTranslatedChapter("latest");
