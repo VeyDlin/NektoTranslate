@@ -234,7 +234,10 @@
 <style scoped lang="scss">
     @use "@/assets/scss/variables" as *;
 
+    // Takes the height the book screen leaves below its tabs, so the list inside has something to
+    // scroll within instead of being clipped with the page.
     .glossary {
+        flex: 1;
         display: flex;
         flex-direction: column;
         min-height: 0;

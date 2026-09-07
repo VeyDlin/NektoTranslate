@@ -162,7 +162,11 @@
 <style scoped lang="scss">
     @use "@/assets/scss/variables" as *;
 
+    // Takes the height the book screen leaves below its tabs, the way the chat panel does; without
+    // it the panel was as tall as its content, the screen clipped the overflow, and the list of
+    // terms had nowhere to scroll.
     .voice {
+        flex: 1;
         display: flex;
         flex-direction: column;
         min-height: 0;
