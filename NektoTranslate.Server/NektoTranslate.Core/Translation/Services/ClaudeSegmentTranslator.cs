@@ -129,6 +129,7 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
                     null,
                     carriedContext,
                     onDelta,
+                    batching.maxAttempts,
                     cancellationToken
                 );
 
@@ -248,7 +249,10 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
 
         Dictionary<int, string> problemsBySegment = findings
             .GroupBy(finding => finding.segmentIndex)
-            .ToDictionary(group => group.Key, group => string.Join("; ", group.Select(finding => finding.problem)));
+            .ToDictionary(
+                group => group.Key,
+                group => string.Join("; ", group.Select(finding => CarefulPass.FormatCritique(finding.type, finding.problem)))
+            );
 
         List<int> flaggedPieces = Enumerable.Range(0, pieces.Count)
             .Where(pieceIndex => problemsBySegment.ContainsKey(owners[pieceIndex]))
@@ -276,6 +280,7 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
                 critiques,
                 recentContext,
                 onDelta,
+                batching.maxAttempts,
                 cancellationToken
             );
 
@@ -300,10 +305,12 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
     }
 
 
-    // A batch the model could not answer in the required format is halved and each half retried,
-    // instead of failing the chapter. On a book-length chapter that is the difference between
-    // losing one paragraph's worth of work and losing everything already paid for, and it also
-    // recovers from the ordinary cause - a batch that turned out to be too large for one reply.
+    // A batch the model could not answer in the required format after the configured number of
+    // attempts is halved and each half tried once, instead of failing the chapter - a smaller batch
+    // is what usually fixes a model that lost the markers, not another attempt at the same size. On
+    // a book-length chapter that is the difference between losing one paragraph's worth of work and
+    // losing everything already paid for, and it also recovers from the ordinary cause - a batch
+    // that turned out to be too large for one reply.
     //
     // Subdivision stops at a single segment: at that point the format is not the problem. Both
     // halves keep the whole batch's context - halving the body must not also halve what it is read
@@ -315,10 +322,11 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
         IReadOnlyList<string?>? critiques,
         IReadOnlyList<string> context,
         Func<string, Task>? onDelta,
+        int attempts,
         CancellationToken cancellationToken
     ) {
         try {
-            return await TranslateBatchAsync(request, memo, batch, critiques, context, onDelta, cancellationToken);
+            return await TranslateBatchAsync(request, memo, batch, critiques, context, onDelta, attempts, cancellationToken);
         } catch (SegmentProtocolException) when (batch.body.Count > 1) {
             int half = batch.body.Count / 2;
 
@@ -332,6 +340,7 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
                 critiques?.Take(half).ToList(),
                 context,
                 onDelta,
+                1,
                 cancellationToken
             );
 
@@ -342,6 +351,7 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
                 critiques?.Skip(half).ToList(),
                 context,
                 onDelta,
+                1,
                 cancellationToken
             );
 
@@ -361,6 +371,7 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
         IReadOnlyList<string?>? critiques,
         IReadOnlyList<string> context,
         Func<string, Task>? onDelta,
+        int attempts,
         CancellationToken cancellationToken
     ) {
         ChapterTranslationRequest batchRequest = request with {
@@ -373,7 +384,7 @@ public class ClaudeSegmentTranslator(EngineOptions options) : ISegmentTranslator
         double costUsd = 0;
         SegmentProtocolException? lastFailure = null;
 
-        for (int attempt = 1; attempt <= batching.maxAttempts; attempt++) {
+        for (int attempt = 1; attempt <= attempts; attempt++) {
             ClaudeCodeOptions options = new ClaudeCodeOptions {
                 Model = request.model,
                 SystemPrompt = BuildSystemPrompt(batchRequest, attempt),

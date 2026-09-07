@@ -374,6 +374,10 @@ public static class CarefulPass {
             $"Translate the meaning, not the sentence: a {sourceLanguage} construction that has no "
             + $"natural {targetLanguage} shape is rebuilt, not mirrored."
         );
+        prompt.AppendLine(
+            "Keep one output segment per input segment even where merging would read better - the "
+            + "alignment with the source is what every later tool relies on."
+        );
     }
 
 
@@ -424,11 +428,26 @@ public static class CarefulPass {
 
     // ---- the proofread (step 3) ---------------------------------------------------------------
 
+    // What kind of problem a proofread finding names. meaning is translate-only - a repair has no
+    // source to have drifted from - every other value applies to both modes. other is not a
+    // category the model is asked for; it is what an unrecognised answer becomes, so a finding is
+    // never dropped just because the model did not spell its type the way this parser expected.
+    public enum ProofreadFindingType {
+        Meaning,
+        Omission,
+        Terminology,
+        Consistency,
+        Grammar,
+        Foreign,
+        Other
+    }
+
+
     // One paragraph the proofreader flagged after the whole chapter was read back: which segment,
-    // and what it found wrong there. The critique that goes back into the re-pass under WHAT THE
-    // PROOFREADER FOUND, not a rewrite of its own - the proofreader states the problem, the pass
-    // that already knows the glossary and the voice fixes it.
-    public sealed record ProofreadFinding(int segmentIndex, string problem);
+    // what kind of problem, and what it found wrong there. The critique that goes back into the
+    // re-pass under WHAT THE PROOFREADER FOUND, not a rewrite of its own - the proofreader states
+    // the problem, the pass that already knows the glossary and the voice fixes it.
+    public sealed record ProofreadFinding(int segmentIndex, ProofreadFindingType type, string problem);
 
 
     public static string BuildTranslateProofreadSystemPrompt(
@@ -453,7 +472,8 @@ public static class CarefulPass {
             prompt,
             "a calque or a sentence that still reads as translated rather than native prose, a name "
             + "or term against the glossary below, a tense or register slip, or a meaning that "
-            + "drifted from the source"
+            + "drifted from the source",
+            "meaning, omission, terminology, consistency, grammar, foreign"
         );
 
         AppendGlossary(prompt, glossary);
@@ -482,7 +502,8 @@ public static class CarefulPass {
         AppendProofreadInstructions(
             prompt,
             "a calque or a sentence that still reads as translated, literal, or machine-rendered, a "
-            + "name or term against the glossary below, or a tense or register slip"
+            + "name or term against the glossary below, or a tense or register slip",
+            "omission, terminology, consistency, grammar, foreign"
         );
 
         if (terms.Count > 0) {
@@ -500,14 +521,19 @@ public static class CarefulPass {
     }
 
 
-    private static void AppendProofreadInstructions(StringBuilder prompt, string whatToLookFor) {
+    private static void AppendProofreadInstructions(StringBuilder prompt, string whatToLookFor, string types) {
         prompt.AppendLine(
             "For each paragraph that still needs work, answer one line exactly in this form: "
-            + $"{SegmentProtocol.Marker(0)} | problem - " + whatToLookFor + ". State the problem in "
-            + "a few words; do not rewrite the paragraph yourself."
+            + $"{SegmentProtocol.Marker(0)} | type | problem - " + whatToLookFor + $". type is one "
+            + $"of {types}. State the problem in a few words; do not rewrite the paragraph yourself."
         );
+        // Verbatim: the line the proofreader is most likely to overreach on without it, and the one
+        // that stops it flagging a fine paragraph just because a different word would also have done.
         prompt.AppendLine(
-            $"A paragraph that needs nothing is not listed. If nothing needs work, answer {NoneMarker}."
+            "Do not report anything that is merely a matter of taste - a synonym you prefer, a "
+            + "smoother rhythm, a more literary word choice. Report a segment only when a reader "
+            + "would be misled, stopped, or would hear the original language through it. If nothing "
+            + $"needs work, answer {NoneMarker}."
         );
     }
 
@@ -556,10 +582,12 @@ public static class CarefulPass {
     }
 
 
-    // Parsed leniently: a line that is not a recognisable "marker | problem" pair, or whose marker
-    // falls outside the chapter, is dropped rather than failing the whole proofread - the chapter
-    // this reads was already produced, and one stray line must not be allowed to lose every finding
-    // that came with it.
+    // Parsed leniently: a line that is not a recognisable "marker | type | problem" pair, or whose
+    // marker falls outside the chapter, is dropped rather than failing the whole proofread - the
+    // chapter this reads was already produced, and one stray line must not be allowed to lose every
+    // finding that came with it. A type the model did not spell as asked is kept as Other rather
+    // than dropping the finding - the segment number and the problem text are still trustworthy even
+    // when the category is not.
     public static IReadOnlyList<ProofreadFinding> ParseProofreadFindings(string reply, int segmentCount) {
         List<ProofreadFinding> findings = [];
 
@@ -576,22 +604,52 @@ public static class CarefulPass {
                 continue;
             }
 
-            int pipe = remainder.IndexOf('|');
+            int firstPipe = remainder.IndexOf('|');
 
-            if (pipe < 0) {
+            if (firstPipe < 0) {
                 continue;
             }
 
-            string problem = remainder[(pipe + 1)..].Trim();
+            string afterMarker = remainder[(firstPipe + 1)..].Trim();
+            int secondPipe = afterMarker.IndexOf('|');
+
+            // A reply that skipped the type field still names a real problem - kept as Other rather
+            // than dropped, the same leniency every other field here gets.
+            ProofreadFindingType type = secondPipe < 0
+                ? ProofreadFindingType.Other
+                : ParseFindingType(afterMarker[..secondPipe]);
+            string problem = (secondPipe < 0 ? afterMarker : afterMarker[(secondPipe + 1)..]).Trim();
 
             if (problem.Length == 0) {
                 continue;
             }
 
-            findings.Add(new ProofreadFinding(index.Value, problem));
+            findings.Add(new ProofreadFinding(index.Value, type, problem));
         }
 
         return findings;
+    }
+
+
+    // The one line a re-pass batch's WHAT THE PROOFREADER FOUND block shows for a flagged segment -
+    // type and problem together, since a redo has to know what KIND of thing to fix as much as what
+    // the fix is. Several findings on the same segment are already joined by the caller before this
+    // is used; this only ever formats one.
+    public static string FormatCritique(ProofreadFindingType type, string problem) {
+        return $"{type.ToString().ToLowerInvariant()}: {problem}";
+    }
+
+
+    private static ProofreadFindingType ParseFindingType(string text) {
+        return text.Trim().ToLowerInvariant() switch {
+            "meaning" => ProofreadFindingType.Meaning,
+            "omission" => ProofreadFindingType.Omission,
+            "terminology" => ProofreadFindingType.Terminology,
+            "consistency" => ProofreadFindingType.Consistency,
+            "grammar" => ProofreadFindingType.Grammar,
+            "foreign" => ProofreadFindingType.Foreign,
+            _ => ProofreadFindingType.Other
+        };
     }
 
 

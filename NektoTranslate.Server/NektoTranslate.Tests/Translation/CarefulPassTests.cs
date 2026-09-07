@@ -313,6 +313,18 @@ public class CarefulPassTests {
     }
 
 
+    // The alignment with the source is what SegmentChunker.Rejoin and every downstream tool relies
+    // on - a pass that merged two segments because the prose read better would silently shift every
+    // paragraph after it.
+    [Fact]
+    public void TranslateHowToReadForbidsMergingSegmentsForBetterProse() {
+        StringBuilder prompt = new StringBuilder();
+        CarefulPass.AppendHowToReadForTranslate(prompt, "Japanese", "Russian");
+
+        Assert.Contains("one output segment per input segment", prompt.ToString());
+    }
+
+
     [Fact]
     public void RepairHowToReadAddsTheReflexSentence() {
         StringBuilder prompt = new StringBuilder();
@@ -363,10 +375,12 @@ public class CarefulPassTests {
             "Short sentences."
         );
 
-        Assert.Contains("⟦#0⟧ | problem", prompt);
+        Assert.Contains("⟦#0⟧ | type | problem", prompt);
+        Assert.Contains("meaning, omission, terminology, consistency, grammar, foreign", prompt);
         Assert.Contains("田中", prompt);
         Assert.Contains("Short sentences.", prompt);
         Assert.Contains("NONE", prompt);
+        Assert.Contains("matter of taste", prompt);
     }
 
 
@@ -388,7 +402,10 @@ public class CarefulPassTests {
 
         Assert.Contains("no reliable original", prompt);
         Assert.Contains("Иван", prompt);
-        Assert.Contains("⟦#0⟧ | problem", prompt);
+        Assert.Contains("⟦#0⟧ | type | problem", prompt);
+        Assert.Contains("omission, terminology, consistency, grammar, foreign", prompt);
+        Assert.DoesNotContain("meaning, omission", prompt);
+        Assert.Contains("matter of taste", prompt);
     }
 
 
@@ -403,7 +420,56 @@ public class CarefulPassTests {
     // ---- proofread findings parsing ----
 
     [Fact]
-    public void AWellFormedFindingLineIsParsed() {
+    public void AWellFormedFindingLineIsParsedWithItsType() {
+        IReadOnlyList<CarefulPass.ProofreadFinding> findings = CarefulPass.ParseProofreadFindings(
+            "⟦#1⟧ | foreign | reads as a calque",
+            3
+        );
+
+        CarefulPass.ProofreadFinding finding = Assert.Single(findings);
+        Assert.Equal(1, finding.segmentIndex);
+        Assert.Equal(CarefulPass.ProofreadFindingType.Foreign, finding.type);
+        Assert.Equal("reads as a calque", finding.problem);
+    }
+
+
+    [Theory]
+    [InlineData("meaning", CarefulPass.ProofreadFindingType.Meaning)]
+    [InlineData("omission", CarefulPass.ProofreadFindingType.Omission)]
+    [InlineData("terminology", CarefulPass.ProofreadFindingType.Terminology)]
+    [InlineData("consistency", CarefulPass.ProofreadFindingType.Consistency)]
+    [InlineData("grammar", CarefulPass.ProofreadFindingType.Grammar)]
+    [InlineData("foreign", CarefulPass.ProofreadFindingType.Foreign)]
+    [InlineData("MEANING", CarefulPass.ProofreadFindingType.Meaning)]
+    public void EveryDocumentedTypeParses(string written, CarefulPass.ProofreadFindingType expected) {
+        IReadOnlyList<CarefulPass.ProofreadFinding> findings = CarefulPass.ParseProofreadFindings(
+            $"⟦#0⟧ | {written} | a problem",
+            1
+        );
+
+        Assert.Equal(expected, Assert.Single(findings).type);
+    }
+
+
+    // The whole point of a type field the model might misspell: a finding is never dropped for
+    // naming a type this parser does not recognise, it is only ever recategorised as Other.
+    [Fact]
+    public void AnUnrecognisedTypeBecomesOtherRatherThanDroppingTheFinding() {
+        IReadOnlyList<CarefulPass.ProofreadFinding> findings = CarefulPass.ParseProofreadFindings(
+            "⟦#0⟧ | spelling | a problem",
+            1
+        );
+
+        CarefulPass.ProofreadFinding finding = Assert.Single(findings);
+        Assert.Equal(CarefulPass.ProofreadFindingType.Other, finding.type);
+        Assert.Equal("a problem", finding.problem);
+    }
+
+
+    // A line with no type field at all - the shape a proofread answered with before this addendum -
+    // still keeps its problem text, filed as Other rather than refused.
+    [Fact]
+    public void ALineWithNoTypeFieldStillParsesAsOther() {
         IReadOnlyList<CarefulPass.ProofreadFinding> findings = CarefulPass.ParseProofreadFindings(
             "⟦#1⟧ | reads as a calque",
             3
@@ -411,6 +477,7 @@ public class CarefulPassTests {
 
         CarefulPass.ProofreadFinding finding = Assert.Single(findings);
         Assert.Equal(1, finding.segmentIndex);
+        Assert.Equal(CarefulPass.ProofreadFindingType.Other, finding.type);
         Assert.Equal("reads as a calque", finding.problem);
     }
 
@@ -423,7 +490,7 @@ public class CarefulPassTests {
 
     [Fact]
     public void ALineWhoseSegmentIsOutOfRangeIsDropped() {
-        Assert.Empty(CarefulPass.ParseProofreadFindings("⟦#5⟧ | some problem", 3));
+        Assert.Empty(CarefulPass.ParseProofreadFindings("⟦#5⟧ | consistency | some problem", 3));
     }
 
 
@@ -435,18 +502,29 @@ public class CarefulPassTests {
 
     [Fact]
     public void ALineWithAnEmptyProblemIsDropped() {
-        Assert.Empty(CarefulPass.ParseProofreadFindings("⟦#0⟧ | ", 3));
+        Assert.Empty(CarefulPass.ParseProofreadFindings("⟦#0⟧ | grammar | ", 3));
     }
 
 
     [Fact]
     public void MultipleFindingLinesAllParse() {
         IReadOnlyList<CarefulPass.ProofreadFinding> findings = CarefulPass.ParseProofreadFindings(
-            "⟦#0⟧ | tense drift\n⟦#2⟧ | name spelled differently",
+            "⟦#0⟧ | grammar | tense drift\n⟦#2⟧ | terminology | name spelled differently",
             3
         );
 
         Assert.Equal(2, findings.Count);
         Assert.Equal([0, 2], findings.Select(finding => finding.segmentIndex));
+    }
+
+
+    // ---- formatting a critique for the re-pass ----
+
+    [Fact]
+    public void FormatCritiqueJoinsTheTypeAndTheProblem() {
+        Assert.Equal(
+            "terminology: reads as a calque",
+            CarefulPass.FormatCritique(CarefulPass.ProofreadFindingType.Terminology, "reads as a calque")
+        );
     }
 }

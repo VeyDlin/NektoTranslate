@@ -207,6 +207,7 @@ public class ChapterRepairer(
                 carriedTail,
                 batch,
                 null,
+                batching.maxAttempts,
                 cancellationToken
             );
 
@@ -358,8 +359,10 @@ public class ChapterRepairer(
     }
 
 
-    // A batch the model could not answer in the required format is halved and each half retried,
-    // mirroring ClaudeSegmentTranslator's own resilience - the failure mode is identical, and so is
+    // A batch the model could not answer in the required format after the configured number of
+    // attempts is halved and each half tried once, instead of failing the chapter - a smaller batch
+    // is what usually fixes a model that lost the markers, not another attempt at the same size.
+    // Mirrors ClaudeSegmentTranslator's own resilience - the failure mode is identical, and so is
     // the fix. Subdivision stops at a single segment: at that point the format is not the problem.
     // Both halves keep the whole batch's context, exactly as the translate side does.
     private async Task<(IReadOnlyList<string> segments, double costUsd)> RepairResilientAsync(
@@ -367,10 +370,11 @@ public class ChapterRepairer(
         string carriedTail,
         SegmentChunker.ContextBatch batch,
         IReadOnlyList<string?>? critiques,
+        int attempts,
         CancellationToken cancellationToken
     ) {
         try {
-            return await RepairBatchAsync(context, carriedTail, batch, critiques, cancellationToken);
+            return await RepairBatchAsync(context, carriedTail, batch, critiques, attempts, cancellationToken);
         } catch (SegmentProtocolException) when (batch.body.Count > 1) {
             int half = batch.body.Count / 2;
 
@@ -382,6 +386,7 @@ public class ChapterRepairer(
                 carriedTail,
                 firstHalf,
                 critiques?.Take(half).ToList(),
+                1,
                 cancellationToken
             );
 
@@ -390,6 +395,7 @@ public class ChapterRepairer(
                 carriedTail,
                 secondHalf,
                 critiques?.Skip(half).ToList(),
+                1,
                 cancellationToken
             );
 
@@ -403,13 +409,14 @@ public class ChapterRepairer(
         string carriedTail,
         SegmentChunker.ContextBatch batch,
         IReadOnlyList<string?>? critiques,
+        int attempts,
         CancellationToken cancellationToken
     ) {
         string prompt = CarefulPass.BuildBatchPrompt(batch.contextBefore, batch.body, batch.contextAfter, critiques);
         double costUsd = 0;
         SegmentProtocolException? lastFailure = null;
 
-        for (int attempt = 1; attempt <= batching.maxAttempts; attempt++) {
+        for (int attempt = 1; attempt <= attempts; attempt++) {
             ClaudeCodeOptions options = new ClaudeCodeOptions {
                 Model = context.model,
                 SystemPrompt = RepairPrompt.BuildSystemPrompt(
@@ -512,7 +519,10 @@ public class ChapterRepairer(
 
         Dictionary<int, string> problemsByBlock = findings
             .GroupBy(finding => finding.segmentIndex)
-            .ToDictionary(group => group.Key, group => string.Join("; ", group.Select(finding => finding.problem)));
+            .ToDictionary(
+                group => group.Key,
+                group => string.Join("; ", group.Select(finding => CarefulPass.FormatCritique(finding.type, finding.problem)))
+            );
 
         List<int> flaggedPieces = Enumerable.Range(0, pieces.Count)
             .Where(pieceIndex => problemsByBlock.ContainsKey(owners[pieceIndex]))
@@ -538,6 +548,7 @@ public class ChapterRepairer(
                 carriedTail,
                 group.batch,
                 critiques,
+                batching.maxAttempts,
                 cancellationToken
             );
 
