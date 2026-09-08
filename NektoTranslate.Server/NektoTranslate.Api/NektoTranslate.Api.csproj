@@ -78,11 +78,19 @@
 		loads - before BuildClient above has written anything there on a first publish - so it
 		never sees these files. Adding them to ResolvedFileToPublish here instead, after that list
 		is computed and after the client has actually been built, is what gets them copied.
+
+		Whether the SDK's own static-web-assets pass has already picked a file up depends on when
+		wwwroot came to exist relative to project evaluation, and it lists what it found by full
+		path. So the check for "already in the publish list" goes by each item's RelativePath, the
+		one thing both sides agree on - matching by item spec let the same file in twice and failed
+		the publish with NETSDK1152.
 	-->
 	<Target Name="IncludeClientBuildOutput" AfterTargets="ComputeFilesToPublish" DependsOnTargets="BuildClient">
 		<ItemGroup>
+			<NektoAlreadyPublished Include="@(ResolvedFileToPublish->'%(RelativePath)')" />
 			<NektoClientBuildFiles Include="wwwroot\**" Condition="Exists('wwwroot')" />
-			<ResolvedFileToPublish Include="@(NektoClientBuildFiles)" Exclude="@(ResolvedFileToPublish)">
+			<NektoClientBuildFiles Remove="@(NektoAlreadyPublished)" />
+			<ResolvedFileToPublish Include="@(NektoClientBuildFiles)">
 				<RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
 				<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
 			</ResolvedFileToPublish>
