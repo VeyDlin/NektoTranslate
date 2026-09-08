@@ -140,6 +140,47 @@ Navigation is pinned to the server's own origin: a link to another host (a sourc
 imported from, say) opens in the system browser instead of taking over the window. A second launch
 focuses the existing window instead of starting another (`tauri-plugin-single-instance`).
 
+## Window chrome
+
+The window is frameless on every platform and the client draws its own title bar
+(`WindowChrome.vue`, rendered above `.content` in `DefaultLayout.vue`) - a native bar in this
+application's palette looks bolted on. On macOS the *real* traffic lights are kept instead: the
+window is built with `title_bar_style(TitleBarStyle::Overlay)` and `hidden_title(true)`, so the
+lights stay with their native hover and click behaviour while the page's own content, including the
+bar it draws, extends underneath them. Windows and Linux get `decorations(false)` outright; Windows
+also gets `shadow(true)`, which is what keeps the DWM drop shadow, the rounded corners and the
+native resize behaviour on an undecorated window there. Linux loses its resize border entirely once
+undecorated, so a small initialization script (Linux only, alongside the fullscreen one below) turns
+an 8px zone along each edge and corner back into one, driving `startResizeDragging`.
+
+The whole contract between the shell and the client is one object, written onto the page by an
+initialization script before the client's own scripts run - the same mechanism the fullscreen script
+below already uses - and read exactly once, defensively, by `NektoTranslate.Client/src/desktop/shell.ts`:
+
+```ts
+window.__NEKTO_DESKTOP__ = { platform: "windows" | "macos" | "linux", version: "<crate version>" };
+```
+
+Its presence is what tells the client it is running inside this shell at all; a plain browser tab
+never sees it, and `WindowChrome.vue` renders nothing when it is absent. Double-click on the bar
+toggles maximize on every platform through Tauri's own drag-region handling
+(`data-tauri-drag-region` plus `core:window:allow-internal-toggle-maximize`) - nothing in the client
+listens for it by hand. The bar itself differs only in height, which side its controls sit on, and
+what they look like:
+
+| Platform | Bar height | Controls                                    |
+| -------- | ---------- | -------------------------------------------- |
+| Windows  | 32px       | 46×32 square buttons, right; close hovers `#c42b1c` |
+| Linux    | 40px       | 26px round buttons, right, 8px gap           |
+| macOS    | 38px       | none - a 78px left inset for the real traffic lights |
+
+The capability file grants exactly the window and event permissions the bar's own code calls:
+`allow-start-dragging` and `allow-internal-toggle-maximize` for the drag region itself,
+`allow-minimize` / `allow-toggle-maximize` / `allow-close` for its three buttons,
+`allow-is-maximized` / `allow-is-fullscreen` for the state its buttons render (`allow-is-maximized`
+paired with `event:allow-listen` / `allow-unlisten`, which `onResized` needs under the hood), and
+`allow-start-resize-dragging` for the Linux-only resize script above.
+
 ## Next (not in this task)
 
 - A tray icon, so closing the window does not have to mean quitting.
