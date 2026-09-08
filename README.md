@@ -1,106 +1,84 @@
 # NektoTranslate
 
-NektoTranslate is a local tool that fetches a web novel from its source site and translates it
-chapter by chapter through the Claude Code CLI, running on your own Claude subscription. It runs as
-a single process on your own machine and keeps everything it produces - the book, the glossary,
-every translated chapter - on your own computer; there is no NektoTranslate server anywhere for it
-to talk to.
+Read web novels in your language before anyone has translated them. NektoTranslate fetches a novel
+from its site, translates it chapter by chapter with your own Claude subscription, and gives you a
+reader to follow along as the chapters land. Everything stays on your computer.
 
-It is built as a .NET server that serves a Vue client out of the same process, plus an optional
-Tauri window (`NektoTranslate.Desktop`) that wraps the two in a native shell instead of a browser
-tab. The desktop shell is a convenience on top of the server, not a different application - running
-the published server on its own and opening it in a browser works exactly the same way.
+![The reader, original and translation side by side](docs/screenshots/reader.png)
 
-**Credits:** the site parsers under `NektoTranslate.Server/vendor/WebToEpub` are the parsing scripts
-from [WebToEpub](https://github.com/dteviot/WebToEpub), David Teviotdale's project for reading web
-novels into epub files. They are used here under their own GPL-3.0 licence and with thanks -
-unmodified except where a comment inside that folder says otherwise.
+- **Fetch from a site or paste a chapter.** Hundreds of novel sites are recognised out of the box.
+- **Translate like an editor, not a dictionary.** Every chapter is read once, translated a few
+  paragraphs at a time, read back, and corrected. Names and terms stay the same from the first
+  chapter to the last.
+- **Bring an existing translation.** If someone already translated the early chapters, NektoTranslate
+  learns their voice and glossary and continues in the same manner - or cleans up a machine
+  translation that was let go.
+- **Read while it works.** A chapter opens the moment it is finished, in a reader with the original
+  beside it when you want it.
 
-## Licence
+![A book with its chapters](docs/screenshots/chapters.png)
 
-NektoTranslate is licensed under the GNU General Public License, version 3 or later
-(GPL-3.0-or-later) - see [`LICENSE`](LICENSE). This follows from the WebToEpub parsers above: they
-are GPL-3.0, and shipping them as part of a distributed application places the whole of that
-distributed work under the same terms. Nothing about NektoTranslate's own code called for a copyleft
-licence on its own; the parsers are why.
+## Get it
 
-## Releases
+Download from the [latest release](https://github.com/VeyDlin/NektoTranslate/releases/latest):
 
-The application's version lives in exactly one place: `<Version>` in
-`NektoTranslate.Server/Directory.Build.props`. Everything else - the desktop shell's own version
-files, the published assembly's informational version, the health endpoint, the version shown in the
-client - derives from it; see `NektoTranslate.Desktop/scripts/sync-version.mjs` for how the desktop
-files stay in step.
+| You are on | Download |
+|---|---|
+| Windows 10 or 11 | `NektoTranslate_<version>_x64-setup.exe` and run it |
+| Linux | `NektoTranslate_<version>_amd64.AppImage`, or the `.deb` / `.rpm` for your distribution |
+| macOS | No build yet - see *Run it without the window* below, or build from source |
 
-`.github/workflows/release.yml` watches `main`. A push that leaves the version unchanged does
-nothing. A push that changes it builds the Windows and Linux desktop installers and a standalone
-server zip for each platform, and - only once every build has succeeded - tags the commit
-`v<version>`, creates a GitHub release from it, and writes a changelog into the release body from the
-commit history since the previous release. A failed build leaves no tag and no release behind, so
-the next push simply tries again.
-
-## Prerequisites
-
-- The .NET 10 runtime (or SDK, for building).
-- The [Claude Code CLI](https://docs.claude.com/en/docs/claude-code) installed and logged in - this
-  application calls it as a subprocess for every translation.
-- Node.js, but only if you are building the client yourself; a published release already has it
-  built in.
-
-## Publishing
-
-From the repository root:
+Nothing else needs installing, with one exception: translation runs through the
+[Claude Code](https://docs.claude.com/en/docs/claude-code) command-line tool on your own Claude
+subscription, so install it and sign in once:
 
 ```
-dotnet publish NektoTranslate.Server/NektoTranslate.Api -c Release -o <folder>
+# Windows (PowerShell)
+irm https://claude.ai/install.ps1 | iex
+
+# macOS and Linux
+curl -fsSL https://claude.ai/install.sh | bash
 ```
 
-This builds the client and copies it into the server's `wwwroot`, then publishes a
-framework-dependent build to `<folder>` - it needs the .NET 10 runtime already installed on the
-machine that runs it. For a self-contained build that needs nothing preinstalled, add a runtime
-identifier:
+then run `claude` in a terminal and follow the login. NektoTranslate picks it up from there.
 
-```
-dotnet publish NektoTranslate.Server/NektoTranslate.Api -c Release -r win-x64 --self-contained -o <folder>
-```
+## Run it without the window
 
-(`linux-x64`, `osx-x64` and `osx-arm64` work the same way.)
+The same release page has `NektoTranslate.Server-win-x64.zip` and `NektoTranslate.Server-linux-x64.zip`:
+the whole application as a plain program you run and then open in a browser. Unzip it anywhere,
+start `NektoTranslate.Api` (`NektoTranslate.Api.exe` on Windows) and open the address it prints,
+`http://127.0.0.1:5080`. It needs nothing installed, listens only on your own machine, and keeps
+its data in:
 
-## Running
-
-From the published folder:
-
-```
-NektoTranslate.Api
-```
-
-Then open the URL it prints - `http://127.0.0.1:5080` by default. The server binds to loopback
-only: there is no login, because there is no second user, and nothing here is meant to be reached
-from the network.
-
-Two flags cover the cases the defaults do not:
-
-- `--ServerUrl=http://127.0.0.1:5099` - move off the default port, or bind to a different loopback
-  address.
-- `--DataDirectory=<path>` - keep the database and everything else this application stores
-  somewhere other than the platform default below, for example a library kept on another drive.
-
-## Where the data lives
-
-Unless overridden with `--DataDirectory`, the database, the downloaded browser and everything else
-this application owns live in:
-
-| Platform | Location |
+| | |
 |---|---|
 | Windows | `%LOCALAPPDATA%\NektoTranslate` |
 | macOS | `~/Library/Application Support/NektoTranslate` |
-| Linux | `$XDG_DATA_HOME/NektoTranslate`, or `~/.local/share/NektoTranslate` if that is unset |
+| Linux | `~/.local/share/NektoTranslate` |
 
-Nothing here is opened in a browser automatically when the server starts.
+Two flags cover the unusual cases: `--ServerUrl=http://127.0.0.1:5099` to use another port, and
+`--DataDirectory=<path>` to keep the library somewhere else, say on another drive.
 
-## Desktop
+## For developers
 
-`NektoTranslate.Desktop` wraps the server in an optional native window (Tauri 2) instead of a
-browser tab - it starts the server as a child process and stops it when the window closes, or
-attaches to one already running for development. It does not change anything about running the
-server on its own, above. See `NektoTranslate.Desktop/README.md` for how to run and build it.
+The server is .NET 10 (ASP.NET Core, EF Core, SQLite) and serves a Vue 3 client from the same
+process; `NektoTranslate.Desktop` is a Tauri 2 shell that starts that server and shows it in a
+native window.
+
+```
+# server on its own, with the client built into it
+dotnet publish NektoTranslate.Server/NektoTranslate.Api -c Release -r win-x64 --self-contained -o <folder>
+
+# desktop application, installers included
+cd NektoTranslate.Desktop && npm install && npm run build
+```
+
+You need the .NET 10 SDK and Node 22; the desktop build also needs Rust. For day-to-day work run
+the API from `NektoTranslate.Server/NektoTranslate.Api` and `npm run dev` in `NektoTranslate.Client`,
+which proxies to it. `NektoTranslate.Desktop/README.md` describes the shell, its attach mode and
+its window chrome. The version lives in `NektoTranslate.Server/Directory.Build.props`; changing it
+on `main` is what cuts a release.
+
+The site parsers under `NektoTranslate.Server/vendor/WebToEpub` are from
+[WebToEpub](https://github.com/dteviot/WebToEpub) by David Teviotdale, used with thanks under
+their GPL-3.0 licence - which is also why this project is GPL-3.0.

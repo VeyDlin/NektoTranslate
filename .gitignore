@@ -38,8 +38,10 @@ logs/
 # Reference repositories cloned for research only
 .temp/
 
-# Specs, notes and other generated documents - kept outside the repository
-docs/
+# Specs, notes and other generated documents - kept outside the repository. The screenshots the
+# README shows are the one exception: they are part of the repository's front page.
+docs/*
+!docs/screenshots/
 *.patch
 scratch/
 notes/
