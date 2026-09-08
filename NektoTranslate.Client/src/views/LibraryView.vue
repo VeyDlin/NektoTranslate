@@ -1,7 +1,14 @@
 <template>
     <div class="library">
         <header class="bar">
-            <span class="wordmark">NektoTranslate</span>
+            <div class="title">
+                <span class="wordmark">NektoTranslate</span>
+                <span
+                    v-if="versionDisplay !== null"
+                    class="version"
+                    :title="`Version ${health?.version}`"
+                >{{ versionDisplay }}</span>
+            </div>
 
             <div class="tools">
                 <UButton size="sm" icon="i-material-symbols:add-rounded" @click="creating = true">
@@ -56,12 +63,19 @@
     import CreateNovelModal from "@/components/novels/CreateNovelModal.vue";
     import NovelRow from "@/components/novels/NovelRow.vue";
     import { useNovels } from "@/composables/useNovels";
+    import { useHealth } from "@/composables/useSystem";
 
 
     const creating = ref(false);
     const { data, isLoading, isError } = useNovels();
+    const { data: health } = useHealth();
 
     const novels = computed(() => data.value ?? []);
+
+    // The dimmed number beside the wordmark is the plain version; the full informational one -
+    // "0.1.0+<sha>" once CI has stamped a build - stays in the title tooltip only, since it means
+    // little at a glance and would just be noise printed next to the application's own name.
+    const versionDisplay = computed(() => health.value?.version.split("+")[0] ?? null);
 </script>
 
 <style scoped lang="scss">
@@ -82,10 +96,21 @@
             padding: 0 1rem;
             border-bottom: 1px solid var(--ui-border);
 
+            .title {
+                display: flex;
+                align-items: baseline;
+                gap: 0.5rem;
+            }
+
             .wordmark {
                 font-weight: 500;
                 letter-spacing: 0.01em;
                 color: var(--ui-text-muted);
+            }
+
+            .version {
+                font-size: var(--nt-text-sm);
+                color: var(--ui-text-dimmed);
             }
 
             .tools {

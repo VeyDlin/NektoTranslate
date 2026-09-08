@@ -148,6 +148,13 @@ export class MockBackend {
         }
 
 
+        // Fixed rather than read from anywhere: mock mode never went through a real build, so there
+        // is no CI-stamped version to report — "mock" in the string is the point.
+        if (segments[1] === "health" && method === "GET") {
+            return { status: "ok", version: "0.0.0-mock" };
+        }
+
+
         if (segments[1] === "settings") {
             if (method === "GET") {
                 return { ...this.seed.settings };

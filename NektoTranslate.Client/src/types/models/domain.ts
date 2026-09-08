@@ -508,3 +508,12 @@ export interface Activity {
     translation: TranslationJob | null;
     imports: ImportJob[];
 }
+
+
+// What GET /api/health answers - deliberately just these two fields, matching the server's own
+// HealthResponse contract. `version` is the assembly's informational version, "0.1.0" or
+// "0.1.0+<sha>" once CI stamps a build.
+export interface HealthStatus {
+    status: string;
+    version: string;
+}
