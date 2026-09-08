@@ -1,8 +1,43 @@
 # NektoTranslate
 
-A local application that fetches a novel from a source site and translates it chapter by chapter
-with the Claude Code CLI. It runs as a single process on your own machine, with the client built
-into the server, and stores nothing anywhere but your own computer.
+NektoTranslate is a local tool that fetches a web novel from its source site and translates it
+chapter by chapter through the Claude Code CLI, running on your own Claude subscription. It runs as
+a single process on your own machine and keeps everything it produces - the book, the glossary,
+every translated chapter - on your own computer; there is no NektoTranslate server anywhere for it
+to talk to.
+
+It is built as a .NET server that serves a Vue client out of the same process, plus an optional
+Tauri window (`NektoTranslate.Desktop`) that wraps the two in a native shell instead of a browser
+tab. The desktop shell is a convenience on top of the server, not a different application - running
+the published server on its own and opening it in a browser works exactly the same way.
+
+**Credits:** the site parsers under `NektoTranslate.Server/vendor/WebToEpub` are the parsing scripts
+from [WebToEpub](https://github.com/dteviot/WebToEpub), David Teviotdale's project for reading web
+novels into epub files. They are used here under their own GPL-3.0 licence and with thanks -
+unmodified except where a comment inside that folder says otherwise.
+
+## Licence
+
+NektoTranslate is licensed under the GNU General Public License, version 3 or later
+(GPL-3.0-or-later) - see [`LICENSE`](LICENSE). This follows from the WebToEpub parsers above: they
+are GPL-3.0, and shipping them as part of a distributed application places the whole of that
+distributed work under the same terms. Nothing about NektoTranslate's own code called for a copyleft
+licence on its own; the parsers are why.
+
+## Releases
+
+The application's version lives in exactly one place: `<Version>` in
+`NektoTranslate.Server/Directory.Build.props`. Everything else - the desktop shell's own version
+files, the published assembly's informational version, the health endpoint, the version shown in the
+client - derives from it; see `NektoTranslate.Desktop/scripts/sync-version.mjs` for how the desktop
+files stay in step.
+
+`.github/workflows/release.yml` watches `main`. A push that leaves the version unchanged does
+nothing. A push that changes it builds the Windows and Linux desktop installers and a standalone
+server zip for each platform, and - only once every build has succeeded - tags the commit
+`v<version>`, creates a GitHub release from it, and writes a changelog into the release body from the
+commit history since the previous release. A failed build leaves no tag and no release behind, so
+the next push simply tries again.
 
 ## Prerequisites
 
