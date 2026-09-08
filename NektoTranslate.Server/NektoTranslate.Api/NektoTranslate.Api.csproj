@@ -49,6 +49,9 @@
 
 	<PropertyGroup>
 		<NektoClientDirectory>$(MSBuildThisFileDirectory)..\..\NektoTranslate.Client\</NektoClientDirectory>
+		<!-- The shell's own "is this on PATH" question, which is spelled differently per platform. -->
+		<NektoNpmProbe Condition="$([MSBuild]::IsOSPlatform('Windows'))">where npm</NektoNpmProbe>
+		<NektoNpmProbe Condition="!$([MSBuild]::IsOSPlatform('Windows'))">which npm</NektoNpmProbe>
 	</PropertyGroup>
 
 	<!--
@@ -58,7 +61,7 @@
 		for the one case that still needs a publish without this: a wwwroot already built by hand.
 	-->
 	<Target Name="BuildClient" BeforeTargets="PrepareForPublish" Condition="'$(SkipClientBuild)' != 'true'">
-		<Exec Command="where npm" ContinueOnError="WarnAndContinue" StandardOutputImportance="Low" StandardErrorImportance="Low">
+		<Exec Command="$(NektoNpmProbe)" ContinueOnError="WarnAndContinue" StandardOutputImportance="Low" StandardErrorImportance="Low">
 			<Output TaskParameter="ExitCode" PropertyName="NektoNpmCheckExitCode" />
 		</Exec>
 
