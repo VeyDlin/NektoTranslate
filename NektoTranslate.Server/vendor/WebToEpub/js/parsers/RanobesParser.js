@@ -1,5 +1,10 @@
 "use strict";
 
+// Modified from the upstream WebToEpub file (https://github.com/dteviot/WebToEpub) for
+// NektoTranslate in September 2026: adds RanobesParser.stripPostingDate and applies it wherever a
+// chapter title is read, because ranobes.com packs the posting date into the same text as the
+// title. Everything else in this file is upstream's, under the same GPL-3.0 licence.
+
 parserFactory.register("ranobes.net", () => new RanobesNetParser());
 parserFactory.register("ranobes.top", () => new RanobesNetParser());
 parserFactory.register("ranobes.com", () => new RanobesParser());
