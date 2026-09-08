@@ -22,6 +22,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["server/**/*"]
+    "resources": ["server/**/*"],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine"
+      }
+    }
   }
 }

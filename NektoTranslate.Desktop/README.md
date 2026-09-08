@@ -59,6 +59,11 @@ and the plain executable at `src-tauri/target/release/NektoTranslate.exe`, which
 the `server/` folder the build copies next to it - it is not a standalone download. macOS and Linux
 land under the matching `bundle/dmg`, `bundle/deb`, `bundle/rpm` and `bundle/appimage` folders.
 
+Both Windows installers install per machine, into Program Files, and ask for elevation once. This
+is deliberate: a per-user NSIS install would land in `%LOCALAPPDATA%\NektoTranslate`, which is the
+folder the server keeps the database and the downloaded browser in, and a program folder and a data
+folder must not be the same place.
+
 To build for a platform other than the current machine:
 
 ```
