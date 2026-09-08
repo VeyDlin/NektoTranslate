@@ -1,9 +1,13 @@
 <!doctype html>
 <!--
-  Never shown. The Tauri CLI requires build.frontendDist to point at a real folder even though this
-  shell has no bundled frontend of its own - the main window is created and navigated entirely from
-  Rust (see src/lib.rs) to either the spawned server or an attached one. This file exists only to
-  satisfy that requirement.
+  The page the window shows from its very first frame until the server answers - a second or two
+  in which there used to be nothing, then a white webview. Bundled into the shell itself
+  (build.frontendDist points here), so it needs no server to exist; src/lib.rs navigates the window
+  away from it to the server's own address as soon as /api/health answers.
+
+  Colours are the client's own --ui-bg / --ui-text tokens for the two themes, chosen here by the
+  system's preference the way WebView2 itself reports it, so the hand-off to the real page does not
+  jump. Kept as one file with everything inline: it has to render before anything else is loaded.
 
   Named "frontend-stub" rather than the more usual "dist" so the repo's root .gitignore (which
   ignores any "dist/" directory, not just the one at its own root) does not swallow it.
@@ -12,6 +16,82 @@
   <head>
     <meta charset="utf-8" />
     <title>NektoTranslate</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #e9e9e9;
+        --text: #1f1f1f;
+        --dim: #8a8a8a;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #3b3a3a;
+          --text: #f2f2f2;
+          --dim: #8a8a8a;
+        }
+      }
+
+      html, body {
+        height: 100%;
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 15px/1.4 "Segoe UI", system-ui, sans-serif;
+        user-select: none;
+        overflow: hidden;
+      }
+
+      /* The whole page drags the window, so a launch that is still starting can be moved aside. */
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .mark {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        opacity: 0;
+        animation: appear 400ms ease-out 150ms forwards;
+      }
+
+      .mark svg {
+        width: 64px;
+        height: 64px;
+        border-radius: 14px;
+      }
+
+      .name {
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+
+      .status {
+        font-size: 13px;
+        color: var(--dim);
+      }
+
+      @keyframes appear {
+        to { opacity: 1; }
+      }
+    </style>
   </head>
-  <body></body>
+  <body data-tauri-drag-region>
+    <div class="mark" data-tauri-drag-region>
+      <svg viewBox="0 0 64 64" fill="none" aria-hidden="true">
+        <rect width="64" height="64" rx="14" fill="#294c7e" />
+        <path d="M10 19C18 17 25 19 30.5 23V49C24 45 18 43 10 45V19Z" fill="#fbf7ef" />
+        <path d="M33.5 23C39 19 46 17 54 19V45C46 43 40 45 33.5 49V23Z" fill="#d8e6f8" />
+        <path d="M42 18V31L45 28.5L48 31V18C46 17.8 44 17.8 42 18Z" fill="#d9a441" />
+        <path d="M16 28C19 28 22 29 25 30.5M16 35C19 35 22 36 25 37.5" stroke="#294c7e" stroke-width="2.5" stroke-linecap="round" />
+        <path d="M39 37.5C42 36 45 35 48 35" stroke="#294c7e" stroke-width="2.5" stroke-linecap="round" />
+      </svg>
+      <span class="name" data-tauri-drag-region>NektoTranslate</span>
+      <span class="status" data-tauri-drag-region>Starting…</span>
+    </div>
+  </body>
 </html>

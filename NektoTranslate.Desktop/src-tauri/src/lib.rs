@@ -141,6 +141,44 @@ impl ServerState {
     }
 }
 
+// Where the window may navigate on its own: the bundled starting page always, and the server's
+// origin once one is known. Stored as the origin's ASCII serialisation rather than the origin
+// itself so nothing here has to name a type from the url crate this crate does not depend on
+// directly.
+struct NavigationGate(Mutex<Option<String>>);
+
+impl NavigationGate {
+    fn open(&self, url: &tauri::Url) {
+        if let Ok(mut guard) = self.0.lock() {
+            *guard = Some(url.origin().ascii_serialization());
+        }
+    }
+
+    // The starting page is served from Tauri's own origin - `tauri://localhost` on macOS and
+    // Linux, `http://tauri.localhost` on Windows - and is allowed unconditionally; anything else
+    // has to match the server this window was pointed at.
+    fn allows(&self, url: &tauri::Url) -> bool {
+        if url.scheme() == "tauri" || url.host_str() == Some("tauri.localhost") {
+            return true;
+        }
+
+        let Ok(guard) = self.0.lock() else {
+            return false;
+        };
+
+        guard.as_deref() == Some(url.origin().ascii_serialization().as_str())
+    }
+}
+
+// The client's own page background for each theme (--ui-bg in src/assets/css/tailwind.css), so the
+// colour behind the webview is the colour the page paints and no frame in between is white.
+fn background_for(theme: tauri::Theme) -> tauri::window::Color {
+    match theme {
+        tauri::Theme::Light => tauri::window::Color(0xe9, 0xe9, 0xe9, 0xff),
+        _ => tauri::window::Color(0x3b, 0x3a, 0x3a, 0xff),
+    }
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         // Must be registered first - a second launch's arguments arrive here instead of starting
@@ -169,25 +207,22 @@ pub fn run() {
         )
         .plugin(tauri_plugin_opener::init())
         .manage(ServerState(Mutex::new(None)))
+        .manage(NavigationGate(Mutex::new(None)))
         .setup(|app| {
             let mode = settings::resolve();
-            let running = server::start(app.handle(), mode);
-
-            if let Some(child) = running.child {
-                *app.state::<ServerState>().0.lock().unwrap() = Some(child);
-            }
-
-            let base_url: tauri::Url = running
-                .url
-                .parse()
-                .expect("the resolved server url should be a valid url");
-            let origin = base_url.origin();
             let app_handle = app.handle().clone();
 
-            let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(base_url))
+            // The window opens on the bundled starting page at once, before the server is even
+            // spawned, and is navigated to the server below once it answers. Starting the server
+            // first and only then creating the window - the previous order - left a second or two
+            // with no window at all, followed by a white webview while the real page loaded.
+            let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("NektoTranslate")
                 .inner_size(1280.0, 860.0)
                 .min_inner_size(900.0, 600.0)
+                // Hidden until the background colour below is set from the window's own theme -
+                // the one frame between creation and the first paint is where the white came from.
+                .visible(false)
                 // WebView2 draws the classic, always-visible Windows scrollbars unless told
                 // otherwise, while every Chromium browser on Windows 11 has moved to the thin
                 // overlay ones - and a page of prose shows the difference at once. The enable
@@ -228,21 +263,53 @@ pub fn run() {
                 .decorations(false)
                 .initialization_script(LINUX_RESIZE_SCRIPT);
 
-            builder
+            let gate_handle = app_handle.clone();
+
+            let window = builder
                 // Navigation is pinned to the server's own origin - SignalR, the SPA's
-                // client-side routes, all of it stays in this window. Anything else (a link out
-                // to a source site the user is importing from, say) opens in the system browser
-                // instead of taking the window away from the application.
+                // client-side routes, all of it stays in this window - plus the bundled starting
+                // page the window opens on. Anything else (a link out to a source site the user
+                // is importing from, say) opens in the system browser instead of taking the window
+                // away from the application. The server's origin is not known when this closure is
+                // built (spawn mode picks its port later), so it is read from the gate each time.
                 .on_navigation(move |url| {
-                    if url.origin() == origin {
+                    if gate_handle.state::<NavigationGate>().allows(url) {
                         return true;
                     }
 
-                    let _ = app_handle.opener().open_url(url.as_str(), None::<&str>);
+                    let _ = gate_handle.opener().open_url(url.as_str(), None::<&str>);
 
                     false
                 })
                 .build()?;
+
+            // Painted behind the page from the first frame in the theme the system reports, so
+            // neither the starting page nor the hand-off to the real one ever flashes white.
+            let theme = window.theme().unwrap_or(tauri::Theme::Dark);
+            let _ = window.set_background_color(Some(background_for(theme)));
+            let _ = window.show();
+
+            // The server is started off the UI thread: spawn mode waits on it for up to a minute
+            // (a first run's migrations, a slow disk), and the starting page above is what the
+            // person sees meanwhile instead of a frozen window. server::start ends the process
+            // itself, after a native dialog, when the server cannot be started.
+            std::thread::spawn(move || {
+                let running = server::start(&app_handle, mode);
+
+                if let Some(child) = running.child {
+                    *app_handle.state::<ServerState>().0.lock().unwrap() = Some(child);
+                }
+
+                let Ok(url) = running.url.parse::<tauri::Url>() else {
+                    return;
+                };
+
+                app_handle.state::<NavigationGate>().open(&url);
+
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = window.navigate(url);
+                }
+            });
 
             Ok(())
         })

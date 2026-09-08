@@ -160,13 +160,11 @@ thead.sticky {
         margin-top: 0.35em;
     }
 
-    // The source column is reference material, not the work. It is set smaller and a step lighter so
-    // that the eye settles on the translation by default and reaches for the original deliberately.
-    // Recessed, though, not dimmed: a reader checking one against the other has to be able to read
-    // both without effort.
+    // The source column reads in the same colour as the translation. It was set a step lighter once,
+    // to recess the reference beside the work, and that step turned out too far: a reader checking
+    // one against the other found the original hard to read. What still tells the columns apart is
+    // their placement and the border between them, not the ink.
     &.source {
-        color: var(--ui-text-muted);
-
         // Both metrics answer to the script, not to the pane, so they are tied to the language the
         // element carries: an English source beside a Russian translation should be set exactly like
         // the column next to it. The face itself comes from the global `:lang()` rule.
@@ -181,10 +179,6 @@ thead.sticky {
             // Furigana is set above the line, so a CJK column needs materially more leading than the
             // Latin one beside it or the annotations collide with the line above.
             line-height: calc(var(--nt-prose-line) + 0.45);
-        }
-
-        h2 {
-            color: var(--ui-text-toned);
         }
     }
 
