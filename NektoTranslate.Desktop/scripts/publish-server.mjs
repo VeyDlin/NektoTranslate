@@ -5,7 +5,7 @@
 // The dotnet publish itself builds the client into wwwroot (NektoTranslate.Api.csproj's own
 // BuildClient target); nothing here duplicates that.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -112,5 +112,20 @@ if (version) {
 execFileSync("dotnet", publishArgs, { stdio: "inherit" });
 
 removePdbFiles(outputDirectory);
+removeTracepointProvider(outputDirectory);
 
 console.log("Server publish complete.");
+
+
+// The .NET runtime ships libcoreclrtraceptprovider.so, an LTTng tracing hook that links against
+// liblttng-ust - a library almost no machine has. The runtime loads it only if present and runs
+// exactly the same without it. Left in, it sinks the AppImage: linuxdeploy walks every ELF under the
+// bundle's resources, follows that dependency, cannot find it, and fails the whole bundle with a
+// bare "failed to run linuxdeploy".
+function removeTracepointProvider(directory) {
+    const provider = join(directory, "libcoreclrtraceptprovider.so");
+
+    if (existsSync(provider)) {
+        rmSync(provider);
+    }
+}
