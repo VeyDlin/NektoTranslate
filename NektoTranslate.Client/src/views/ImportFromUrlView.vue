@@ -1,6 +1,6 @@
 <template>
     <div class="import-url">
-        <header class="bar">
+        <AppBar>
             <UButton
                 :to="{ name: 'novel', params: { novelId } }"
                 icon="i-material-symbols:arrow-back-rounded"
@@ -10,18 +10,22 @@
                 aria-label="Back to the chapter list"
             />
 
-            <span class="book" :lang="scriptLangIf(novel?.title ?? '', scriptLang)">{{ novel?.title ?? "" }}</span>
+            <span
+                class="book"
+                data-bar-text
+                :lang="scriptLangIf(novel?.title ?? '', scriptLang)"
+            >{{ novel?.title ?? "" }}</span>
 
-            <span class="where">Import from a site</span>
+            <span class="where" data-bar-text>Import from a site</span>
 
-            <span class="spacer" />
+            <span class="spacer" data-bar-text />
 
             <UButton :to="{ name: 'parsers' }" size="sm" color="neutral" variant="ghost">
                 Supported sites
             </UButton>
 
             <UColorModeButton size="sm" />
-        </header>
+        </AppBar>
 
         <div class="step">
             <UInput
@@ -223,6 +227,7 @@
     import type { ListingEntry } from "@/types/models/domain";
 
     import { computed, h, ref, resolveComponent, watch } from "vue";
+    import AppBar from "@/components/common/AppBar.vue";
     import ResizableSplit from "@/components/common/ResizableSplit.vue";
     import ImportRunPanel from "@/components/imports/ImportRunPanel.vue";
     import { useActivity, useStartImport } from "@/composables/useActivity";
@@ -571,14 +576,6 @@
         overflow: hidden;
 
         .bar {
-            flex: none;
-            display: flex;
-            align-items: center;
-            gap: 0.875rem;
-            height: $chrome-height;
-            padding: 0 1rem 0 0.5rem;
-            border-bottom: 1px solid var(--ui-border);
-
             .book {
                 color: var(--ui-text-muted);
                 white-space: nowrap;

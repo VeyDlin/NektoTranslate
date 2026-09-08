@@ -1,6 +1,6 @@
 <template>
     <div class="parsers">
-        <header class="bar">
+        <AppBar>
             <UButton
                 :to="{ name: 'library' }"
                 icon="i-material-symbols:arrow-back-rounded"
@@ -10,14 +10,14 @@
                 aria-label="Back to the library"
             />
 
-            <span class="where">Supported sites</span>
+            <span class="where" data-bar-text>Supported sites</span>
 
-            <span class="spacer" />
+            <span class="spacer" data-bar-text />
 
-            <span class="counts">{{ formatCount(parsers.length) }} listed</span>
+            <span class="counts" data-bar-text>{{ formatCount(parsers.length) }} listed</span>
 
             <UColorModeButton size="sm" />
-        </header>
+        </AppBar>
 
         <div class="panes">
             <aside class="sites">
@@ -103,6 +103,7 @@
     import { useMutation, useQuery, useQueryClient } from "@tanstack/vue-query";
     import { computed, ref, watch } from "vue";
     import { parsersApi } from "@/api";
+    import AppBar from "@/components/common/AppBar.vue";
     import { formatCount } from "@/utils/format";
 
 
@@ -192,14 +193,6 @@
         overflow: hidden;
 
         .bar {
-            flex: none;
-            display: flex;
-            align-items: center;
-            gap: 0.875rem;
-            height: $chrome-height;
-            padding: 0 1rem 0 0.5rem;
-            border-bottom: 1px solid var(--ui-border);
-
             .where {
                 color: var(--ui-text-highlighted);
             }

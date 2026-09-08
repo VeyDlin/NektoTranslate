@@ -1,6 +1,6 @@
 <template>
     <div class="novel-settings">
-        <header class="bar">
+        <AppBar>
             <UButton
                 :to="{ name: 'novel', params: { novelId } }"
                 icon="i-material-symbols:arrow-back-rounded"
@@ -10,14 +10,18 @@
                 aria-label="Back to the chapter list"
             />
 
-            <span class="book" :lang="scriptLangIf(novel?.title ?? '', scriptLang)">{{ novel?.title ?? "" }}</span>
+            <span
+                class="book"
+                data-bar-text
+                :lang="scriptLangIf(novel?.title ?? '', scriptLang)"
+            >{{ novel?.title ?? "" }}</span>
 
-            <span class="where">Settings</span>
+            <span class="where" data-bar-text>Settings</span>
 
-            <span class="spacer" />
+            <span class="spacer" data-bar-text />
 
             <UColorModeButton size="sm" />
-        </header>
+        </AppBar>
 
         <div class="sheet">
             <section class="group">
@@ -126,6 +130,7 @@
 <script setup lang="ts">
     import { computed, reactive, ref, watch } from "vue";
     import { useRouter } from "vue-router";
+    import AppBar from "@/components/common/AppBar.vue";
     import ModelField from "@/components/settings/ModelField.vue";
     import { useDeleteNovel, useNovel, useUpdateNovel } from "@/composables/useNovels";
     import { scriptLangFor, scriptLangIf } from "@/utils/language";
@@ -219,14 +224,6 @@
         overflow: hidden;
 
         .bar {
-            flex: none;
-            display: flex;
-            align-items: center;
-            gap: 0.875rem;
-            height: $chrome-height;
-            padding: 0 1rem 0 0.5rem;
-            border-bottom: 1px solid var(--ui-border);
-
             .book {
                 color: var(--ui-text-muted);
                 white-space: nowrap;

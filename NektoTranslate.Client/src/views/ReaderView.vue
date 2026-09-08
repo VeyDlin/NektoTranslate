@@ -1,6 +1,6 @@
 <template>
     <div class="reader">
-        <header ref="barRef" class="bar" :class="{ away: barAway }">
+        <AppBar ref="barRef" class="reader-bar" :class="{ away: barAway }">
             <UButton
                 :to="{ name: 'novel', params: { novelId } }"
                 icon="i-material-symbols:arrow-back-rounded"
@@ -10,11 +10,15 @@
                 aria-label="Back to the chapter list"
             />
 
-            <span class="book" :lang="scriptLangIf(novel?.title ?? '', scriptLang)">{{ novel?.title ?? "" }}</span>
+            <span
+                class="book"
+                data-bar-text
+                :lang="scriptLangIf(novel?.title ?? '', scriptLang)"
+            >{{ novel?.title ?? "" }}</span>
 
-            <span v-if="chapter" class="where">Chapter {{ chapterNumber(chapter.index) }}</span>
+            <span v-if="chapter" class="where" data-bar-text>Chapter {{ chapterNumber(chapter.index) }}</span>
 
-            <span class="spacer" />
+            <span class="spacer" data-bar-text />
 
             <div class="reading-controls">
                 <UButton
@@ -48,7 +52,7 @@
             </div>
 
             <UColorModeButton size="sm" />
-        </header>
+        </AppBar>
 
         <div v-if="isLoading" class="loading">
             <USkeleton class="skeleton wide" />
@@ -156,6 +160,7 @@
     import { computed, ref, watch } from "vue";
 
     import { useRouter } from "vue-router";
+    import AppBar from "@/components/common/AppBar.vue";
     import ChapterTurn from "@/components/reader/ChapterTurn.vue";
     import ReaderSettings from "@/components/reader/ReaderSettings.vue";
     import { useChapter, useChapters, useMakeChapterCurrent } from "@/composables/useChapters";
@@ -206,13 +211,20 @@
     // capture is the only way a parent hears it at all. Within the first bar's height of the top the
     // bar always stays: a bar hidden over the opening lines would read as a page with no way back.
     const panesRef = ref<HTMLElement | null>(null);
-    const barRef = ref<HTMLElement | null>(null);
+    // AppBar, not a plain element - its root header is `$el`, the same public-instance property every
+    // Vue component exposes regardless of `defineExpose`, so nothing has to be added to AppBar's own
+    // API just for this one measurement.
+    const barRef = ref<InstanceType<typeof AppBar> | null>(null);
     const barAway = ref(false);
     const lastScrollTop = new WeakMap<Element, number>();
 
     // A few pixels of downward travel before the bar goes, so a touchpad's settling jitter does not
     // flick it in and out.
     const HideAfterPx = 8;
+
+    function barHeight(): number {
+        return (barRef.value?.$el as HTMLElement | undefined)?.offsetHeight ?? 0;
+    }
 
     useEventListener(panesRef, "scroll", (event: Event) => {
         const pane = event.target;
@@ -226,7 +238,7 @@
 
         lastScrollTop.set(pane, current);
 
-        if (current <= (barRef.value?.offsetHeight ?? 0)) {
+        if (current <= barHeight()) {
             barAway.value = false;
 
             return;
@@ -430,23 +442,22 @@
         // Laid over the text rather than stacked above it, so sliding it away does not move the
         // page - the text simply continues where the bar was. The panes leave its height free at the
         // top of their scroll, which is where it sits while shown.
-        .bar {
+        //
+        // AppBar's own root already carries the "bar" class; `:deep()` (rather than overloading that
+        // same class here) keeps this screen's overrides from depending on stylesheet bundling order
+        // winning out over AppBar's own rule of the same specificity. The slot's own gap is
+        // overridden one level deeper, inside AppBar's internal wrapper - :deep() reaches there too.
+        :deep(.reader-bar) {
             position: absolute;
             top: 0;
             right: 0;
             left: 0;
             z-index: 2;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            height: $chrome-height;
-            padding: 0 1rem 0 0.5rem;
-            border-bottom: 1px solid var(--ui-border);
             background: var(--ui-bg);
             transition: transform 0.2s ease-out;
 
-            &.away {
-                transform: translateY(-100%);
+            .slot {
+                gap: 0.5rem;
             }
 
             .book {
@@ -469,6 +480,10 @@
                 gap: 0.375rem;
                 margin-right: 0.5rem;
             }
+        }
+
+        :deep(.reader-bar.away) {
+            transform: translateY(-100%);
         }
 
         // Both stand in for the panes and take their height, so the footer sits at the bottom of

@@ -1,6 +1,6 @@
 <template>
     <div class="settings-page">
-        <header class="bar">
+        <AppBar>
             <UButton
                 :to="{ name: 'library' }"
                 icon="i-material-symbols:arrow-back-rounded"
@@ -10,16 +10,16 @@
                 aria-label="Back to the library"
             />
 
-            <span class="where">Application settings</span>
+            <span class="where" data-bar-text>Application settings</span>
 
-            <span class="spacer" />
+            <span class="spacer" data-bar-text />
 
             <UButton :to="{ name: 'parsers' }" size="sm" color="neutral" variant="ghost">
                 Supported sites
             </UButton>
 
             <UColorModeButton size="sm" />
-        </header>
+        </AppBar>
 
         <div class="sheet">
             <section class="group">
@@ -275,6 +275,7 @@
 
 <script setup lang="ts">
     import { computed, reactive, ref, watch } from "vue";
+    import AppBar from "@/components/common/AppBar.vue";
     import ModelField from "@/components/settings/ModelField.vue";
     import NullableModelField from "@/components/settings/NullableModelField.vue";
     import { useLocalModels, useSettings, useUpdateSettings } from "@/composables/useSettings";
@@ -402,14 +403,6 @@
         overflow: hidden;
 
         .bar {
-            flex: none;
-            display: flex;
-            align-items: center;
-            gap: 0.875rem;
-            height: $chrome-height;
-            padding: 0 1rem 0 0.5rem;
-            border-bottom: 1px solid var(--ui-border);
-
             .where {
                 color: var(--ui-text-highlighted);
             }

@@ -1,7 +1,5 @@
 <template>
     <div class="shell">
-        <WindowChrome />
-
         <main class="content">
             <RouterView />
         </main>
@@ -15,7 +13,6 @@
     import { RouterView, useRoute } from "vue-router";
 
     import RunStrip from "@/components/common/RunStrip.vue";
-    import WindowChrome from "@/components/common/WindowChrome.vue";
     import { useTranslationStream } from "@/composables/useTranslationStream";
 
 

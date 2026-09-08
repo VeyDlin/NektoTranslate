@@ -1,6 +1,6 @@
 <template>
     <div class="import">
-        <header class="bar">
+        <AppBar>
             <UButton
                 :to="{ name: 'novel', params: { novelId } }"
                 icon="i-material-symbols:arrow-back-rounded"
@@ -10,20 +10,24 @@
                 aria-label="Back to the chapter list"
             />
 
-            <span class="book" :lang="scriptLangIf(novel?.title ?? '', scriptLang)">{{ novel?.title ?? "" }}</span>
+            <span
+                class="book"
+                data-bar-text
+                :lang="scriptLangIf(novel?.title ?? '', scriptLang)"
+            >{{ novel?.title ?? "" }}</span>
 
-            <span class="where">Add a chapter</span>
+            <span class="where" data-bar-text>Add a chapter</span>
 
-            <span class="spacer" />
+            <span class="spacer" data-bar-text />
 
-            <span v-if="counts.characters > 0" class="counts">
+            <span v-if="counts.characters > 0" class="counts" data-bar-text>
                 {{ formatCount(counts.paragraphs) }}
                 {{ counts.paragraphs === 1 ? "paragraph" : "paragraphs" }},
                 {{ formatCount(counts.characters) }} characters
             </span>
 
             <UColorModeButton size="sm" />
-        </header>
+        </AppBar>
 
         <div class="sheet">
             <label class="field">
@@ -99,6 +103,7 @@
     import { computed, ref } from "vue";
     import { useRouter } from "vue-router";
 
+    import AppBar from "@/components/common/AppBar.vue";
     import { useImportChapters } from "@/composables/useChapters";
     import { useNovel } from "@/composables/useNovels";
     import { importChaptersSchema } from "@/schemas/novel.schema";
@@ -276,14 +281,6 @@
         overflow: hidden;
 
         .bar {
-            flex: none;
-            display: flex;
-            align-items: center;
-            gap: 0.875rem;
-            height: $chrome-height;
-            padding: 0 1rem 0 0.5rem;
-            border-bottom: 1px solid var(--ui-border);
-
             .book {
                 color: var(--ui-text-muted);
                 white-space: nowrap;

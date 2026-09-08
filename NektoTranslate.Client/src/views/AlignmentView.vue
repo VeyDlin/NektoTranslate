@@ -1,6 +1,6 @@
 <template>
     <div class="alignment-page">
-        <header class="bar">
+        <AppBar>
             <UButton
                 :to="{ name: 'novel', params: { novelId } }"
                 icon="i-material-symbols:arrow-back-rounded"
@@ -10,16 +10,16 @@
                 aria-label="Back to the novel"
             />
 
-            <span class="book">{{ novel?.title ?? "" }}</span>
+            <span class="book" data-bar-text>{{ novel?.title ?? "" }}</span>
 
-            <span class="where">Chapter alignment</span>
+            <span class="where" data-bar-text>Chapter alignment</span>
 
-            <span class="spacer" />
+            <span class="spacer" data-bar-text />
 
-            <span v-if="selection.size > 0" class="chosen">
+            <span v-if="selection.size > 0" class="chosen" data-bar-text>
                 {{ selection.size }} selected · chapters {{ chapterNumber(span.from) }}–{{ chapterNumber(span.to) }}
             </span>
-        </header>
+        </AppBar>
 
         <div class="tools">
             <!-- The usual reason to be here is a translator's note as the site's first entry, which
@@ -180,6 +180,7 @@
     import type { AlignmentRow, TranslationCollision } from "@/types/models/domain";
 
     import { computed, ref, watch } from "vue";
+    import AppBar from "@/components/common/AppBar.vue";
     import { useAlignment, useDeleteTranslations, useMoveTranslations } from "@/composables/useAlignment";
     import { useNovel } from "@/composables/useNovels";
     import { chapterNumber } from "@/utils/format";
@@ -396,14 +397,6 @@
         overflow: hidden;
 
         .bar {
-            flex: none;
-            display: flex;
-            align-items: center;
-            gap: 0.875rem;
-            height: $chrome-height;
-            padding: 0 1rem 0 0.5rem;
-            border-bottom: 1px solid var(--ui-border);
-
             .book {
                 color: var(--ui-text-muted);
                 white-space: nowrap;

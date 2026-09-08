@@ -4,7 +4,7 @@
 // here, so the module has to load somewhere `window` exists at all, unlike the rest of this
 // project's specs, which stay in the default node environment.
 import { describe, expect, it } from "vitest";
-import { chromeLayoutFor, parseDesktopShell } from "./shell";
+import { barLayoutFor, parseDesktopShell } from "./shell";
 
 
 describe("parseDesktopShell", () => {
@@ -45,16 +45,16 @@ describe("parseDesktopShell", () => {
 });
 
 
-describe("chromeLayoutFor", () => {
-    it("gives macOS a 38px bar with no client-drawn controls", () => {
-        expect(chromeLayoutFor("macos")).toEqual({ barHeightPx: 38, controlsSide: "none" });
+describe("barLayoutFor", () => {
+    it("gives Windows the Fluent glyph buttons and no traffic-light inset", () => {
+        expect(barLayoutFor("windows")).toEqual({ controlStyle: "fluent", macInset: false });
     });
 
-    it("gives Windows a 32px bar with controls on the right", () => {
-        expect(chromeLayoutFor("windows")).toEqual({ barHeightPx: 32, controlsSide: "right" });
+    it("gives Linux the round buttons and no traffic-light inset", () => {
+        expect(barLayoutFor("linux")).toEqual({ controlStyle: "round", macInset: false });
     });
 
-    it("gives Linux a 40px bar with controls on the right", () => {
-        expect(chromeLayoutFor("linux")).toEqual({ barHeightPx: 40, controlsSide: "right" });
+    it("gives macOS no buttons of its own and the traffic-light inset", () => {
+        expect(barLayoutFor("macos")).toEqual({ controlStyle: "none", macInset: true });
     });
 });

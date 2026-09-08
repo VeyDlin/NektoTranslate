@@ -1,7 +1,7 @@
 <template>
     <div class="library">
-        <header class="bar">
-            <div class="title">
+        <AppBar no-back>
+            <div class="title" data-bar-text>
                 <span class="wordmark">NektoTranslate</span>
                 <span
                     v-if="versionDisplay !== null"
@@ -26,7 +26,7 @@
 
                 <UColorModeButton size="sm" />
             </div>
-        </header>
+        </AppBar>
 
         <div class="page">
             <div v-if="isLoading" class="placeholder">
@@ -60,6 +60,7 @@
 <script setup lang="ts">
     import { computed, ref } from "vue";
 
+    import AppBar from "@/components/common/AppBar.vue";
     import CreateNovelModal from "@/components/novels/CreateNovelModal.vue";
     import NovelRow from "@/components/novels/NovelRow.vue";
     import { useNovels } from "@/composables/useNovels";
@@ -88,14 +89,6 @@
         overflow: hidden;
 
         .bar {
-            flex: none;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            height: $chrome-height;
-            padding: 0 1rem;
-            border-bottom: 1px solid var(--ui-border);
-
             .title {
                 display: flex;
                 align-items: baseline;
@@ -113,10 +106,15 @@
                 color: var(--ui-text-dimmed);
             }
 
+            // AppBar's own bar leaves whatever gap the shared style sets between the title and this
+            // group - pushed to the far edge itself rather than by that gap, the same as it read
+            // before this bar became AppBar's, and the push holds regardless of whether the window
+            // controls sit after it too.
             .tools {
                 display: flex;
                 align-items: center;
                 gap: 0.25rem;
+                margin-left: auto;
             }
         }
 

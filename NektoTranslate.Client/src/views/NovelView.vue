@@ -1,6 +1,6 @@
 <template>
     <div class="novel">
-        <header class="bar">
+        <AppBar>
             <UButton
                 :to="{ name: 'library' }"
                 icon="i-material-symbols:arrow-back-rounded"
@@ -10,13 +10,17 @@
                 aria-label="Back to the library"
             />
 
-            <span class="title" :lang="scriptLangIf(novel?.title ?? '', scriptLang)">{{ novel?.title ?? "…" }}</span>
+            <span
+                class="title"
+                data-bar-text
+                :lang="scriptLangIf(novel?.title ?? '', scriptLang)"
+            >{{ novel?.title ?? "…" }}</span>
 
-            <span v-if="novel" class="pair">{{ novel.sourceLanguage }} to {{ novel.targetLanguage }}</span>
+            <span v-if="novel" class="pair" data-bar-text>{{ novel.sourceLanguage }} to {{ novel.targetLanguage }}</span>
 
-            <span class="spacer" />
+            <span class="spacer" data-bar-text />
 
-            <span v-if="rows.length > 0" class="counts">
+            <span v-if="rows.length > 0" class="counts" data-bar-text>
                 {{ formatCount(progress.translated) }} of {{ formatCount(progress.total) }} translated
             </span>
 
@@ -42,7 +46,7 @@
             />
 
             <UColorModeButton size="sm" />
-        </header>
+        </AppBar>
 
         <div class="actions">
             <UTabs v-model="tab" :items="tabs" variant="link" class="tabs" />
@@ -271,6 +275,7 @@
     import ChapterTable from "@/components/chapters/ChapterTable.vue";
     import DeleteChaptersModal from "@/components/chapters/DeleteChaptersModal.vue";
     import ChatPanel from "@/components/chat/ChatPanel.vue";
+    import AppBar from "@/components/common/AppBar.vue";
     import GlossaryList from "@/components/glossary/GlossaryList.vue";
     import ImportActionButton from "@/components/imports/ImportActionButton.vue";
     import JobHistory from "@/components/jobs/JobHistory.vue";
@@ -491,14 +496,6 @@
         overflow: hidden;
 
         .bar {
-            flex: none;
-            display: flex;
-            align-items: center;
-            gap: 0.875rem;
-            height: $chrome-height;
-            padding: 0 1rem 0 0.5rem;
-            border-bottom: 1px solid var(--ui-border);
-
             .title {
                 font-size: var(--nt-text-md);
                 color: var(--ui-text-highlighted);

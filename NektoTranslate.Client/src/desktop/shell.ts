@@ -42,23 +42,24 @@ export function parseDesktopShell(value: unknown): DesktopShell | null {
 }
 
 
-export interface DesktopChromeLayout {
-    barHeightPx: number;
-    controlsSide: "left" | "right" | "none";
+export type WindowControlStyle = "fluent" | "round" | "none";
+
+export interface DesktopBarLayout {
+    controlStyle: WindowControlStyle;
+    macInset: boolean;
 }
 
-// The other pure part of the contract: per platform, only the bar height and which side the
-// controls sit on ever change (macOS draws no controls of its own - the real traffic lights sit in
-// the reserved inset instead). Everything else about the bar is identical on all three, per the
-// design system's window-chrome reference.
-export function chromeLayoutFor(platform: DesktopPlatform): DesktopChromeLayout {
+// The one platform-dependent shape left in the bar once its height stopped varying (every screen's
+// own 48px, everywhere): which glyph set the caption buttons draw with, and whether the left edge
+// reserves room for the real traffic lights instead of drawing any of its own.
+export function barLayoutFor(platform: DesktopPlatform): DesktopBarLayout {
     switch (platform) {
         case "macos":
-            return { barHeightPx: 38, controlsSide: "none" };
+            return { controlStyle: "none", macInset: true };
         case "linux":
-            return { barHeightPx: 40, controlsSide: "right" };
+            return { controlStyle: "round", macInset: false };
         default:
-            return { barHeightPx: 32, controlsSide: "right" };
+            return { controlStyle: "fluent", macInset: false };
     }
 }
 
@@ -108,10 +109,11 @@ export interface UseDesktopShellResult {
     close: () => void;
 }
 
-// WindowChrome.vue's one way into the shell: the parsed contract, the two bits of window state it
-// cannot get from anywhere else, and the three actions its buttons call. A no-op everywhere but
-// inside the shell - every ref stays at its initial value and every action does nothing, the same
-// as the chrome component itself, which is never rendered when `desktopShell` is null.
+// AppBar's and WindowControls' one way into the shell: the parsed contract, the two bits of window
+// state neither can get from anywhere else, and the three actions the caption buttons call. A no-op
+// everywhere but inside the shell - every ref stays at its initial value and every action does
+// nothing, the same as the window controls themselves, which render nothing when `desktopShell` is
+// null.
 export function useDesktopShell(): UseDesktopShellResult {
     const isMaximized = ref(false);
     const isFullscreen = ref(false);
