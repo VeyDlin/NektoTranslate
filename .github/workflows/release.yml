@@ -72,8 +72,15 @@ jobs:
           VERSION="${{ steps.version.outputs.value }}"
           EXISTS=false
 
+          # A draft is a release job that died while uploading, not a release: it is removed here
+          # so this run can make the version properly. A published release means done.
           if gh release view "v$VERSION" >/dev/null 2>&1; then
-            EXISTS=true
+            if [ "$(gh release view "v$VERSION" --json isDraft --jq .isDraft)" = "true" ]; then
+              echo "v$VERSION exists only as an unfinished draft - removing it and releasing again"
+              gh release delete "v$VERSION" --yes --cleanup-tag
+            else
+              EXISTS=true
+            fi
           fi
 
           if git ls-remote --tags origin | grep -q "refs/tags/v$VERSION\$"; then
@@ -238,21 +245,28 @@ jobs:
 
           cat changelog.md
 
-      - name: Tag the release commit
-        shell: bash
-        run: |
-          VERSION="${{ needs.version.outputs.version }}"
-          git tag "v$VERSION" "${{ github.sha }}"
-          git push origin "v$VERSION"
-
+      # The tag is not pushed by hand: GitHub creates it at --target the moment the draft below is
+      # published, so a run that dies while uploading leaves a draft and no tag - and the next run's
+      # version job clears that draft and tries again, instead of finding a tag with no release
+      # behind it and concluding the version is done. Files are listed one by one because the
+      # downloaded artifacts keep the folder each glob was uploaded from (nsis/, msi/, deb/ ...), and
+      # a folder handed to gh is an upload error, not an upload.
       - name: Create the release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.version.outputs.version }}"
+          mapfile -t FILES < <(find artifacts -type f | sort)
+
+          printf 'Attaching:\n'
+          printf '  %s\n' "${FILES[@]}"
+
           gh release create "v$VERSION" \
+            --draft \
             --title "v$VERSION" \
             --notes-file changelog.md \
             --target "${{ github.sha }}" \
-            artifacts/*
+            "${FILES[@]}"
+
+          gh release edit "v$VERSION" --draft=false
