@@ -1,0 +1,15 @@
+{
+  "name": "nekto-translate-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tauri dev",
+    "build": "node scripts/publish-server.mjs && tauri build",
+    "icon": "tauri icon ../NektoTranslate.Client/public/favicon.svg",
+    "server:publish": "node scripts/publish-server.mjs"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4"
+  }
+}

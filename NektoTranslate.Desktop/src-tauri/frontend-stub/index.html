@@ -1,0 +1,17 @@
+<!doctype html>
+<!--
+  Never shown. The Tauri CLI requires build.frontendDist to point at a real folder even though this
+  shell has no bundled frontend of its own - the main window is created and navigated entirely from
+  Rust (see src/lib.rs) to either the spawned server or an attached one. This file exists only to
+  satisfy that requirement.
+
+  Named "frontend-stub" rather than the more usual "dist" so the repo's root .gitignore (which
+  ignores any "dist/" directory, not just the one at its own root) does not swallow it.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>NektoTranslate</title>
+  </head>
+  <body></body>
+</html>
