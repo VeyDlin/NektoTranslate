@@ -123,8 +123,11 @@ as reachable as it is from a terminal.
 
 The child's stdout and stderr go to `<data directory>/logs/server.log` (the previous run's file is
 kept as `server.previous.log` first); the shell never shows or inherits a console for it. The
-shell waits up to 60 seconds for `/api/health` to answer 200 before opening the window; on
-timeout, the child is killed and a native dialog names the log file.
+window opens at once, on a starting page bundled into the shell (`src-tauri/frontend-stub/index.html`)
+and painted behind with the client's own background for the system theme, so no frame of the
+launch is white; the server is started off the UI thread, and the window is navigated to it as soon
+as `/api/health` answers 200 - up to 60 seconds. On timeout, the child is killed and a native
+dialog names the log file.
 
 On any exit path - the window closing, or the shell quitting for any other reason - the child is
 killed. If the shell itself is killed without the chance to run that (a crash, a forced kill), the
