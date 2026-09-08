@@ -94,6 +94,16 @@ pub fn run() {
                 .title("NektoTranslate")
                 .inner_size(1280.0, 860.0)
                 .min_inner_size(900.0, 600.0)
+                // WebView2 draws the classic, always-visible Windows scrollbars unless told
+                // otherwise, while every Chromium browser on Windows 11 has moved to the thin
+                // overlay ones - and a page of prose shows the difference at once. The enable
+                // flags are WebView2's own opt-in for that overlay style; the disable list is
+                // what wry passes by default and has to be repeated here, because any argument
+                // given replaces that default set rather than adding to it. No-op elsewhere.
+                .additional_browser_args(
+                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
+                     --enable-features=msOverlayScrollbarWinStyle,msOverlayScrollbarWinStyleAnimation",
+                )
                 .initialization_script(FULLSCREEN_SCRIPT)
                 // Navigation is pinned to the server's own origin - SignalR, the SPA's
                 // client-side routes, all of it stays in this window. Anything else (a link out
