@@ -4,7 +4,7 @@
   "description": "Capability for the main window. The window's own content is the loopback server (spawned or attached), which is why the same grant also covers it as a remote origin - Tauri treats any origin other than its own bundled one as remote, port and all, even though it is really just this application talking to itself.",
   "windows": ["main"],
   "remote": {
-    "urls": ["http://127.0.0.1:*", "http://127.0.0.1:*/**"]
+    "urls": ["http://127.0.0.1:*", "http://127.0.0.1:*/**", "http://localhost:*", "http://localhost:*/**"]
   },
   "permissions": [
     "core:default",

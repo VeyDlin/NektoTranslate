@@ -55,7 +55,8 @@ ordinary server publish) - and then `tauri build`.
 On Windows the result is an NSIS installer at
 `src-tauri/target/release/bundle/nsis/NektoTranslate_<version>_x64-setup.exe` (an MSI is also
 produced alongside it, under `bundle/msi/`, since `tauri.conf.json`'s `bundle.targets` is `"all"`),
-and the plain executable at `src-tauri/target/release/nekto-translate-desktop.exe`. macOS and Linux
+and the plain executable at `src-tauri/target/release/NektoTranslate.exe`, which runs only beside
+the `server/` folder the build copies next to it - it is not a standalone download. macOS and Linux
 land under the matching `bundle/dmg`, `bundle/deb`, `bundle/rpm` and `bundle/appimage` folders.
 
 To build for a platform other than the current machine:

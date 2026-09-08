@@ -29,10 +29,11 @@ jobs:
           - os: windows-latest
             dotnet_rid: win-x64
             rust_target: ""
+            # The installers only: the bare executable beside them runs only next to the server
+            # folder the bundle carries as a resource, and attached on its own it would not start.
             bundle_glob: |
               NektoTranslate.Desktop/src-tauri/target/release/bundle/nsis/*.exe
               NektoTranslate.Desktop/src-tauri/target/release/bundle/msi/*.msi
-              NektoTranslate.Desktop/src-tauri/target/release/nekto-translate-desktop.exe
 
           - os: macos-latest
             dotnet_rid: osx-arm64
