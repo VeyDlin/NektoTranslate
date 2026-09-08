@@ -4,7 +4,7 @@ Read web novels in your language before anyone has translated them. NektoTransla
 from its site, translates it chapter by chapter with your own Claude subscription, and gives you a
 reader to follow along as the chapters land. Everything stays on your computer.
 
-![The reader, original and translation side by side](docs/screenshots/reader.png)
+![The reader, with its column and text settings open](.readme/1.png)
 
 - **Fetch from a site or paste a chapter.** Hundreds of novel sites are recognised out of the box.
 - **Translate like an editor, not a dictionary.** Every chapter is read once, translated a few
@@ -16,7 +16,12 @@ reader to follow along as the chapters land. Everything stays on your computer.
 - **Read while it works.** A chapter opens the moment it is finished, in a reader with the original
   beside it when you want it.
 
-![A book with its chapters](docs/screenshots/chapters.png)
+![A book with its chapters](.readme/2.png)
+
+Translating is one dialog: pick the chapters, set a spending ceiling if you want one, and go. The
+chapters open in the reader as they finish.
+
+![Starting a translation run](.readme/3.png)
 
 ## Get it
 
