@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using NektoTranslate.Common.Contracts;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Jobs.Enums;
+using NektoTranslate.Novels.Entities;
 using NektoTranslate.Parsing.Contracts;
 using NektoTranslate.Parsing.Entities;
 using NektoTranslate.Parsing.Enums;
@@ -86,6 +87,20 @@ public class ListingReader(
             listing.state = ListingState.Reading;
             listing.startedAt = DateTimeOffset.UtcNow;
             ClearStatus(listing);
+
+            // The book learns where it came from here, from the address the originals are actually
+            // read at, rather than asking for it a second time on the creation form. Only ever
+            // filled in, never overwritten: a person may have set it by hand in the book's settings.
+            if (kind == ImportKind.Originals) {
+                Novel? novel = await database.novels.FirstOrDefaultAsync(
+                    candidate => candidate.id == novelId,
+                    cancellationToken
+                );
+
+                if (novel is not null && string.IsNullOrWhiteSpace(novel.sourceUrl)) {
+                    novel.sourceUrl = url;
+                }
+            }
 
             await database.SaveChangesAsync(cancellationToken);
 

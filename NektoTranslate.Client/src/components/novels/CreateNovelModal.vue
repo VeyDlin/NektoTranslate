@@ -38,10 +38,9 @@
                     language name, so an unusual pair works as well as a common one.
                 </p>
 
-                <UFormField name="sourceUrl" label="Where it came from" hint="Optional">
-                    <UInput v-model="state.sourceUrl" placeholder="https://" />
-                </UFormField>
-
+                <!-- No "where it came from" here on purpose: the address is asked for again, and
+                     used, when chapters are imported from a site, and the book remembers it from
+                     there. Asking twice read as two different questions. -->
                 <UFormField
                     name="styleGuide"
                     label="Style notes"
@@ -90,7 +89,6 @@
         title: "",
         sourceLanguage: lastLanguages.value.sourceLanguage,
         targetLanguage: lastLanguages.value.targetLanguage,
-        sourceUrl: "",
         styleGuide: "",
     });
 
@@ -100,7 +98,6 @@
             title: state.title,
             sourceLanguage: state.sourceLanguage,
             targetLanguage: state.targetLanguage,
-            sourceUrl: state.sourceUrl || null,
             styleGuide: state.styleGuide || null,
         });
 

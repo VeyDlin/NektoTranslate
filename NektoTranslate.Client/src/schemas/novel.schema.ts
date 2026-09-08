@@ -8,7 +8,6 @@ export const createNovelSchema = z.object({
     title: z.string().min(1, "Give the novel a title").max(500),
     sourceLanguage: z.string().min(1, "Name the language it is written in").max(32),
     targetLanguage: z.string().min(1, "Name the language to translate into").max(32),
-    sourceUrl: z.union([z.string().url("That is not a valid URL"), z.literal("")]).optional(),
     styleGuide: z.string().max(4000).optional(),
 });
 
