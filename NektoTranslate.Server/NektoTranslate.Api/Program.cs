@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using NektoTranslate.Common.Data;
@@ -9,6 +11,13 @@ using NektoTranslate.Translation.Hubs;
 
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+
+// The console is the log. The framework's defaults also register the Windows Event Log, which would
+// copy every warning of a single-user desktop tool into the machine's Application log, and that
+// provider is the one that throws when the host fails to start and something still tries to log.
+builder.Logging.ClearProviders();
+builder.Logging.AddConsole();
+builder.Logging.AddDebug();
 
 // A single-user local application: the database, the downloaded browser and everything else this
 // process owns live beside the user's other application data, not in the build output, so they
@@ -77,6 +86,19 @@ builder.WebHost.UseUrls(serverUrl);
 
 WebApplication app = builder.Build();
 
+// Asked before the host starts, and before the migrations below touch the database: a second copy
+// started while the first is still up is the one startup failure a person is likely to meet, and
+// the framework's answer to it is a page of stack trace logged twice. One line, straight to the
+// console - the host's own loggers are not safe to use once its start has failed.
+if (!PortIsFree(serverUrl)) {
+    Console.Error.WriteLine(
+        $"{serverUrl} is already taken, most likely by another NektoTranslate. Stop it, or start this "
+        + "one with --ServerUrl=http://127.0.0.1:<another port>."
+    );
+
+    return 1;
+}
+
 using (IServiceScope scope = app.Services.CreateScope()) {
     scope.ServiceProvider.GetRequiredService<NektoDbContext>().Database.Migrate();
 }
@@ -141,3 +163,25 @@ app.MapControllers();
 app.MapHub<TranslationHub>("/hubs/translation");
 
 app.Run();
+
+return 0;
+
+
+// A bind-and-release on the exact address the host is about to take. There is a moment between
+// this and the real bind in which another process could still win the port, but that is a race
+// between two copies started in the same instant, not the case this guards against.
+static bool PortIsFree(string serverUrl) {
+    Uri address = new Uri(serverUrl);
+    IPAddress host = IPAddress.TryParse(address.Host, out IPAddress? parsed) ? parsed : IPAddress.Loopback;
+    TcpListener probe = new TcpListener(host, address.Port);
+
+    try {
+        probe.Start();
+
+        return true;
+    } catch (SocketException) {
+        return false;
+    } finally {
+        probe.Stop();
+    }
+}
