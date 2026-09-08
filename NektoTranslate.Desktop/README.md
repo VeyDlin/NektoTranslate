@@ -142,16 +142,25 @@ focuses the existing window instead of starting another (`tauri-plugin-single-in
 
 ## Window chrome
 
-The window is frameless on every platform and the client draws its own title bar
-(`WindowChrome.vue`, rendered above `.content` in `DefaultLayout.vue`) - a native bar in this
-application's palette looks bolted on. On macOS the *real* traffic lights are kept instead: the
-window is built with `title_bar_style(TitleBarStyle::Overlay)` and `hidden_title(true)`, so the
-lights stay with their native hover and click behaviour while the page's own content, including the
-bar it draws, extends underneath them. Windows and Linux get `decorations(false)` outright; Windows
-also gets `shadow(true)`, which is what keeps the DWM drop shadow, the rounded corners and the
-native resize behaviour on an undecorated window there. Linux loses its resize border entirely once
-undecorated, so a small initialization script (Linux only, alongside the fullscreen one below) turns
-an 8px zone along each edge and corner back into one, driving `startResizeDragging`.
+The window is frameless on every platform, and there is no separate title bar of the client's own -
+each screen's own 48px header (`<AppBar>`, wrapping the back button, title and whatever else that
+screen already puts there) *is* the window's title bar while running inside this shell. A native bar
+above it, repeating a wordmark the library screen already shows in its own header, read as two bars
+saying the same thing; folding the one into the other removes the repetition instead of restyling
+it. On macOS the *real* traffic lights are kept: the window is built with
+`title_bar_style(TitleBarStyle::Overlay)` and `hidden_title(true)`, so the lights stay with their
+native hover and click behaviour while the page's content, `AppBar` included, extends underneath
+them - `AppBar` leaves a 78px inset, flush with the bar's own left edge, for them. The overlay
+assumes a title bar as tall as the tallest one it has seen (38px, before this merge); now that the
+bar is 48px everywhere, `traffic_light_position(LogicalPosition::new(13.0, 18.0))` repositions the
+lights explicitly - x 13 is Apple's own left margin, y 18 centres the 12px lights in the new height.
+The bar's content past the inset stays left-aligned, the way the rest of the platforms read it, not
+centred the way a plain macOS title bar would. Windows and Linux get
+`decorations(false)` outright; Windows also gets `shadow(true)`, which is what keeps the DWM drop
+shadow, the rounded corners and the native resize behaviour on an undecorated window there. Linux
+loses its resize border entirely once undecorated, so a small initialization script (Linux only,
+alongside the fullscreen one below) turns an 8px zone along each edge and corner back into one,
+driving `startResizeDragging`.
 
 The whole contract between the shell and the client is one object, written onto the page by an
 initialization script before the client's own scripts run - the same mechanism the fullscreen script
@@ -162,23 +171,32 @@ window.__NEKTO_DESKTOP__ = { platform: "windows" | "macos" | "linux", version: "
 ```
 
 Its presence is what tells the client it is running inside this shell at all; a plain browser tab
-never sees it, and `WindowChrome.vue` renders nothing when it is absent. Double-click on the bar
-toggles maximize on every platform through Tauri's own drag-region handling
-(`data-tauri-drag-region` plus `core:window:allow-internal-toggle-maximize`) - nothing in the client
-listens for it by hand. The bar itself differs only in height, which side its controls sit on, and
-what they look like:
+never sees it, and `AppBar` renders no window controls when it is absent - every screen's header
+looks exactly as it does in a browser tab, one word for one word, one pixel for one pixel. Every
+`AppBar` carries `data-tauri-drag-region`, and double-click on it toggles maximize on every platform
+through Tauri's own drag-region handling (`core:window:allow-internal-toggle-maximize`) - nothing in
+the client listens for either by hand. A screen's own non-interactive bar content (titles, counts,
+the language pair) is marked `data-bar-text` so a mousedown there falls through to the header
+underneath rather than being swallowed by a span with nothing to do with it. The bar's height never
+changes - 48px everywhere, the same as it always was in a browser - and only the window controls
+after it differ per platform. On Windows they are pressed flush against the bar's own right and top
+edges with no gap of any kind - the header carries no padding of its own for this reason, the slot's
+content keeps its padding instead - so the window's own top-right corner pixel is part of the close
+button, the way it is on every native Windows window; Linux's round buttons keep a 6px exception to
+that rule on their trailing edge only, since a circle pressed exactly into the corner would read as
+clipped rather than placed:
 
-| Platform | Bar height | Controls                                    |
-| -------- | ---------- | -------------------------------------------- |
-| Windows  | 32px       | 46×32 square buttons, right; close hovers `#c42b1c` |
-| Linux    | 40px       | 26px round buttons, right, 8px gap           |
-| macOS    | 38px       | none - a 78px left inset for the real traffic lights |
+| Platform | Controls                                                          |
+| -------- | ------------------------------------------------------------------ |
+| Windows  | 46px-wide, full bar height, flush to the right and top edges, Segoe Fluent Icons glyphs; close hovers `#c42b1c` |
+| Linux    | 26px round buttons, 8px gap, 6px trailing padding, the app's own Material Symbols icons |
+| macOS    | none - the 78px inset above is where the real traffic lights sit   |
 
-The capability file grants exactly the window and event permissions the bar's own code calls:
-`allow-start-dragging` and `allow-internal-toggle-maximize` for the drag region itself,
-`allow-minimize` / `allow-toggle-maximize` / `allow-close` for its three buttons,
-`allow-is-maximized` / `allow-is-fullscreen` for the state its buttons render (`allow-is-maximized`
-paired with `event:allow-listen` / `allow-unlisten`, which `onResized` needs under the hood), and
+The capability file grants exactly the window and event permissions `AppBar` and `WindowControls`
+call: `allow-start-dragging` and `allow-internal-toggle-maximize` for the drag region itself,
+`allow-minimize` / `allow-toggle-maximize` / `allow-close` for the three buttons,
+`allow-is-maximized` / `allow-is-fullscreen` for the state they render (`allow-is-maximized` paired
+with `event:allow-listen` / `allow-unlisten`, which `onResized` needs under the hood), and
 `allow-start-resize-dragging` for the Linux-only resize script above.
 
 ## Next (not in this task)

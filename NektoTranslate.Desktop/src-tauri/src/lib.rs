@@ -13,9 +13,9 @@ use tauri_plugin_opener::OpenerExt;
 // exposes on this window (see capabilities/default.json for why that reaches a loopback origin at
 // all) - never the page's own script, which this never loads or depends on.
 //
-// The dispatched `nekto:fullscreen` event is the other half of that contract: it lets
-// WindowChrome.vue hide the bar the moment fullscreen changes, whichever side triggered it (this
-// key handler, or the OS's own fullscreen shortcut), without polling `isFullscreen()`.
+// The dispatched `nekto:fullscreen` event is the other half of that contract: it lets AppBar.vue
+// hide its window controls the moment fullscreen changes, whichever side triggered it (this key
+// handler, or the OS's own fullscreen shortcut), without polling `isFullscreen()`.
 const FULLSCREEN_SCRIPT: &str = r#"
 (function () {
   if (window.__NEKTO_FULLSCREEN_READY__) { return; }
@@ -94,11 +94,12 @@ const LINUX_RESIZE_SCRIPT: &str = r#"
 })();
 "#;
 
-// The whole contract between the shell and the client's own window chrome (WindowChrome.vue):
-// which platform this is, so the client can pick a bar height, a control side and a control shape,
-// and the shell's own crate version, shown nowhere yet but kept here rather than added later behind
-// its own round trip. Nothing else belongs on this object - nothing here proxies application
-// settings or anything the client can already reach through the server it is talking to anyway.
+// The whole contract between the shell and the client's own window chrome (AppBar.vue and
+// WindowControls.vue, folded into every screen's own header): which platform this is, so the
+// client can pick a control shape and, on macOS, leave room for the real traffic lights, and the
+// shell's own crate version, shown nowhere yet but kept here rather than added later behind its
+// own round trip. Nothing else belongs on this object - nothing here proxies application settings
+// or anything the client can already reach through the server it is talking to anyway.
 fn desktop_script() -> String {
     let platform = if cfg!(target_os = "macos") {
         "macos"
@@ -203,12 +204,16 @@ pub fn run() {
             // Frameless everywhere, so the client can draw its own bar (issue #21) - except macOS,
             // where the *real* traffic lights are kept: an overlay title bar with the title hidden
             // leaves them in place, with their native hover/click behaviour, while still letting the
-            // page's content extend underneath the bar the client draws.
+            // page's content extend underneath the bar the client draws. The client's bar is 48px on
+            // every platform now rather than the 38px this overlay used to assume, so the lights need
+            // repositioning to sit centred in that height rather than hugging its old, shorter top:
+            // x 13 keeps Apple's own left margin, y 18 centres the 12px lights in 48px.
             #[cfg(target_os = "macos")]
             let builder = builder
                 .decorations(true)
                 .title_bar_style(tauri::TitleBarStyle::Overlay)
-                .hidden_title(true);
+                .hidden_title(true)
+                .traffic_light_position(tauri::LogicalPosition::new(13.0, 18.0));
 
             // Windows still resizes and shows the DWM drop shadow and rounded corners on an
             // undecorated window natively - `shadow(true)` is what keeps that once `decorations`
