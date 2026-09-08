@@ -25,13 +25,27 @@ chapters open in the reader as they finish.
 
 ## Get it
 
-Download from the [latest release](https://github.com/VeyDlin/NektoTranslate/releases/latest):
+Open the [latest release](https://github.com/VeyDlin/NektoTranslate/releases/latest). It lists
+seven files; you need exactly one of them:
 
-| You are on | Download |
-|---|---|
-| Windows 10 or 11 | `NektoTranslate_<version>_x64-setup.exe` and run it |
-| Linux | `NektoTranslate_<version>_amd64.AppImage`, or the `.deb` / `.rpm` for your distribution |
-| macOS | No build yet - see *Run it without the window* below, or build from source |
+| You are on | Take this file | Then |
+|---|---|---|
+| **Windows** 10 or 11 | `NektoTranslate_<version>_x64-setup.exe` | Run it. Windows will warn that the publisher is unknown - the installer is not signed yet; choose *More info → Run anyway*. |
+| **Linux**, any distribution | `NektoTranslate_<version>_amd64.AppImage` | Make it executable (`chmod +x`, or right-click → Properties → Allow executing) and run it. Nothing to install. |
+| Ubuntu, Debian, Mint | `NektoTranslate_<version>_amd64.deb` | `sudo apt install ./NektoTranslate_<version>_amd64.deb`, then start NektoTranslate from the menu. |
+| Fedora, openSUSE | `NektoTranslate-<version>-1.x86_64.rpm` | `sudo dnf install ./NektoTranslate-<version>-1.x86_64.rpm`, then start it from the menu. |
+| **macOS** | Nothing yet | There is no macOS build so far - see *Build from source* below. |
+
+The other files on that page are not for most people:
+
+- `NektoTranslate_<version>_x64_en-US.msi` is the same Windows application as an MSI package, for
+  people who roll software out through Group Policy or Intune. If you do not know what that means,
+  take the `-setup.exe`.
+- `NektoTranslate.Server-win-x64.zip` and `NektoTranslate.Server-linux-x64.zip` are the application
+  without its window, for running it as a small local server and using it in a browser - see
+  *Run it without the window* below.
+
+Every file has a `sha256` printed under it on the release page, if you want to check a download.
 
 Nothing else needs installing, with one exception: translation runs through the
 [Claude Code](https://docs.claude.com/en/docs/claude-code) command-line tool on your own Claude
@@ -49,11 +63,11 @@ then run `claude` in a terminal and follow the login. NektoTranslate picks it up
 
 ## Run it without the window
 
-The same release page has `NektoTranslate.Server-win-x64.zip` and `NektoTranslate.Server-linux-x64.zip`:
-the whole application as a plain program you run and then open in a browser. Unzip it anywhere,
-start `NektoTranslate.Api` (`NektoTranslate.Api.exe` on Windows) and open the address it prints,
-`http://127.0.0.1:5080`. It needs nothing installed, listens only on your own machine, and keeps
-its data in:
+`NektoTranslate.Server-win-x64.zip` and `NektoTranslate.Server-linux-x64.zip` are the whole
+application as a plain program you run and then open in a browser - handy on a machine you reach
+remotely, or if you simply prefer your browser. Unzip it anywhere, start `NektoTranslate.Api`
+(`NektoTranslate.Api.exe` on Windows) and open the address it prints, `http://127.0.0.1:5080`. It
+needs nothing installed, listens only on your own machine, and keeps its data in:
 
 | | |
 |---|---|
@@ -64,7 +78,7 @@ its data in:
 Two flags cover the unusual cases: `--ServerUrl=http://127.0.0.1:5099` to use another port, and
 `--DataDirectory=<path>` to keep the library somewhere else, say on another drive.
 
-## For developers
+## Build from source
 
 The server is .NET 10 (ASP.NET Core, EF Core, SQLite) and serves a Vue 3 client from the same
 process; `NektoTranslate.Desktop` is a Tauri 2 shell that starts that server and shows it in a

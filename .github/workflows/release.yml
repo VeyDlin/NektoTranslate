@@ -233,7 +233,22 @@ jobs:
           VERSION="${{ needs.version.outputs.version }}"
           PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
 
+          # The release page lists seven files and people ask which one is theirs, so the answer
+          # comes first, above the changelog, on every release - the same answer the README gives.
           {
+            echo "## Which file is mine?"
+            echo
+            echo "| You are on | Take this file |"
+            echo "|---|---|"
+            echo "| **Windows** 10 or 11 | \`NektoTranslate_${VERSION}_x64-setup.exe\` - run it; if Windows warns about an unknown publisher, choose *More info → Run anyway* |"
+            echo "| **Linux**, any distribution | \`NektoTranslate_${VERSION}_amd64.AppImage\` - make it executable and run it |"
+            echo "| Ubuntu, Debian, Mint | \`NektoTranslate_${VERSION}_amd64.deb\` |"
+            echo "| Fedora, openSUSE | \`NektoTranslate-${VERSION}-1.x86_64.rpm\` |"
+            echo
+            echo "The \`.msi\` is the same Windows application for managed installs (Group Policy, Intune). The two \`NektoTranslate.Server-*.zip\` files are the application without its window, for use in a browser - most people do not need them. macOS has no build yet."
+            echo
+            echo "Translation runs through the Claude Code command-line tool on your own subscription: install it and sign in once - see the README."
+            echo
             echo "## v$VERSION"
             echo
             if [ -n "$PREVIOUS_TAG" ]; then
