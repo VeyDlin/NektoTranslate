@@ -62,3 +62,10 @@ this application owns live in:
 | Linux | `$XDG_DATA_HOME/NektoTranslate`, or `~/.local/share/NektoTranslate` if that is unset |
 
 Nothing here is opened in a browser automatically when the server starts.
+
+## Desktop
+
+`NektoTranslate.Desktop` wraps the server in an optional native window (Tauri 2) instead of a
+browser tab - it starts the server as a child process and stops it when the window closes, or
+attaches to one already running for development. It does not change anything about running the
+server on its own, above. See `NektoTranslate.Desktop/README.md` for how to run and build it.

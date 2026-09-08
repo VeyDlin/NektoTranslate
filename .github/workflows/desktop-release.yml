@@ -1,0 +1,118 @@
+# Builds the desktop shell for every platform and attaches the installers to a GitHub release.
+#
+# Uses softprops/action-gh-release rather than tauri-apps/tauri-action: tauri-action wants to own
+# the whole build (frontend install, `tauri build`, release creation) as one step, which fights
+# with the two-stage build this project needs - `scripts/publish-server.mjs` has to publish the
+# .NET server into src-tauri/server/ *before* `tauri build` runs, or bundle.resources has nothing
+# to bundle. softprops/action-gh-release only uploads files, so the custom build steps below stay
+# in full control and it just picks up what they produced.
+#
+# Every bundle here is unsigned, on every platform - Windows and macOS will both warn on first
+# run, and this workflow does nothing about it (no signing in this task; see the "Next" section of
+# NektoTranslate.Desktop/README.md).
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            dotnet_rid: win-x64
+            rust_target: ""
+            bundle_glob: |
+              NektoTranslate.Desktop/src-tauri/target/release/bundle/nsis/*.exe
+              NektoTranslate.Desktop/src-tauri/target/release/bundle/msi/*.msi
+              NektoTranslate.Desktop/src-tauri/target/release/nekto-translate-desktop.exe
+
+          - os: macos-latest
+            dotnet_rid: osx-arm64
+            rust_target: aarch64-apple-darwin
+            bundle_glob: |
+              NektoTranslate.Desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+
+          - os: macos-latest
+            dotnet_rid: osx-x64
+            rust_target: x86_64-apple-darwin
+            bundle_glob: |
+              NektoTranslate.Desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+
+          # ubuntu-latest as the contract asks for; note that Tauri's own docs recommend building
+          # on the oldest base you mean to support (e.g. ubuntu-22.04) since the glibc version a
+          # build picks up becomes the minimum a user's machine needs at run time.
+          - os: ubuntu-latest
+            dotnet_rid: linux-x64
+            rust_target: ""
+            bundle_glob: |
+              NektoTranslate.Desktop/src-tauri/target/release/bundle/deb/*.deb
+              NektoTranslate.Desktop/src-tauri/target/release/bundle/rpm/*.rpm
+              NektoTranslate.Desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine the version from the tag
+        id: version
+        shell: bash
+        run: echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Linux webview dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: npm ci (client)
+        working-directory: NektoTranslate.Client
+        run: npm ci
+
+      - name: npm ci (desktop)
+        working-directory: NektoTranslate.Desktop
+        run: npm ci
+
+      # NEKTO_BUILD_VERSION and NEKTO_RID reach scripts/publish-server.mjs (the first half of
+      # `npm run build`) through the environment rather than a CLI flag - npm appends trailing
+      # arguments to the *end* of that two-command script, which would land them on `tauri build`
+      # instead. `--target`, by contrast, genuinely belongs on `tauri build`, so it is passed that
+      # way; see NektoTranslate.Desktop/README.md for the same note.
+      - name: Build the desktop shell
+        working-directory: NektoTranslate.Desktop
+        shell: bash
+        env:
+          NEKTO_BUILD_VERSION: ${{ steps.version.outputs.value }}
+          NEKTO_RID: ${{ matrix.dotnet_rid }}
+        run: |
+          if [ -n "${{ matrix.rust_target }}" ]; then
+            npm run build -- --target ${{ matrix.rust_target }}
+          else
+            npm run build
+          fi
+
+      - name: Attach the bundles to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.bundle_glob }}
+          fail_on_unmatched_files: true
