@@ -9,6 +9,16 @@
 		<None Remove="logs\**" />
 	</ItemGroup>
 
+	<!--
+		The client build writes here on publish, below. It never exists during an ordinary "dotnet
+		build" or "dotnet test", so the default item glob below finds nothing then; excluded anyway
+		so a folder left over from an earlier publish is not swept into a Debug build.
+	-->
+	<ItemGroup>
+		<Content Remove="wwwroot\**" />
+		<None Remove="wwwroot\**" />
+	</ItemGroup>
+
 	<ItemGroup>
 		<ProjectReference Include="..\NektoTranslate.Core\NektoTranslate.Core.csproj" />
 	</ItemGroup>
@@ -36,5 +46,44 @@
 		  <PrivateAssets>all</PrivateAssets>
 		</PackageReference>
 	</ItemGroup>
+
+	<PropertyGroup>
+		<NektoClientDirectory>$(MSBuildThisFileDirectory)..\..\NektoTranslate.Client\</NektoClientDirectory>
+	</PropertyGroup>
+
+	<!--
+		The client compiles into wwwroot only on publish - running "npm ci" and a Vite build on
+		every "dotnet build" or "dotnet test" would slow down the two commands a working session
+		actually spends its time on, for a change that never touched the client. SkipClientBuild is
+		for the one case that still needs a publish without this: a wwwroot already built by hand.
+	-->
+	<Target Name="BuildClient" BeforeTargets="PrepareForPublish" Condition="'$(SkipClientBuild)' != 'true'">
+		<Exec Command="where npm" ContinueOnError="WarnAndContinue" StandardOutputImportance="Low" StandardErrorImportance="Low">
+			<Output TaskParameter="ExitCode" PropertyName="NektoNpmCheckExitCode" />
+		</Exec>
+
+		<Error
+			Condition="'$(NektoNpmCheckExitCode)' != '0'"
+			Text="Publishing needs Node's npm on PATH to build the client. Install Node.js, or publish with -p:SkipClientBuild=true after building the client by hand (npm run build in NektoTranslate.Client)." />
+
+		<Exec Command="npm ci" WorkingDirectory="$(NektoClientDirectory)" Condition="!Exists('$(NektoClientDirectory)node_modules')" />
+		<Exec Command="npm run build" WorkingDirectory="$(NektoClientDirectory)" />
+	</Target>
+
+	<!--
+		"Content Include" for wwwroot, further up this file, is evaluated once when the project
+		loads - before BuildClient above has written anything there on a first publish - so it
+		never sees these files. Adding them to ResolvedFileToPublish here instead, after that list
+		is computed and after the client has actually been built, is what gets them copied.
+	-->
+	<Target Name="IncludeClientBuildOutput" AfterTargets="ComputeFilesToPublish" DependsOnTargets="BuildClient">
+		<ItemGroup>
+			<NektoClientBuildFiles Include="wwwroot\**" Condition="Exists('wwwroot')" />
+			<ResolvedFileToPublish Include="@(NektoClientBuildFiles)" Exclude="@(ResolvedFileToPublish)">
+				<RelativePath>wwwroot\%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+				<CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+			</ResolvedFileToPublish>
+		</ItemGroup>
+	</Target>
 
 </Project>

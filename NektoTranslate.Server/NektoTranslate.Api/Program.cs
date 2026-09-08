@@ -90,8 +90,52 @@ startupLogger.LogInformation("Data directory: {DataDirectory}", dataPaths.root);
 startupLogger.LogInformation("Listening on {ServerUrl}", serverUrl);
 
 app.UseExceptionHandler();
+
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions {
+    OnPrepareResponse = context => {
+        // Vite hashes every file under assets/ by content, so the same URL never means two
+        // different files across a release - a long cache is free. Everything else, index.html
+        // included, keeps the same name release to release and has to be revalidated every time.
+        bool hashedAsset = context.Context.Request.Path.StartsWithSegments("/assets");
+
+        context.Context.Response.Headers.CacheControl = hashedAsset
+            ? "public, max-age=31536000, immutable"
+            : "no-cache";
+    }
+});
+
+// The client's own router owns paths like /novels/12/read/340 - there is no file by that name and
+// none was ever meant to exist on disk. Only a GET that reaches here with nothing above having
+// answered it, and that is not for /api or /hubs, is treated as one of those: an unmatched API
+// route or hub path still 404s exactly as it did before wwwroot existed, rather than getting the
+// page. Placed before the endpoints below so its `next()` wraps routing and their execution.
+app.Use(async (context, next) => {
+    await next(context);
+
+    bool unresolvedClientRoute = context.Response.StatusCode == StatusCodes.Status404NotFound
+        && !context.Response.HasStarted
+        && context.Request.Method == HttpMethods.Get
+        && !context.Request.Path.StartsWithSegments("/api")
+        && !context.Request.Path.StartsWithSegments("/hubs");
+
+    if (!unresolvedClientRoute) {
+        return;
+    }
+
+    string indexPath = Path.Combine(app.Environment.WebRootPath ?? string.Empty, "index.html");
+
+    if (!File.Exists(indexPath)) {
+        // A Debug run from the IDE has no wwwroot at all - nothing changes for it, and / still
+        // 404s exactly as it always has.
+        return;
+    }
+
+    context.Response.StatusCode = StatusCodes.Status200OK;
+    context.Response.ContentType = "text/html";
+    context.Response.Headers.CacheControl = "no-cache";
+    await context.Response.SendFileAsync(indexPath, context.RequestAborted);
+});
 
 app.MapControllers();
 app.MapHub<TranslationHub>("/hubs/translation");

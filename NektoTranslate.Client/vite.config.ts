@@ -87,6 +87,12 @@ export default defineConfig({
             "@": fileURLToPath(new URL("./src", import.meta.url)),
         },
     },
+    build: {
+        // Built straight into the server's own wwwroot, so a publish produces one deployable
+        // folder rather than a client build someone has to remember to copy into place.
+        outDir: "../NektoTranslate.Server/NektoTranslate.Api/wwwroot",
+        emptyOutDir: true,
+    },
     server: {
         port: 5173,
 

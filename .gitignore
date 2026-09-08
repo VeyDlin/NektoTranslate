@@ -15,6 +15,9 @@ obj/
 *.suo
 *.csproj.user
 
+# Client build, copied into the server on publish
+NektoTranslate.Server/NektoTranslate.Api/wwwroot/
+
 # IDE
 .vs/
 .vscode/
