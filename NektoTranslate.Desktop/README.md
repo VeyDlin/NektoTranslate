@@ -48,9 +48,12 @@ npm install
 npm run build
 ```
 
-This runs `scripts/publish-server.mjs` - a self-contained `dotnet publish` of `NektoTranslate.Api`
-for the current platform into `src-tauri/server/` (which also builds the client, the same as an
-ordinary server publish) - and then `tauri build`.
+This runs `scripts/sync-version.mjs` - stamps `tauri.conf.json`, `Cargo.toml` and this package's own
+`package.json` with the version read from `NektoTranslate.Server/Directory.Build.props`, the
+project's single source of truth (see the root README's Releases section) - then
+`scripts/publish-server.mjs`, a self-contained `dotnet publish` of `NektoTranslate.Api` for the
+current platform into `src-tauri/server/` (which also builds the client, the same as an ordinary
+server publish), and finally `tauri build`.
 
 On Windows the result is an NSIS installer at
 `src-tauri/target/release/bundle/nsis/NektoTranslate_<version>_x64-setup.exe` (an MSI is also
@@ -74,17 +77,17 @@ npx tauri build --target aarch64-apple-darwin
 `--rid` accepts `win-x64`, `osx-arm64`, `osx-x64` or `linux-x64`, and defaults to whatever the
 current machine is.
 
-To stamp a version - what CI does - set `NEKTO_BUILD_VERSION` before running `npm run build`; it
-reaches `-p:Version=` on the server publish. `tauri.conf.json`'s own `version` field is the shell's
-own version number (shown in the installer and the bundle's metadata) and is not derived from
-this - bump it by hand for a release, or template it the way CI's tag does.
+The version stamped everywhere - the server's own assembly version, and (via `sync-version.mjs`,
+above) `tauri.conf.json`'s `version` field shown in the installer and the bundle's metadata - comes
+from `NektoTranslate.Server/Directory.Build.props`. Bump that one value for a release; nothing here
+needs editing by hand. `NEKTO_BUILD_VERSION` overrides it for a single build without touching the
+committed files - CI does not use it for that reason, and normally nothing should.
 
 Passing a version straight through, as `npm run build -- -p:Version=1.2.3`, does **not** reach the
-server publish: npm appends trailing arguments to the end of the whole `publish-server.mjs &&
-tauri build` command line, so they land on `tauri build` instead of the first half. This is why the
-version (and, for cross-platform builds, the RID) travels through the environment instead -
-`--target`, by contrast, genuinely belongs on `tauri build`, and reaches it exactly that way in
-`.github/workflows/desktop-release.yml`.
+server publish: npm appends trailing arguments to the end of the whole `sync-version.mjs &&
+publish-server.mjs && tauri build` command line, so they land on `tauri build` instead of any of the
+first two. This is why `NEKTO_BUILD_VERSION` and `NEKTO_RID` travel through the environment instead,
+the way `.github/workflows/release.yml` sets them.
 
 ## Settings
 

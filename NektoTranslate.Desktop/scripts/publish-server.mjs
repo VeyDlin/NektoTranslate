@@ -5,7 +5,7 @@
 // The dotnet publish itself builds the client into wwwroot (NektoTranslate.Api.csproj's own
 // BuildClient target); nothing here duplicates that.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readdirSync, rmSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -15,6 +15,22 @@ const desktopRoot = join(here, "..");
 const repoRoot = join(desktopRoot, "..");
 const apiProject = join(repoRoot, "NektoTranslate.Server", "NektoTranslate.Api");
 const outputDirectory = join(desktopRoot, "src-tauri", "server");
+const directoryBuildProps = join(repoRoot, "NektoTranslate.Server", "Directory.Build.props");
+
+
+// Directory.Build.props is the single source of truth for the application's version (see
+// scripts/sync-version.mjs) - reading it here means a plain local `npm run build`, with nothing set
+// in the environment, stamps the exact version CI would.
+function versionFromDirectoryBuildProps() {
+    const contents = readFileSync(directoryBuildProps, "utf8");
+    const match = contents.match(/<Version>([^<]+)<\/Version>/);
+
+    if (match === null) {
+        throw new Error(`No <Version> element found in ${directoryBuildProps}`);
+    }
+
+    return match[1].trim();
+}
 
 
 // The RID this machine would publish for if nothing overrides it - matches the four platforms the
@@ -52,7 +68,7 @@ function parseOptions() {
         }
     }
 
-    return { rid: rid ?? currentRid(), version };
+    return { rid: rid ?? currentRid(), version: version ?? versionFromDirectoryBuildProps() };
 }
 
 

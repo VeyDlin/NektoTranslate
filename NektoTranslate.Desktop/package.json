@@ -2,12 +2,14 @@
   "name": "nekto-translate-desktop",
   "private": true,
   "version": "0.1.0",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "dev": "tauri dev",
-    "build": "node scripts/publish-server.mjs && tauri build",
+    "build": "node scripts/sync-version.mjs && node scripts/publish-server.mjs && tauri build",
     "icon": "tauri icon ../NektoTranslate.Client/public/favicon.svg",
-    "server:publish": "node scripts/publish-server.mjs"
+    "server:publish": "node scripts/publish-server.mjs",
+    "sync-version": "node scripts/sync-version.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4"
