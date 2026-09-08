@@ -4,5 +4,8 @@
         <LangVersion>14</LangVersion>
         <Nullable>enable</Nullable>
         <ImplicitUsings>enable</ImplicitUsings>
+        <!-- Overridable with -p:Version=1.2.3 from CI, which is what reaches InformationalVersion
+             and, through it, the health endpoint and the startup log line. -->
+        <Version>0.1.0</Version>
     </PropertyGroup>
 </Project>

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using System.Reflection;
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using NektoTranslate.Common.Data;
@@ -84,6 +85,22 @@ string serverUrl = builder.Configuration["ServerUrl"] ?? "http://127.0.0.1:5080"
 
 builder.WebHost.UseUrls(serverUrl);
 
+// A desktop shell that spawned this process passes its own pid so this one can notice when the
+// shell is gone and stop itself - the case that would otherwise leave a server running with no
+// window left to close it. Absent for every other way this process is started, so registration
+// below is conditional rather than part of every run.
+int? parentPid = int.TryParse(builder.Configuration["ParentPid"], out int parsedParentPid)
+    ? parsedParentPid
+    : null;
+
+if (parentPid is not null) {
+    builder.Services.AddHostedService(provider => new ParentWatchdog(
+        parentPid.Value,
+        provider.GetRequiredService<IHostApplicationLifetime>(),
+        provider.GetRequiredService<ILogger<ParentWatchdog>>()
+    ));
+}
+
 WebApplication app = builder.Build();
 
 // Asked before the host starts, and before the migrations below touch the database: a second copy
@@ -108,6 +125,12 @@ using (IServiceScope scope = app.Services.CreateScope()) {
 // they survive a production log level that otherwise drops almost everything below a warning.
 ILogger startupLogger = app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("NektoTranslate");
 
+string version = Assembly.GetEntryAssembly()
+    ?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+    ?.InformationalVersion
+    ?? "unknown";
+
+startupLogger.LogInformation("NektoTranslate {Version}", version);
 startupLogger.LogInformation("Data directory: {DataDirectory}", dataPaths.root);
 startupLogger.LogInformation("Listening on {ServerUrl}", serverUrl);
 
