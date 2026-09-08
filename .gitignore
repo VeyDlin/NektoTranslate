@@ -34,6 +34,12 @@ logs/
 
 # Claude Code session state
 .claude/
+# Other assistants' working files, should any ever appear here
+CLAUDE.md
+.mcp.json
+.cursor/
+.codex/
+.aider*
 
 # Reference repositories cloned for research only
 .temp/

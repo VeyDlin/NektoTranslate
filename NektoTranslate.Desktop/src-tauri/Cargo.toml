@@ -1,6 +1,6 @@
 [package]
 name = "nekto-translate-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "Desktop shell for NektoTranslate"
 license = "GPL-3.0-or-later"
 edition = "2021"
