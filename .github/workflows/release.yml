@@ -1,0 +1,258 @@
+# Cuts a release from `main` whenever the version in NektoTranslate.Server/Directory.Build.props -
+# the project's single source of truth - changes. Bumping that one line is the only action needed to
+# ship a release: no tag is pushed by hand, and no separate release-tagging workflow exists.
+#
+# version -> build -> release, in that order:
+#   - `version` reads the current version and decides whether it is already released. A push that
+#     did not change the version ends here, in a couple of seconds, with nothing else running.
+#   - `build` only runs for a version that is new. It builds the desktop installers and a standalone
+#     server zip for Windows and Linux (macOS is not in the matrix yet - no code-signing story exists
+#     for it, and an unsigned macOS build is close to unusable; add it later as its own matrix entry).
+#   - `release` only runs once every `build` leg has succeeded. It is the only job that creates the
+#     tag and the GitHub release, so a build failure leaves no tag and no release behind - the next
+#     push to `main` (even one that only retries the same version, via workflow_dispatch) tries again
+#     from a clean slate.
+#
+# The changelog is written straight into the release body, from `git log` between the previous tag
+# and this commit. It is deliberately not also committed to CHANGELOG.md in the repository: a commit
+# made by this workflow would itself be a push to `main`, and would either trigger the workflow again
+# for no reason (the version did not change) or, worse, race the next real release.
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Never cancelled: a release job that is half-uploaded must run to completion, not be cut off by
+  # the next push. The next push's `build` simply waits for this one to finish.
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    name: Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
+      exists: ${{ steps.exists.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Read the version from Directory.Build.props
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(grep -oP '(?<=<Version>)[^<]+' NektoTranslate.Server/Directory.Build.props)
+          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Keeps the desktop files (tauri.conf.json, Cargo.toml, Desktop/package.json) from ever
+      # drifting away from Directory.Build.props - see NektoTranslate.Desktop/scripts/sync-version.mjs.
+      - name: Check the desktop files are in sync
+        shell: bash
+        run: node NektoTranslate.Desktop/scripts/sync-version.mjs --check
+
+      # Two independent signals, either one enough: a release can exist for a tag that somehow never
+      # made it into a local fetch, and a tag can exist on its own if a previous run pushed one but
+      # failed before the release was created. Either way there is nothing safe to retry from here.
+      - name: Check whether this version is already released
+        id: exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          EXISTS=false
+
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            EXISTS=true
+          fi
+
+          if git ls-remote --tags origin | grep -q "refs/tags/v$VERSION\$"; then
+            EXISTS=true
+          fi
+
+          echo "value=$EXISTS" >> "$GITHUB_OUTPUT"
+
+      - name: Report
+        shell: bash
+        run: |
+          if [ "${{ steps.exists.outputs.value }}" = "true" ]; then
+            echo "v${{ steps.version.outputs.value }} already released, nothing to do"
+          else
+            echo "v${{ steps.version.outputs.value }} is new, building a release"
+          fi
+
+  build:
+    name: Build (${{ matrix.dotnet_rid }})
+    needs: version
+    if: needs.version.outputs.exists != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            dotnet_rid: win-x64
+            # The installers only: the bare executable beside them runs only next to the server
+            # folder the bundle carries as a resource, and attached on its own it would not start.
+            bundle_glob: |
+              NektoTranslate.Desktop/src-tauri/target/release/bundle/nsis/*.exe
+              NektoTranslate.Desktop/src-tauri/target/release/bundle/msi/*.msi
+
+          # 22.04 on purpose, not ubuntu-latest: the glibc a build links against becomes the oldest
+          # a user's machine can run, so building on the oldest base still supported keeps that floor
+          # as low as reasonably possible.
+          - os: ubuntu-22.04
+            dotnet_rid: linux-x64
+            bundle_glob: |
+              NektoTranslate.Desktop/src-tauri/target/release/bundle/deb/*.deb
+              NektoTranslate.Desktop/src-tauri/target/release/bundle/rpm/*.rpm
+              NektoTranslate.Desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux webview dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: npm ci (client)
+        working-directory: NektoTranslate.Client
+        run: npm ci
+
+      - name: npm ci (desktop)
+        working-directory: NektoTranslate.Desktop
+        run: npm ci
+
+      # NEKTO_BUILD_VERSION and NEKTO_RID reach scripts/publish-server.mjs (the first half of
+      # `npm run build`, after scripts/sync-version.mjs) through the environment rather than a CLI
+      # flag - npm appends trailing arguments to the *end* of that whole command chain, which would
+      # land them on `tauri build` instead. See NektoTranslate.Desktop/README.md for the same note.
+      - name: Build the desktop shell
+        working-directory: NektoTranslate.Desktop
+        shell: bash
+        env:
+          NEKTO_BUILD_VERSION: ${{ needs.version.outputs.version }}
+          NEKTO_RID: ${{ matrix.dotnet_rid }}
+        run: npm run build
+
+      - name: Upload the desktop bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundles-${{ matrix.dotnet_rid }}
+          path: ${{ matrix.bundle_glob }}
+          if-no-files-found: error
+
+      # The server on its own is a deliverable too - the same self-contained publish the root
+      # README documents by hand, now attached to the release as a ready-made zip. SkipClientBuild
+      # skips rebuilding the client a second time: the desktop shell build above already populated
+      # wwwroot with it.
+      - name: Publish the server on its own
+        shell: bash
+        run: |
+          dotnet publish NektoTranslate.Server/NektoTranslate.Api \
+            -c Release \
+            -r ${{ matrix.dotnet_rid }} \
+            --self-contained \
+            -o dist/${{ matrix.dotnet_rid }} \
+            -p:Version=${{ needs.version.outputs.version }} \
+            -p:SkipClientBuild=true
+
+      - name: Zip the server publish (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: Compress-Archive -Path "dist/${{ matrix.dotnet_rid }}/*" -DestinationPath "NektoTranslate.Server-${{ matrix.dotnet_rid }}.zip"
+
+      - name: Zip the server publish (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          cd "dist/${{ matrix.dotnet_rid }}"
+          zip -r "../../NektoTranslate.Server-${{ matrix.dotnet_rid }}.zip" .
+
+      - name: Upload the server zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.dotnet_rid }}
+          path: NektoTranslate.Server-${{ matrix.dotnet_rid }}.zip
+          if-no-files-found: error
+
+  release:
+    name: Release
+    needs: [version, build]
+    # `needs.build.result` is already implied by the default success() gate every job with `needs`
+    # carries, but is spelled out here so the condition that matters - every build leg succeeded, and
+    # this version is not already released - is readable without tracing the skip chain.
+    if: success() && needs.version.outputs.exists != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      # First lines only, newest first, merge commits skipped - a release note, not a raw log dump.
+      # No previous tag (the very first release) falls back to the whole history up to this commit.
+      - name: Build the changelog
+        shell: bash
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 2>/dev/null || true)
+
+          {
+            echo "## v$VERSION"
+            echo
+            if [ -n "$PREVIOUS_TAG" ]; then
+              git log "$PREVIOUS_TAG..${{ github.sha }}" --no-merges --pretty=format:"- %s"
+            else
+              git log "${{ github.sha }}" --no-merges --pretty=format:"- %s"
+            fi
+          } > changelog.md
+
+          cat changelog.md
+
+      - name: Tag the release commit
+        shell: bash
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          git tag "v$VERSION" "${{ github.sha }}"
+          git push origin "v$VERSION"
+
+      - name: Create the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          gh release create "v$VERSION" \
+            --title "v$VERSION" \
+            --notes-file changelog.md \
+            --target "${{ github.sha }}" \
+            artifacts/*
