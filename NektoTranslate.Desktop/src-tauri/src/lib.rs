@@ -12,6 +12,10 @@ use tauri_plugin_opener::OpenerExt;
 // It only reaches the DOM's own keydown source and the Tauri window API that `withGlobalTauri`
 // exposes on this window (see capabilities/default.json for why that reaches a loopback origin at
 // all) - never the page's own script, which this never loads or depends on.
+//
+// The dispatched `nekto:fullscreen` event is the other half of that contract: it lets
+// WindowChrome.vue hide the bar the moment fullscreen changes, whichever side triggered it (this
+// key handler, or the OS's own fullscreen shortcut), without polling `isFullscreen()`.
 const FULLSCREEN_SCRIPT: &str = r#"
 (function () {
   if (window.__NEKTO_FULLSCREEN_READY__) { return; }
@@ -25,6 +29,7 @@ const FULLSCREEN_SCRIPT: &str = r#"
     if (tauriWindow) {
       tauriWindow.getCurrentWindow().setFullscreen(next);
     }
+    window.dispatchEvent(new CustomEvent('nekto:fullscreen', { detail: { fullscreen: next } }));
   }
 
   window.addEventListener('keydown', function (event) {
@@ -37,6 +42,82 @@ const FULLSCREEN_SCRIPT: &str = r#"
   });
 })();
 "#;
+
+// Linux only: `.decorations(false)` leaves no window manager resize border at all there, unlike
+// Windows, which still resizes an undecorated window natively (see the `decorations` call in
+// `run` below). This turns an 8px zone along each edge and corner back into one, driving the same
+// `startResizeDragging` the OS border would otherwise call.
+//
+// Registered on the capture phase so it runs before the window plugin's own drag-region listener
+// (the one `data-tauri-drag-region` on the bar wires up) reaches document in the bubble phase, and
+// can claim the edge pixels even where the two zones overlap - the top corners, mainly, which sit
+// inside both the resize band and the bar.
+#[cfg(target_os = "linux")]
+const LINUX_RESIZE_SCRIPT: &str = r#"
+(function () {
+  if (window.__NEKTO_RESIZE_READY__) { return; }
+  window.__NEKTO_RESIZE_READY__ = true;
+
+  var EDGE_PX = 8;
+
+  function directionFor(x, y, width, height) {
+    var north = y <= EDGE_PX;
+    var south = y >= height - EDGE_PX;
+    var west = x <= EDGE_PX;
+    var east = x >= width - EDGE_PX;
+
+    if (north && west) { return 'NorthWest'; }
+    if (north && east) { return 'NorthEast'; }
+    if (south && west) { return 'SouthWest'; }
+    if (south && east) { return 'SouthEast'; }
+    if (north) { return 'North'; }
+    if (south) { return 'South'; }
+    if (west) { return 'West'; }
+    if (east) { return 'East'; }
+
+    return null;
+  }
+
+  document.addEventListener('mousedown', function (event) {
+    if (event.button !== 0) { return; }
+
+    var direction = directionFor(event.clientX, event.clientY, window.innerWidth, window.innerHeight);
+    if (direction === null) { return; }
+
+    var tauriWindow = window.__TAURI__ && window.__TAURI__.window;
+    if (!tauriWindow) { return; }
+
+    event.preventDefault();
+    event.stopPropagation();
+    tauriWindow.getCurrentWindow().startResizeDragging(direction);
+  }, true);
+})();
+"#;
+
+// The whole contract between the shell and the client's own window chrome (WindowChrome.vue):
+// which platform this is, so the client can pick a bar height, a control side and a control shape,
+// and the shell's own crate version, shown nowhere yet but kept here rather than added later behind
+// its own round trip. Nothing else belongs on this object - nothing here proxies application
+// settings or anything the client can already reach through the server it is talking to anyway.
+fn desktop_script() -> String {
+    let platform = if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "linux") {
+        "linux"
+    } else {
+        "windows"
+    };
+
+    format!(
+        r#"
+(function () {{
+  window.__NEKTO_DESKTOP__ = Object.freeze({{ platform: "{platform}", version: "{version}" }});
+}})();
+"#,
+        platform = platform,
+        version = env!("CARGO_PKG_VERSION"),
+    )
+}
 
 // The spawned server's child process, if this run spawned one. A Mutex<Option<..>> rather than a
 // plain field on some struct we would have to thread through every exit path by hand - Tauri state
@@ -72,7 +153,19 @@ pub fn run() {
             let _ = window.show();
             let _ = window.set_focus();
         }))
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Decorations are excluded from what this plugin restores: they are the per-platform
+        // window chrome's to own now, decided fresh in `setup` below every launch, and the plugin
+        // otherwise reapplies whatever was saved to disk on a previous run - including a `true`
+        // saved before this feature existed - which silently re-decorated the window after this
+        // crate had already built it frameless.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        .difference(tauri_plugin_window_state::StateFlags::DECORATIONS),
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_opener::init())
         .manage(ServerState(Mutex::new(None)))
         .setup(|app| {
@@ -90,7 +183,7 @@ pub fn run() {
             let origin = base_url.origin();
             let app_handle = app.handle().clone();
 
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(base_url))
+            let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(base_url))
                 .title("NektoTranslate")
                 .inner_size(1280.0, 860.0)
                 .min_inner_size(900.0, 600.0)
@@ -104,7 +197,33 @@ pub fn run() {
                     "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection \
                      --enable-features=msOverlayScrollbarWinStyle,msOverlayScrollbarWinStyleAnimation",
                 )
-                .initialization_script(FULLSCREEN_SCRIPT)
+                .initialization_script(desktop_script())
+                .initialization_script(FULLSCREEN_SCRIPT);
+
+            // Frameless everywhere, so the client can draw its own bar (issue #21) - except macOS,
+            // where the *real* traffic lights are kept: an overlay title bar with the title hidden
+            // leaves them in place, with their native hover/click behaviour, while still letting the
+            // page's content extend underneath the bar the client draws.
+            #[cfg(target_os = "macos")]
+            let builder = builder
+                .decorations(true)
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true);
+
+            // Windows still resizes and shows the DWM drop shadow and rounded corners on an
+            // undecorated window natively - `shadow(true)` is what keeps that once `decorations`
+            // turns the native frame off.
+            #[cfg(target_os = "windows")]
+            let builder = builder.decorations(false).shadow(true);
+
+            // Unlike Windows, an undecorated window on Linux loses its resize border entirely, so
+            // LINUX_RESIZE_SCRIPT stands in for it.
+            #[cfg(target_os = "linux")]
+            let builder = builder
+                .decorations(false)
+                .initialization_script(LINUX_RESIZE_SCRIPT);
+
+            builder
                 // Navigation is pinned to the server's own origin - SignalR, the SPA's
                 // client-side routes, all of it stays in this window. Anything else (a link out
                 // to a source site the user is importing from, say) opens in the system browser
