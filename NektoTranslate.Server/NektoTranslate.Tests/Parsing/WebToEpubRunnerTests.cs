@@ -27,7 +27,7 @@ public class WebToEpubRunnerTests(ITestOutputHelper output) {
             return;
         }
 
-        await using PlaywrightBrowserSession session = new PlaywrightBrowserSession();
+        await using PlaywrightBrowserSession session = BuildSession();
         WebToEpubRunner runner = BuildRunner(session);
 
         ParserDiagnostics diagnostics = await runner.ProbeAsync(CancellationToken.None);
@@ -53,7 +53,7 @@ public class WebToEpubRunnerTests(ITestOutputHelper output) {
             return;
         }
 
-        await using PlaywrightBrowserSession session = new PlaywrightBrowserSession();
+        await using PlaywrightBrowserSession session = BuildSession();
         WebToEpubRunner runner = BuildRunner(session);
 
         bool supported = await runner.IsSupportedAsync(url, CancellationToken.None);
@@ -68,7 +68,7 @@ public class WebToEpubRunnerTests(ITestOutputHelper output) {
             return;
         }
 
-        await using PlaywrightBrowserSession session = new PlaywrightBrowserSession();
+        await using PlaywrightBrowserSession session = BuildSession();
         WebToEpubRunner runner = BuildRunner(session);
 
         string? parser = await runner.ParserNameAsync(
@@ -79,6 +79,21 @@ public class WebToEpubRunnerTests(ITestOutputHelper output) {
         output.WriteLine($"matched parser: {parser ?? "<none>"}");
 
         Assert.Null(parser);
+    }
+
+
+    // A folder under the temp directory rather than a developer's own Playwright cache, so this
+    // test cannot make the browser session point PLAYWRIGHT_BROWSERS_PATH somewhere unexpected -
+    // an empty folder just means the first run installs Chromium into it, exactly as it would on
+    // a fresh machine.
+    private static PlaywrightBrowserSession BuildSession() {
+        string root = Path.Combine(Path.GetTempPath(), "NektoTranslateTests");
+
+        return new PlaywrightBrowserSession(
+            Path.Combine(root, "browsers"),
+            Path.Combine(root, "browserState.json"),
+            NullLogger<PlaywrightBrowserSession>.Instance
+        );
     }
 
 

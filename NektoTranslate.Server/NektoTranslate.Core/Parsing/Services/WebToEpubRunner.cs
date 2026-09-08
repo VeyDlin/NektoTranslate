@@ -182,8 +182,36 @@ public class WebToEpubRunner(
 
             logger.LogDebug("Fetch fallback wiring on {Url}: {Wiring}", url, wiring);
 
-            return await work(page);
+            try {
+                return await work(page);
+            }
+            finally {
+                // Whatever the site set - a login, a cookie wall it cleared for a returning
+                // visitor - is worth keeping regardless of whether the parse itself succeeded, so
+                // this runs in `finally` rather than only on the way out of a successful parse.
+                await TrySaveStorageStateAsync(context, url, cancellationToken);
+            }
         }, cancellationToken);
+    }
+
+
+    // Best-effort by design - see IBrowserSession.SaveStorageStateAsync. A failed save must not
+    // turn a successful parse into a failed one, so it is logged and swallowed here rather than
+    // left to propagate out of the `finally` above and replace whatever `work` itself threw.
+    private async Task TrySaveStorageStateAsync(
+        IBrowserContext context,
+        string url,
+        CancellationToken cancellationToken
+    ) {
+        try {
+            await session.SaveStorageStateAsync(context, cancellationToken);
+        }
+        catch (OperationCanceledException) {
+            throw;
+        }
+        catch (Exception failure) {
+            logger.LogDebug(failure, "Could not save browser storage state after {Url}", url);
+        }
     }
 
 

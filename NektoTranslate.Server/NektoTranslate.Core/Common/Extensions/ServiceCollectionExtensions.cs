@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using NektoTranslate.Chapters.Services;
 using NektoTranslate.Chat.Services;
 using NektoTranslate.Common.Data;
 using NektoTranslate.Common.Models;
+using NektoTranslate.Common.Services;
 using NektoTranslate.Common.Tools;
 using NektoTranslate.Glossary.Services;
 using NektoTranslate.Glossary.Tools;
@@ -26,13 +28,13 @@ public static class ServiceCollectionExtensions {
     // local model or raising the output ceiling takes effect without a restart.
     public static IServiceCollection AddNektoTranslate(
         this IServiceCollection services,
-        string databasePath,
+        DataPaths.Layout dataPaths,
         string parserDirectory,
         EngineOptions? engine = null
     ) {
         services.AddSingleton(engine ?? new EngineOptions());
 
-        services.AddDbContext<NektoDbContext>(options => options.UseSqlite($"Data Source={databasePath}"));
+        services.AddDbContext<NektoDbContext>(options => options.UseSqlite($"Data Source={dataPaths.database}"));
 
         services.AddScoped<ISettingsService, SettingsService>();
 
@@ -107,7 +109,11 @@ public static class ServiceCollectionExtensions {
         // Site parsing. The browser is expensive to launch and stateless between novels, so one is
         // shared for the life of the application. Everything above it is scoped, because the parser
         // set depends on the user's stored edits and so has to be read per request.
-        services.AddSingleton<IBrowserSession, PlaywrightBrowserSession>();
+        services.AddSingleton<IBrowserSession>(provider => new PlaywrightBrowserSession(
+            dataPaths.browsers,
+            dataPaths.browserState,
+            provider.GetRequiredService<ILogger<PlaywrightBrowserSession>>()
+        ));
         // Singleton, and it has to be: limits shared by nothing are not limits. Two scoped
         // schedulers would each allow the full quota and the site would see twice the traffic.
         services.AddSingleton<IPageScheduler, PageScheduler>();
