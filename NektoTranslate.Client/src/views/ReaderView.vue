@@ -156,8 +156,8 @@
 
 <script setup lang="ts">
     import type { ReaderMode } from "@/stores/reader.store";
-    import { onKeyStroke, useEventListener } from "@vueuse/core";
-    import { computed, ref, watch } from "vue";
+    import { onKeyStroke, useEventListener, useThrottleFn } from "@vueuse/core";
+    import { computed, nextTick, ref, watch } from "vue";
 
     import { useRouter } from "vue-router";
     import AppBar from "@/components/common/AppBar.vue";
@@ -226,6 +226,43 @@
         return (barRef.value?.$el as HTMLElement | undefined)?.offsetHeight ?? 0;
     }
 
+    // Where in the chapter the reader is: the paragraph at the top of the pane, below the bar when
+    // the bar is showing. Both columns of the bilingual view number their paragraphs the same way,
+    // one segment each, so a position read from either column restores in both.
+    function paragraphsOf(pane: HTMLElement): HTMLElement[] {
+        const prose = pane.querySelector(".prose.column");
+
+        if (prose === null) {
+            return [];
+        }
+
+        return Array.from(prose.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
+    }
+
+
+    function topParagraphIndex(pane: HTMLElement): number {
+        const paragraphs = paragraphsOf(pane);
+        const visibleTop = pane.getBoundingClientRect().top + (barAway.value ? 0 : barHeight());
+
+        for (let index = 0; index < paragraphs.length; index++) {
+            if (paragraphs[index].getBoundingClientRect().bottom > visibleTop + 1) {
+                return index;
+            }
+        }
+
+        return Math.max(0, paragraphs.length - 1);
+    }
+
+
+    // Throttled, not debounced: a long read has to leave a trail even while the wheel never rests,
+    // and a few hundred milliseconds of staleness is nothing next to closing the window mid-scroll.
+    const rememberParagraph = useThrottleFn((pane: HTMLElement) => {
+        if (chapter.value !== null) {
+            progress.recordBlock(id.value, chapter.value.id, topParagraphIndex(pane));
+        }
+    }, 300, true);
+
+
     useEventListener(panesRef, "scroll", (event: Event) => {
         const pane = event.target;
 
@@ -233,10 +270,18 @@
             return;
         }
 
-        const previous = lastScrollTop.get(pane) ?? 0;
+        const previous = lastScrollTop.get(pane);
         const current = pane.scrollTop;
 
         lastScrollTop.set(pane, current);
+        rememberParagraph(pane);
+
+        // The first event a pane ever sends is a position, not a direction: a jump the browser or
+        // the restore below made lands here with no earlier value to compare against, and reading
+        // it as "scrolled down" would take the bar away over lines the reader has not yet seen.
+        if (previous === undefined) {
+            return;
+        }
 
         if (current <= barHeight()) {
             barAway.value = false;
@@ -365,6 +410,58 @@
             }
         },
         { immediate: true },
+    );
+
+
+    // Back to the paragraph the reader left, once per chapter, as soon as its prose is in the DOM.
+    // The jump is written into lastScrollTop first so the scroll it causes does not read as the
+    // reader scrolling down, which would take the bar away over the opening lines.
+    const restoredFor = ref<number | null>(null);
+
+    watch(
+        [chapterKey, shownHtml, sourceHtml, effectiveMode],
+        async () => {
+            const current = chapter.value;
+
+            if (current === null || restoredFor.value === current.id) {
+                return;
+            }
+
+            if (shownHtml.value === "" && sourceHtml.value === "") {
+                return;
+            }
+
+            const saved = progress.positionFor(id.value);
+            const block = saved !== null && saved.chapterId === current.id ? saved.block ?? 0 : 0;
+
+            // The prose font arrives after the first paint on a cold load, and every paragraph
+            // above the target changes height with it - measured before that, the position lands a
+            // paragraph off. fonts.ready resolves at once when the font is already there.
+            await nextTick();
+            await document.fonts.ready;
+            restoredFor.value = current.id;
+
+            if (block === 0 || panesRef.value === null) {
+                return;
+            }
+
+            for (const pane of Array.from(panesRef.value.querySelectorAll<HTMLElement>(".pane"))) {
+                const target = paragraphsOf(pane)[block];
+
+                if (target === undefined) {
+                    continue;
+                }
+
+                const top = target.getBoundingClientRect().top
+                    - pane.getBoundingClientRect().top
+                    + pane.scrollTop
+                    - barHeight();
+
+                lastScrollTop.set(pane, top);
+                pane.scrollTop = top;
+            }
+        },
+        { flush: "post" },
     );
 
 

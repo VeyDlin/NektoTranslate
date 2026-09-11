@@ -18,6 +18,22 @@
                 <span class="pulse" />
                 Running
             </span>
+
+            <!-- Where this reader stopped, straight from the shelf - the row itself still opens the
+                 book's chapter list, so this is a second target inside it rather than a nested
+                 link, which HTML does not allow: it stops the row's own navigation and goes to the
+                 reader instead. -->
+            <span
+                v-if="resume !== null"
+                class="continue"
+                role="link"
+                tabindex="0"
+                @click.prevent.stop="continueReading"
+                @keydown.enter.prevent.stop="continueReading"
+            >
+                <UIcon name="i-material-symbols:book-ribbon-outline-rounded" class="mark" />
+                Continue chapter {{ chapterNumber(resume.index) }}
+            </span>
         </span>
 
         <UProgress
@@ -36,18 +52,36 @@
     import type { NovelListItem } from "@/types/models/domain";
     import { computed } from "vue";
 
-    import { RouterLink } from "vue-router";
-    import { formatCount } from "@/utils/format";
+    import { RouterLink, useRouter } from "vue-router";
+    import { useProgressStore } from "@/stores/progress.store";
+    import { chapterNumber, formatCount } from "@/utils/format";
     import { scriptLangFor, scriptLangIf } from "@/utils/language";
 
 
     const props = defineProps<{ novel: NovelListItem }>();
 
+    const router = useRouter();
+    const progress = useProgressStore();
+
     const scriptLang = computed(() => scriptLangFor(props.novel.sourceLanguage));
+
+    const resume = computed(() => progress.positionFor(props.novel.id));
 
 
     function progressLabel(value: number | null | undefined, max: number): string {
         return `${formatCount(value ?? 0)} of ${formatCount(max)} chapters translated`;
+    }
+
+
+    function continueReading(): void {
+        if (resume.value === null) {
+            return;
+        }
+
+        void router.push({
+            name: "reader",
+            params: { novelId: props.novel.id, chapterId: resume.value.chapterId },
+        });
     }
 </script>
 
@@ -95,6 +129,25 @@
                     border-radius: 50%;
                     background: var(--ui-primary);
                     animation: pulse 1.4s ease-in-out infinite;
+                }
+            }
+
+            .continue {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.375rem;
+                color: var(--ui-primary);
+                cursor: pointer;
+
+                &:hover,
+                &:focus-visible {
+                    text-decoration: underline;
+                    text-underline-offset: 0.2em;
+                }
+
+                .mark {
+                    width: 1rem;
+                    height: 1rem;
                 }
             }
         }
