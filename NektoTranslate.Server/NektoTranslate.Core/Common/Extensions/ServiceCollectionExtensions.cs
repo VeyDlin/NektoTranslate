@@ -12,6 +12,7 @@ using NektoTranslate.Glossary.Tools;
 using NektoTranslate.Jobs.Services;
 using NektoTranslate.Parsing.Services;
 using NektoTranslate.Settings.Services;
+using NektoTranslate.System.Services;
 using NektoTranslate.Translation.Checks;
 using NektoTranslate.Translation.Contracts;
 using NektoTranslate.Translation.Services;
@@ -44,6 +45,10 @@ public static class ServiceCollectionExtensions {
 
         services.AddHttpClient();
         services.AddScoped<IModelCatalog, ModelCatalog>();
+
+        // Singleton: the six-hour cache it keeps is exactly the state a scoped instance would
+        // discard and rebuild on every request, defeating the point of caching at all.
+        services.AddSingleton<IReleaseChecker, GitHubReleaseChecker>();
 
         services.AddSingleton<IChapterHtmlSanitizer, ChapterHtmlSanitizer>();
         services.AddSingleton<IChapterSegmenter, ChapterSegmenter>();
