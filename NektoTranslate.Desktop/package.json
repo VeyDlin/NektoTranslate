@@ -9,7 +9,9 @@
     "build": "node scripts/sync-version.mjs && node scripts/publish-server.mjs && tauri build",
     "icon": "tauri icon ../NektoTranslate.Client/public/favicon.svg",
     "server:publish": "node scripts/publish-server.mjs",
-    "sync-version": "node scripts/sync-version.mjs"
+    "sync-version": "node scripts/sync-version.mjs",
+    "latest-json": "node scripts/latest-json.mjs",
+    "test": "node --test scripts/*.test.mjs"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4"
