@@ -114,10 +114,15 @@
     });
 
     // Shell only: update_check is a Tauri command, not an HTTP endpoint, so there is no query to
-    // poll here - a plain interval does the same six-hour job the contract asks for.
+    // poll here - a plain interval does the six-hour job. This component is mounted by every
+    // screen's AppBar, so the store, not the mount, decides whether it is time to ask again.
     let pollHandle: ReturnType<typeof setInterval> | null = null;
 
     async function pollShell(): Promise<void> {
+        if (!update.shouldCheck(SIX_HOURS_MS)) {
+            return;
+        }
+
         const available = await checkForUpdate();
 
         if (available !== null) {
@@ -140,20 +145,12 @@
         }
     });
 
-    // *Later* was clicked - local to this component (always mounted for the life of the window)
-    // rather than the store, since nothing else needs to know about it; a real restart is what
-    // clears it, and a real restart is a fresh mount of everything.
-    const laterDismissed = ref(false);
-
-    // Whether the running download ever reported a content length - kept apart from the store's own
-    // `progress` (always a plain 0..1 fraction) so the percentage label can tell "0%, just started"
-    // from "unknown, do not show a number" without adding a field the contract does not ask for.
-    const totalBytes = ref<number | null>(null);
-
     const installing = ref(false);
 
+    // A percentage only once the download has reported a content length; before that, or with none
+    // at all, the bar alone says "moving" and the number would say nothing true.
     const percentLabel = computed(() => {
-        if (update.state !== "downloading" || totalBytes.value === null) {
+        if (update.state !== "downloading" || update.total === null) {
             return null;
         }
 
@@ -161,7 +158,7 @@
     });
 
     const showBanner = computed(() => (
-        !laterDismissed.value
+        !update.laterDismissed
         && (update.state === "available" || update.state === "downloading" || (update.state === "ready" && update.deferred))
     ));
 
@@ -177,11 +174,9 @@
 
     async function startUpdate(): Promise<void> {
         update.startDownload();
-        totalBytes.value = null;
 
         try {
             const result = await downloadUpdate((progress) => {
-                totalBytes.value = progress.total;
                 update.setProgress(progress.downloaded, progress.total);
             });
 
@@ -220,7 +215,7 @@
 
 
     function dismissLater(): void {
-        laterDismissed.value = true;
+        update.dismissLater();
     }
 
 
@@ -234,10 +229,12 @@
 </script>
 
 <style scoped lang="scss">
+    // Drawn as the second row of AppBar, whose own bottom border closes the whole thing - so this
+    // only needs a line above it, between the bar and itself.
     .banner {
         position: relative;
         flex: none;
-        border-bottom: 1px solid var(--ui-border);
+        border-top: 1px solid var(--ui-border);
         background: var(--ui-bg-elevated);
 
         .row {

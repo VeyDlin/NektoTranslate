@@ -1,13 +1,5 @@
 <template>
     <div class="shell">
-        <!-- Above every screen's own AppBar, not below it: AppBar is rendered inside whatever
-             RouterView returns (each screen owns its own), so this layout has no structural way to
-             sit between that bar and a screen's body without either editing all ten screens or
-             turning AppBar into a multi-root component - which would break ReaderView's own
-             `:class="{ away: barAway }"` attrs fallthrough onto it. Still normal flow, so it moves
-             every screen down by its own height rather than covering anything. -->
-        <UpdateBanner />
-
         <main class="content">
             <RouterView />
         </main>
@@ -21,7 +13,6 @@
     import { RouterView, useRoute } from "vue-router";
 
     import RunStrip from "@/components/common/RunStrip.vue";
-    import UpdateBanner from "@/components/common/UpdateBanner.vue";
     import { useTranslationStream } from "@/composables/useTranslationStream";
 
 

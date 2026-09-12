@@ -1,24 +1,35 @@
 <template>
     <header class="bar" v-bind="dragAttrs">
-        <!-- No content of ours in this inset: the real traffic lights are drawn by the OS itself,
-             over the overlay title bar the shell builds the window with. Flush to the bar's own
-             left edge - nothing, including this component's own padding, sits before it. -->
-        <span v-if="layout?.macInset" class="mac-inset" data-tauri-drag-region />
+        <!-- The bar proper, one row: everything that was the whole header before the update banner
+             found its place under it. Inside the shell this row is the window's top edge, so the
+             caption buttons stay flush with the corner whatever appears below. -->
+        <div class="row" v-bind="dragAttrs">
+            <!-- No content of ours in this inset: the real traffic lights are drawn by the OS itself,
+                 over the overlay title bar the shell builds the window with. Flush to the bar's own
+                 left edge - nothing, including this component's own padding, sits before it. -->
+            <span v-if="layout?.macInset" class="mac-inset" data-tauri-drag-region />
 
-        <!-- The slot's own padded, gapped row - kept apart from the header so the window controls
-             can sit flush against the header's true right and top edges with no padding of the
-             header's own in the way (a browser never renders any, so this is invisible there). -->
-        <div class="slot" :class="{ 'no-back': noBack, 'desktop': desktopShell !== null }" v-bind="dragAttrs">
-            <slot />
+            <!-- The slot's own padded, gapped row - kept apart from the header so the window controls
+                 can sit flush against the header's true right and top edges with no padding of the
+                 header's own in the way (a browser never renders any, so this is invisible there). -->
+            <div class="slot" :class="{ 'no-back': noBack, 'desktop': desktopShell !== null }" v-bind="dragAttrs">
+                <slot />
+            </div>
+
+            <WindowControls v-if="desktopShell !== null && !isFullscreen" />
         </div>
 
-        <WindowControls v-if="desktopShell !== null && !isFullscreen" />
+        <!-- Under the bar, on every screen, because every screen renders this component: the one
+             place a line about a new version can sit without a layout above the screens having to
+             reach between a screen's bar and its body. Renders nothing while there is no update. -->
+        <UpdateBanner />
     </header>
 </template>
 
 <script setup lang="ts">
     import { computed } from "vue";
 
+    import UpdateBanner from "@/components/common/UpdateBanner.vue";
     import WindowControls from "@/components/common/WindowControls.vue";
     import { barLayoutFor, useDesktopShell } from "@/desktop/shell";
 
@@ -56,9 +67,14 @@
     .bar {
         flex: none;
         display: flex;
-        align-items: center;
-        height: $chrome-height;
+        flex-direction: column;
         border-bottom: 1px solid var(--ui-border);
+
+        .row {
+            display: flex;
+            align-items: center;
+            height: $chrome-height;
+        }
 
         // macOS reserves 78px on the left for the real traffic lights.
         .mac-inset {
