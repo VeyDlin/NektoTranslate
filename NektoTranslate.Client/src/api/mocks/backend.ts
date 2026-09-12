@@ -155,6 +155,14 @@ export class MockBackend {
         }
 
 
+        // Never newer: mock mode has no GitHub release to check, and nothing here simulates one —
+        // there is no download or install to exercise against a mock backend either way, only the
+        // real shell (see src/desktop/updates.ts) or a real server can offer either.
+        if (segments[1] === "system" && segments[2] === "update" && method === "GET") {
+            return { current: "0.0.0-mock", latest: null, isNewer: false, url: null, publishedAt: null, checked: false };
+        }
+
+
         if (segments[1] === "settings") {
             if (method === "GET") {
                 return { ...this.seed.settings };

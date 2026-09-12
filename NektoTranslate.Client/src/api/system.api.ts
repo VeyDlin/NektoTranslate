@@ -1,4 +1,4 @@
-import type { HealthStatus } from "@/types/models/domain";
+import type { HealthStatus, UpdateAvailability } from "@/types/models/domain";
 
 import { apiClient } from "./client";
 
@@ -6,5 +6,9 @@ import { apiClient } from "./client";
 export const systemApi = {
     health(): Promise<HealthStatus> {
         return apiClient<HealthStatus>("/api/health");
+    },
+
+    update(): Promise<UpdateAvailability> {
+        return apiClient<UpdateAvailability>("/api/system/update");
     },
 };

@@ -517,3 +517,18 @@ export interface HealthStatus {
     status: string;
     version: string;
 }
+
+
+// What GET /api/system/update answers - matching the server's own UpdateAvailability contract. For
+// a browser user, who has no shell of their own to check GitHub releases for them; the desktop shell
+// never calls this, it reads the static latest.json a release attaches instead (see
+// src/desktop/updates.ts). `checked: false` means GitHub could not be reached, not that the check
+// found nothing - `latest`, `url` and `publishedAt` are all null in that case too.
+export interface UpdateAvailability {
+    current: string;
+    latest: string | null;
+    isNewer: boolean;
+    url: string | null;
+    publishedAt: string | null;
+    checked: boolean;
+}
