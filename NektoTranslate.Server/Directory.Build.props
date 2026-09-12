@@ -8,7 +8,7 @@
              and, through it, the health endpoint and the startup log line. This is also the single
              source of truth the desktop shell's version reads and derives - see
              NektoTranslate.Desktop/scripts/sync-version.mjs. -->
-        <Version>0.2.0</Version>
+        <Version>0.2.1</Version>
         <!-- The vendored WebToEpub parsers (NektoTranslate.Server/vendor/WebToEpub) are GPL-3.0, and
              shipping them inside this application places the distributed whole under the GPL too. -->
         <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
