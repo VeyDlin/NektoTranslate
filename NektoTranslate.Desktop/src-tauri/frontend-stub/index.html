@@ -91,7 +91,22 @@
         <path d="M39 37.5C42 36 45 35 48 35" stroke="#294c7e" stroke-width="2.5" stroke-linecap="round" />
       </svg>
       <span class="name" data-tauri-drag-region>NektoTranslate</span>
-      <span class="status" data-tauri-drag-region>Starting…</span>
+      <span class="status" data-tauri-drag-region id="status">Starting…</span>
     </div>
+
+    <script>
+      // lib.rs's `setup` names a pending, still-newer update in the window's own starting URL
+      // (`?updating=<version>`) before it is even known whether that update can be applied - the
+      // network check that decides that runs after this page is already on screen. Read once,
+      // defensively: a malformed or absent query is exactly the ordinary "just starting" case.
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        var updating = params.get("updating");
+
+        if (updating) {
+          document.getElementById("status").textContent = "Updating to " + updating + "…";
+        }
+      })();
+    </script>
   </body>
 </html>

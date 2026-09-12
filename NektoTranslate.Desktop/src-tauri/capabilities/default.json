@@ -18,6 +18,10 @@
     "core:window:allow-is-fullscreen",
     "core:window:allow-start-resize-dragging",
     "core:event:allow-listen",
-    "core:event:allow-unlisten"
+    "core:event:allow-unlisten",
+    "allow-update-check",
+    "allow-update-download",
+    "allow-update-install",
+    "allow-update-pending"
   ]
 }

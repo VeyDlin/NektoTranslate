@@ -1,5 +1,6 @@
 mod server;
 mod settings;
+mod updater;
 
 use std::process::Child;
 use std::sync::Mutex;
@@ -147,6 +148,26 @@ impl ServerState {
 // directly.
 struct NavigationGate(Mutex<Option<String>>);
 
+// The directory this run resolved for the server - spawned here or attached elsewhere, see
+// settings::ShellMode - computed once in `setup` and handed to updater.rs as managed state, so a
+// downloaded update and the server it will eventually replace always agree on where `updates/`
+// lives without updater.rs re-deriving it from ShellMode a second time.
+pub(crate) struct DataDirectory(pub(crate) String);
+
+// Mirrors the precedence server::spawn itself uses: an explicit --data-directory/NEKTO_DATA_DIRECTORY
+// wins, and only a spawned server has one to begin with - an attached one (a developer's own
+// `tauri dev`, or --server-url pointed at somebody else's process) has no data directory of its own
+// for this shell to know about, so it falls back to the same default a spawned server would have
+// used.
+fn resolve_data_directory(mode: &settings::ShellMode) -> String {
+    match mode {
+        settings::ShellMode::Spawn { data_directory } => data_directory
+            .clone()
+            .unwrap_or_else(server::default_data_directory),
+        settings::ShellMode::Attach { .. } => server::default_data_directory(),
+    }
+}
+
 impl NavigationGate {
     fn open(&self, url: &tauri::Url) {
         if let Ok(mut guard) = self.0.lock() {
@@ -206,17 +227,38 @@ pub fn run() {
                 .build(),
         )
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(ServerState(Mutex::new(None)))
         .manage(NavigationGate(Mutex::new(None)))
+        .invoke_handler(tauri::generate_handler![
+            updater::update_check,
+            updater::update_download,
+            updater::update_install,
+            updater::update_pending,
+        ])
         .setup(|app| {
             let mode = settings::resolve();
             let app_handle = app.handle().clone();
+
+            let data_directory = resolve_data_directory(&mode);
+            app.manage(DataDirectory(data_directory.clone()));
+
+            // A pending download from an earlier launch gets one line of the starting page before
+            // anything about it is verified over the network - see updater::pending_newer_version
+            // and the reconcile call in the spawned thread below for what happens next.
+            let pending_version = updater::pending_newer_version(&data_directory);
+
+            let starting_page = match &pending_version {
+                Some(version) => format!("index.html?updating={version}"),
+                None => "index.html".to_string(),
+            };
 
             // The window opens on the bundled starting page at once, before the server is even
             // spawned, and is navigated to the server below once it answers. Starting the server
             // first and only then creating the window - the previous order - left a second or two
             // with no window at all, followed by a white webview while the real page loaded.
-            let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+            let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App(starting_page.into()))
                 .title("NektoTranslate")
                 .inner_size(1280.0, 860.0)
                 .min_inner_size(900.0, 600.0)
@@ -294,6 +336,20 @@ pub fn run() {
             // person sees meanwhile instead of a frozen window. server::start ends the process
             // itself, after a native dialog, when the server cannot be started.
             std::thread::spawn(move || {
+                // Before the server is spawned: a pending update still ahead of this version is
+                // re-verified against the endpoint and applied only if the endpoint still agrees it
+                // is current - never on faith in what an earlier process downloaded. A `true` here
+                // means the update is installing (Linux/macOS - request_restart was called and this
+                // process is about to exit) or already exited from inside `install` (Windows), so
+                // there is nothing left for this run to start.
+                let installing = tauri::async_runtime::block_on(
+                    updater::reconcile_pending_on_startup(&app_handle, &data_directory),
+                );
+
+                if installing {
+                    return;
+                }
+
                 let running = server::start(&app_handle, mode);
 
                 if let Some(child) = running.child {

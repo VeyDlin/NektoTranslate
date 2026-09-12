@@ -183,8 +183,10 @@ fn server_binary_path(app: &AppHandle) -> PathBuf {
 
 // Mirrors DataPaths.Resolve on the server side, so a spawned server and this shell agree on where
 // the library lives even though the shell also passes --DataDirectory explicitly to make sure of
-// it - this is only what that default would have been.
-fn default_data_directory() -> String {
+// it - this is only what that default would have been. `pub(crate)` rather than private: updater.rs
+// reads the very same default so a downloaded update and the server it updates always agree on
+// where the library - and now the `updates/` folder beside it - lives.
+pub(crate) fn default_data_directory() -> String {
     let base = if cfg!(target_os = "windows") {
         dirs::data_local_dir()
     } else {

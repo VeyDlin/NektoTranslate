@@ -202,9 +202,60 @@ call: `allow-start-dragging` and `allow-internal-toggle-maximize` for the drag r
 with `event:allow-listen` / `allow-unlisten`, which `onResized` needs under the hood), and
 `allow-start-resize-dragging` for the Linux-only resize script above.
 
+## Updater
+
+`tauri-plugin-updater` polls `plugins.updater.endpoints` in `tauri.conf.json` - the static
+`latest.json` a release attaches, at
+`https://github.com/VeyDlin/NektoTranslate/releases/latest/download/latest.json` - and checks its
+`signature` fields against the public key already committed there. The four commands
+`src-tauri/src/updater.rs` exposes to the client (`update_check`, `update_download`,
+`update_install`, `update_pending`) are the only way the page reaches it; nothing here uses the
+plugin's own JS bindings, the same way `shell.ts` avoids `@tauri-apps/api`.
+
+`update_download` writes the installer to `<data directory>/updates/<version>/<file>` and a
+`pending.json` beside it as it goes, so a person who closes the *Ready* dialog with *Not now*
+still sees it offered again - as a quiet "ready" banner rather than the dialog - on `update_pending`.
+On the next launch, before the server is spawned, `lib.rs` re-checks a pending update that is still
+newer than the version now running and installs it there and then if the endpoint still agrees;
+one that is no longer newer (this build already caught up with it) is simply deleted.
+
+**What happens on Windows after `update_install`.** The plugin's `Update::install` runs the NSIS
+installer through `ShellExecuteW` in the `windows.installMode` this file sets - `"passive"`, a small
+progress window with no interaction required - and this process exits immediately afterwards
+(`std::process::exit(0)`, from inside the plugin itself, before `update_install` can even return).
+`restart_after_install` is left at its default of `true`, which is what makes the installer relaunch
+the application once it finishes (the NSIS `/R` flag) - nothing here has to detect that or call
+`tauri_plugin_process` for it. On Linux the AppImage is replaced in place and the process does *not*
+exit on its own, so `update_install` calls `AppHandle::request_restart()` itself once `install`
+returns; on Windows that line is never reached on a successful install.
+
+**Testing locally**, without a real release: `NEKTO_UPDATE_ENDPOINT` overrides
+`plugins.updater.endpoints` for a single run, read in `settings.rs` the same way
+`NEKTO_SERVER_URL`/`NEKTO_DATA_DIRECTORY` are. Build once locally with the real signing key so the
+installer gets a genuine `.sig` beside it:
+
+```
+$env:TAURI_SIGNING_PRIVATE_KEY_PATH = "$env:USERPROFILE\.tauri\nektotranslate.key"
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = Get-Content "$env:USERPROFILE\.tauri\nektotranslate.key.password" -Raw
+npm run build
+"" | Out-File notes.txt
+node scripts/latest-json.mjs --version=9.9.9 --artifacts=src-tauri/target/release/bundle --notes=notes.txt
+```
+
+(`latest-json.mjs` reads only whichever platform folder your own build actually produced -
+`bundle/appimage` on Linux, `bundle/nsis` on Windows - so the resulting `latest.json` names only that
+one platform, which is all a local dry run needs.)
+
+then serve the folder holding that hand-made `latest.json` (`python -m http.server`, say) and point
+a run at it:
+
+```
+$env:NEKTO_UPDATE_ENDPOINT = "http://127.0.0.1:8000/latest.json"
+$env:NEKTO_DATA_DIRECTORY = "C:\some\scratch\folder"
+```
+
 ## Next (not in this task)
 
 - A tray icon, so closing the window does not have to mean quitting.
-- An updater.
 - Code signing on every platform - every installer here is unsigned, and Windows and macOS will
   both warn on first run.

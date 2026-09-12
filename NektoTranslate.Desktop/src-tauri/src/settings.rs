@@ -59,6 +59,18 @@ where
     }
 }
 
+// Overrides the release's own `plugins.updater.endpoints` for one run, so the dry run described in
+// NektoTranslate.Desktop/README.md can point a locally built shell at a `python -m http.server`
+// serving a hand-made `latest.json` instead of the real GitHub release - without a second build.
+// Read once, the same way `resolve()` reads the environment for `ShellMode`.
+pub fn update_endpoint() -> Option<String> {
+    update_endpoint_from(|name| env::var(name).ok())
+}
+
+pub fn update_endpoint_from<EnvVar: Fn(&str) -> Option<String>>(env_var: EnvVar) -> Option<String> {
+    env_var("NEKTO_UPDATE_ENDPOINT")
+}
+
 fn parse_args<Args: IntoIterator<Item = String>>(args: Args) -> (Option<String>, Option<String>) {
     let mut server_url = None;
     let mut data_directory = None;
@@ -206,6 +218,27 @@ mod tests {
             ShellMode::Attach {
                 url: DEV_SERVER_URL.to_string()
             }
+        );
+    }
+
+    #[test]
+    fn update_endpoint_is_none_without_the_environment_variable() {
+        assert_eq!(update_endpoint_from(no_env), None);
+    }
+
+    #[test]
+    fn update_endpoint_reads_the_environment_variable_when_given() {
+        let endpoint = update_endpoint_from(|name| {
+            if name == "NEKTO_UPDATE_ENDPOINT" {
+                Some("http://127.0.0.1:8000/latest.json".to_string())
+            } else {
+                None
+            }
+        });
+
+        assert_eq!(
+            endpoint,
+            Some("http://127.0.0.1:8000/latest.json".to_string())
         );
     }
 }

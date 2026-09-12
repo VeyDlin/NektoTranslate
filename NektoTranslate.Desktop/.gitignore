@@ -2,3 +2,6 @@ node_modules/
 src-tauri/target/
 src-tauri/server/
 src-tauri/gen/
+# build.rs's AppManifest::commands writes these fresh, identically, on every build - the same
+# reason src-tauri/gen/ above is not committed either.
+src-tauri/permissions/
